@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Bulk OCR Processing System 🔍
 
 A modern, efficient system for processing large volumes of documents through OCR (Optical Character Recognition), built with Next.js 15.1.6. Configure your preferred OCR provider directly through the user interface.
@@ -113,3 +114,6 @@ For support, please open an issue in the GitHub repository or contact the mainta
 ---
 
 Built with ❤️ using Next.js
+=======
+# v2-ocr
+>>>>>>> e1f866a38f3951949ce3e25d845b468b3ea13abc

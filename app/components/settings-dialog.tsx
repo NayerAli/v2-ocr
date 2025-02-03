@@ -13,6 +13,7 @@ import { CONFIG } from "@/config/constants"
 import { validateGoogleApiKey, validateMicrosoftApiKey } from "@/lib/api-validation"
 import { useToast } from "@/hooks/use-toast"
 import { Slider } from "@/components/ui/slider"
+import { cn } from "@/lib/utils"
 
 interface SettingsDialogProps {
   open: boolean
@@ -65,20 +66,17 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     }
   }
 
-  const dialogContentId = "settings-dialog-content"
-  const dialogDescriptionId = "settings-dialog-description"
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[500px]" aria-describedby={dialogDescriptionId}>
-        <DialogHeader>
-          <DialogTitle id={dialogContentId}>API Settings</DialogTitle>
-          <DialogDescription id={dialogDescriptionId}>
+      <DialogContent className="sm:max-w-[500px] md:max-w-[600px] lg:max-w-[700px]">
+        <DialogHeader className="space-y-3">
+          <DialogTitle>API Settings</DialogTitle>
+          <DialogDescription>
             Configure your OCR API provider settings. You can process documents without API configuration, but they will
             remain in queue until API is properly set up.
           </DialogDescription>
         </DialogHeader>
-        <div className="grid gap-4 py-4">
+        <div className="grid gap-6 py-4">
           <div className="space-y-2">
             <Label htmlFor="provider">API Provider</Label>
             <Select
@@ -86,8 +84,8 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
               onValueChange={(value: (typeof CONFIG.SUPPORTED_APIS)[number]) => {
                 settings.updateOCRSettings({
                   provider: value,
-                  apiKey: "", // Reset API key when changing provider
-                  region: "", // Reset region when changing provider
+                  apiKey: "",
+                  region: "",
                 })
                 setIsValid(null)
                 setValidationError(null)
@@ -105,7 +103,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
 
           <div className="space-y-2">
             <Label htmlFor="api-key">{settings.ocr.provider === "google" ? "Google API Key" : "Azure API Key"}</Label>
-            <div className="flex gap-2">
+            <div className="flex flex-col sm:flex-row gap-2">
               <div className="relative flex-1">
                 <Input
                   id="api-key"
@@ -117,13 +115,13 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                     setValidationError(null)
                   }}
                   placeholder={`Enter your ${settings.ocr.provider === "google" ? "Google" : "Azure"} API key`}
-                  className="ltr"
+                  className="pr-10 font-mono text-sm"
                 />
                 <Button
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="absolute left-0 top-0 h-full px-3 py-2 hover:bg-transparent rtl:right-0 rtl:left-auto"
+                  className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
                   onClick={() => setShowApiKey(!showApiKey)}
                 >
                   {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -137,9 +135,10 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                   !settings.ocr.apiKey ||
                   (settings.ocr.provider === "microsoft" && !settings.ocr.region)
                 }
+                className="whitespace-nowrap"
               >
-                {isValidating ? <Loader2 className="h-4 w-4 animate-spin ml-2 rtl:mr-2" /> : null}
-                {isValid === true ? <span className="text-green-500 ml-2 rtl:mr-2">✓</span> : null}
+                {isValidating ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                {isValid === true ? <span className="text-green-500 mr-2">✓</span> : null}
                 Test API
               </Button>
             </div>
@@ -162,7 +161,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                   setValidationError(null)
                 }}
                 placeholder="e.g., westeurope, eastus2"
-                className="ltr"
+                className="font-mono text-sm"
               />
               <p className="text-sm text-muted-foreground">
                 Enter the region where your Azure Computer Vision resource is deployed.
@@ -181,19 +180,31 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
               </SelectTrigger>
               <SelectContent>
                 {CONFIG.SUPPORTED_LANGUAGES.map((lang) => (
-                  <SelectItem key={lang.code} value={lang.code} className={lang.direction === "rtl" ? "text-right" : ""}>
-                    {lang.name}
+                  <SelectItem 
+                    key={lang.code} 
+                    value={lang.code} 
+                    className={cn(
+                      "flex items-center justify-between gap-2",
+                      lang.direction === "rtl" && "font-ibm-plex-sans-arabic"
+                    )}
+                  >
+                    <span className={lang.direction === "rtl" ? "text-right" : "text-left"}>
+                      {lang.name}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      ({lang.code.toUpperCase()})
+                    </span>
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-4">
             <Label>Processing Settings</Label>
-            <div className="space-y-4">
+            <div className="space-y-6">
               <div className="space-y-2">
-                <div className="flex justify-between">
+                <div className="flex justify-between items-center">
                   <Label htmlFor="batch-size">Batch Size</Label>
                   <span className="text-sm text-muted-foreground">{settings.ocr.batchSize} pages</span>
                 </div>
@@ -204,12 +215,13 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                   step={1}
                   value={[settings.ocr.batchSize]}
                   onValueChange={([value]) => settings.updateOCRSettings({ batchSize: value })}
+                  className="py-2"
                 />
                 <p className="text-xs text-muted-foreground">Number of pages to process at once for large documents</p>
               </div>
 
               <div className="space-y-2">
-                <div className="flex justify-between">
+                <div className="flex justify-between items-center">
                   <Label htmlFor="concurrent">Concurrent Processing</Label>
                   <span className="text-sm text-muted-foreground">{settings.ocr.maxConcurrent} files</span>
                 </div>
@@ -220,6 +232,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                   step={1}
                   value={[settings.ocr.maxConcurrent]}
                   onValueChange={([value]) => settings.updateOCRSettings({ maxConcurrent: value })}
+                  className="py-2"
                 />
                 <p className="text-xs text-muted-foreground">Number of files to process simultaneously</p>
               </div>
@@ -227,7 +240,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
           </div>
 
           {validationError && (
-            <Alert variant="destructive">
+            <Alert variant="destructive" className="mt-2">
               <AlertCircle className="h-4 w-4" />
               <AlertTitle>Validation Error</AlertTitle>
               <AlertDescription>{validationError}</AlertDescription>

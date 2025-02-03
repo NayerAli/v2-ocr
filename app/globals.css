@@ -73,40 +73,109 @@ body {
     @apply border-border;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
   }
 }
 
-/* RTL Support */
-.rtl {
+/* Language Direction Utilities */
+[dir="rtl"] {
   direction: rtl;
   text-align: right;
 }
 
-.ltr {
+[dir="ltr"] {
   direction: ltr;
   text-align: left;
 }
 
-/* Input fields in RTL mode */
-.rtl input,
-.rtl textarea {
+/* Mixed Language Content */
+.mixed-content {
+  unicode-bidi: isolate;
+}
+
+.mixed-content[dir="rtl"] {
   text-align: right;
 }
 
-/* Force LTR for specific content */
-.force-ltr {
-  direction: ltr !important;
-  text-align: left !important;
+.mixed-content[dir="ltr"] {
+  text-align: left;
 }
 
-/* Force RTL for specific content */
-.force-rtl {
-  direction: rtl !important;
-  text-align: right !important;
+/* Arabic Text */
+.arabic-text {
+  font-family: var(--font-ibm-plex-sans-arabic);
 }
 
-/* Bidirectional text support */
-.bidi {
-  unicode-bidi: bidi-override;
+/* Responsive Design */
+@media (max-width: 640px) {
+  .dialog-content {
+    @apply p-4;
+  }
+  
+  .form-field {
+    @apply flex-col;
+  }
+  
+  .form-field-label {
+    @apply mb-2;
+  }
+}
+
+/* Mobile Navigation */
+@media (max-width: 1024px) {
+  .sidebar {
+    @apply fixed inset-0 z-50 bg-background/80 backdrop-blur-sm;
+    transition: opacity 0.3s ease-in-out;
+  }
+  
+  .sidebar[data-state="open"] {
+    @apply opacity-100;
+  }
+  
+  .sidebar[data-state="closed"] {
+    @apply opacity-0 pointer-events-none;
+  }
+  
+  .sidebar-content {
+    @apply fixed left-0 top-0 h-full w-[240px] border-r bg-background p-6;
+    transform: translateX(-100%);
+    transition: transform 0.3s ease-in-out;
+  }
+  
+  .sidebar[data-state="open"] .sidebar-content {
+    transform: translateX(0);
+  }
+}
+
+/* Enhanced Focus States */
+:focus-visible {
+  @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+}
+
+/* Better Touch Targets for Mobile */
+@media (max-width: 640px) {
+  button, 
+  .button,
+  select,
+  input[type="checkbox"],
+  input[type="radio"] {
+    @apply min-h-[44px] min-w-[44px];
+  }
+}
+
+/* Improved Scrollbars */
+::-webkit-scrollbar {
+  @apply w-2;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-secondary/50;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-muted-foreground/20 rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-muted-foreground/30;
 }
