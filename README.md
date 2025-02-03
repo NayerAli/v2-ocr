@@ -1,27 +1,27 @@
 # Bulk OCR Processing System 🔍
 
-A modern, efficient system for processing large volumes of documents through OCR (Optical Character Recognition), built with Next.js 15.1.6. Configure your preferred OCR provider directly through the user interface.
+A modern, efficient system for processing large volumes of documents through OCR (Optical Character Recognition), built with Next.js 14.2.16. Configure your preferred OCR provider (Google Cloud Vision or Azure Computer Vision) directly through the user interface.
 
 ## ✨ Features
 
 - 📤 Drag-and-drop file uploads with real-time progress tracking
-- 🔄 Robust job queue management with retry logic
+- 🔄 Robust job queue management with IndexedDB storage
 - 📊 Interactive dashboard with processing metrics
-- 🎯 Support for multiple OCR providers
-- ⚙️ In-app OCR configuration - no environment variables needed
-- 🗄️ Built-in SQLite database for reliable job tracking
-- 🖼️ Automatic thumbnail generation
-- 🔍 Extensive file format support
-- ⚡ Optimized chunk processing
-- 🌐 Language detection and mapping
-- 🔁 Configurable retry options
+- 🎯 Support for multiple OCR providers (Google Cloud Vision & Azure)
+- ⚙️ In-app OCR configuration with API key validation
+- 🖼️ Built-in file preview and thumbnail generation
+- 🔍 Support for PDF, JPEG, PNG, TIFF, and WebP formats
+- ⚡ Optimized batch processing with configurable concurrency
+- 🌐 Multilingual support with RTL languages (Arabic, Persian)
+- 🔐 Secure API key management with visibility toggle
+- 🎨 Dark mode support with system theme detection
 
 ## 🚀 Getting Started
 
 ### Prerequisites
 
 - Node.js 18.x or later
-- SQLite3
+- NPM or pnpm
 
 ### Installation
 
@@ -52,45 +52,45 @@ Visit [http://localhost:3000](http://localhost:3000) to see the application.
 ### OCR Provider Settings
 
 Configure your OCR provider directly in the settings dialog:
-- Provider selection
-- API credentials
-- Region settings
-- Language preferences
-- Endpoint configuration
-- Retry options
+- Provider selection (Google Cloud Vision or Azure Computer Vision)
+- API key management with validation
+- Azure region configuration
+- Language preferences with RTL support
+- Batch processing options
+- Concurrent processing limits
 
-### Display Preferences
+### Processing Options
 
-Customize your experience with:
-- Theme selection
-- Date/time format preferences
-- Dashboard refresh rate
-- Recent documents display count
-- Processing queue settings
+Customize processing behavior with:
+- Batch size (1-50 pages)
+- Concurrent processing (1-5 files)
+- Language detection
+- File format preferences
+- Queue management settings
 
 ## 📁 Project Structure
 
 ```
 ├── app/
-│   ├── api/         # API routes for jobs and settings
+│   ├── api/         # API routes
 │   ├── components/  # React components
-│   │   ├── dashboard/     # Main dashboard
-│   │   ├── settings/     # Settings dialogs
-│   │   └── shared/       # Shared components
-│   └── services/    # OCR and file processing
-├── public/          # Static assets
-└── lib/            # Database and utilities
+│   │   ├── ui/           # Shadcn UI components
+│   │   └── settings/     # Settings components
+│   └── lib/        # Utilities and services
+├── config/         # Configuration constants
+└── public/         # Static assets
 ```
 
 ## 🔧 Technical Stack
 
-- **Framework**: Next.js 15.1.6
-- **UI Components**: Shadcn UI, Radix
+- **Framework**: Next.js 14.2.16
+- **UI Components**: Shadcn UI, Radix UI
 - **Styling**: Tailwind CSS
-- **Database**: SQLite
+- **Storage**: IndexedDB
 - **Form Validation**: Zod
-- **State Management**: React Server Components + nuqs
-- **File Processing**: Built-in MIME type detection and thumbnail generation
+- **State Management**: React Server Components + Zustand
+- **File Processing**: Built-in MIME type detection
+- **Internationalization**: Built-in RTL support
 
 ## 📝 License
 
@@ -113,5 +113,3 @@ For support, please open an issue in the GitHub repository or contact the mainta
 ---
 
 Built with ❤️ using Next.js
-=======
-# v2-ocr
