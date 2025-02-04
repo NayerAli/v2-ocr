@@ -147,7 +147,7 @@ export class ProcessingService {
     if (status.file.type.startsWith("image/")) {
       const base64 = await this.fileToBase64(status.file)
       const result = await this.callOCR(base64, signal)
-      result.imageUrl = URL.createObjectURL(status.file)
+      result.imageUrl = `data:${status.file.type};base64,${base64}`
       return [result]
     }
 
@@ -170,17 +170,9 @@ export class ProcessingService {
         const result = await this.callOCR(base64, signal)
         result.pageNumber = i
 
-        // Store the page preview
-        const canvas = document.createElement("canvas")
-        const viewport = page.getViewport({ scale: 1.0 })
-        canvas.width = viewport.width
-        canvas.height = viewport.height
-        const context = canvas.getContext("2d")
-        if (!context) throw new Error("Could not get canvas context")
-
-        await page.render({ canvasContext: context, viewport }).promise
-        result.imageUrl = canvas.toDataURL("image/jpeg", 0.7)
-
+        // Store the page preview as base64
+        result.imageUrl = `data:image/jpeg;base64,${base64}`
+        
         results.push(result)
       }
       return results

@@ -1,6 +1,7 @@
 import { Inter } from "next/font/google"
 import { IBM_Plex_Sans_Arabic } from "next/font/google"
 import { ThemeProvider } from "@/components/theme-provider"
+import { Toaster } from "@/components/ui/toaster"
 import { Header } from "./components/header"
 import { Sidebar } from "./components/sidebar"
 import "./globals.css"
@@ -29,6 +30,7 @@ export default function RootLayout({
               <main className="flex-1 px-4 py-6 md:px-6 lg:px-8">{children}</main>
             </div>
           </div>
+          <Toaster />
         </ThemeProvider>
       </body>
     </html>
