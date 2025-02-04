@@ -48,6 +48,8 @@ export class ProcessingService {
         size: file.size,
         type: file.type,
         file,
+        createdAt: new Date(),
+        updatedAt: new Date()
       }
 
       this.queueMap.set(id, status)
@@ -69,7 +71,7 @@ export class ProcessingService {
       this.abortController = null
     }
     // Save current state to IndexedDB
-    for (const status of this.queueMap.values()) {
+    for (const status of Array.from(this.queueMap.values())) {
       if (status.status === "processing") {
         status.status = "queued"
       }

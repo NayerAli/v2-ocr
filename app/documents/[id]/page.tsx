@@ -10,7 +10,7 @@ import { db } from "@/lib/indexed-db"
 import type { ProcessingStatus, OCRResult } from "@/types"
 
 export default function DocumentPage({ params }: { params: { id: string } }) {
-  const [document, setDocument] = useState<ProcessingStatus | null>(null)
+  const [docStatus, setDocStatus] = useState<ProcessingStatus | null>(null)
   const [results, setResults] = useState<OCRResult[]>([])
   const [currentPage, setCurrentPage] = useState(1)
   const [error, setError] = useState<string | null>(null)
@@ -24,7 +24,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
           setError("Document not found")
           return
         }
-        setDocument(doc)
+        setDocStatus(doc)
 
         const docResults = await db.getResults(params.id)
         if (!docResults || docResults.length === 0) {
@@ -50,14 +50,14 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
   }
 
   const handleDownload = () => {
-    if (!results.length) return
+    if (!results.length || !docStatus) return
 
     const text = results.map((r) => `Page ${r.pageNumber}:\n${r.text}`).join("\n\n")
     const blob = new Blob([text], { type: "text/plain" })
     const url = URL.createObjectURL(blob)
     const a = document.createElement("a")
     a.href = url
-    a.download = `${document?.filename || "document"}-results.txt`
+    a.download = `${docStatus.filename || "document"}-results.txt`
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
@@ -74,7 +74,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     )
   }
 
-  if (!document || !results.length) {
+  if (!docStatus || !results.length) {
     return (
       <div className="container mx-auto p-6">
         <div className="flex items-center justify-center h-[calc(100vh-12rem)]">
@@ -95,7 +95,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
               <ArrowLeft className="h-4 w-4" />
             </Button>
           </Link>
-          <h1 className="text-3xl font-bold">{document.filename}</h1>
+          <h1 className="text-3xl font-bold">{docStatus.filename}</h1>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="icon" onClick={handleCopyText}>
