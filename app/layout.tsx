@@ -3,7 +3,6 @@ import { IBM_Plex_Sans_Arabic } from "next/font/google"
 import { ThemeProvider } from "@/components/theme-provider"
 import { Toaster } from "@/components/ui/toaster"
 import { Header } from "./components/header"
-import { Sidebar } from "./components/sidebar"
 import "./globals.css"
 import type React from "react"
 
@@ -21,13 +20,16 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${inter.className} ${ibmPlexSansArabic.variable}`}>
+      <body className={`${inter.className} ${ibmPlexSansArabic.variable} min-h-screen bg-background antialiased`}>
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-          <div className="min-h-screen lg:pl-[240px] relative">
-            <Sidebar className="w-[240px] fixed left-0 top-0 bottom-0 z-40 hidden lg:block" />
-            <div className="flex min-h-screen flex-col">
-              <Header />
-              <main className="flex-1 px-4 py-6 md:px-6 lg:px-8">{children}</main>
+          <div className="relative flex min-h-screen flex-col">
+            <Header />
+            <div className="flex-1">
+              <main className="relative py-8">
+                <div className="container max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                  {children}
+                </div>
+              </main>
             </div>
           </div>
           <Toaster />
