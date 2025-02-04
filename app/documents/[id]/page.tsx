@@ -222,20 +222,48 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
         })
       }, OPERATION_TIMEOUT)
 
-      const text = results.map((r) => `Page ${r.pageNumber}:\n${r.text}`).join("\n\n")
-      const blob = new Blob([text], { type: "text/plain" })
+      // Create a formatted text with proper separations and metadata
+      const timestamp = new Date().toLocaleString()
+      const documentName = docStatus.filename || "document"
+      const separator = "=".repeat(80)
+      
+      const header = [
+        separator,
+        `Document: ${documentName}`,
+        `Exported: ${timestamp}`,
+        `Total Pages: ${results.length}`,
+        separator,
+        "\n"
+      ].join("\n")
+
+      const formattedText = results
+        .sort((a, b) => a.pageNumber - b.pageNumber) // Ensure pages are in order
+        .map((r) => [
+          `${separator}`,
+          `Page ${r.pageNumber} of ${results.length}`,
+          `${separator}`,
+          "",
+          r.text,
+          "\n"
+        ].join("\n"))
+        .join("\n")
+
+      const fullText = header + formattedText
+
+      const blob = new Blob([fullText], { type: "text/plain;charset=utf-8" })
       const url = URL.createObjectURL(blob)
       const a = document.createElement("a")
       a.href = url
-      a.download = `${docStatus.filename || "document"}-results.txt`
+      a.download = `${documentName}-extracted-text.txt`
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
       clearTimeout(downloadTimeout)
+      
       toast({
         title: "Download Started",
-        description: "Your document is being downloaded.",
+        description: `Exporting all ${results.length} pages as a single text file with page separations.`,
       })
       await new Promise(resolve => setTimeout(resolve, 1000))
     } catch (err) {
