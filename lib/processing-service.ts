@@ -93,7 +93,7 @@ export class ProcessingService {
 
   private isFileValid(file: File): boolean {
     if (file.size > this.uploadSettings.maxFileSize * 1024 * 1024) return false
-    return this.uploadSettings.allowedFileTypes.some(type => 
+    return this.uploadSettings.allowedFileTypes.some(type =>
       file.name.toLowerCase().endsWith(type.toLowerCase())
     )
   }
@@ -121,7 +121,7 @@ export class ProcessingService {
 
               console.log(`Processing ${item.filename}`)
               const results = await this.processFile(item, this.abortController!.signal)
-              
+
               // Save results before updating status
               await db.saveResults(item.id, results)
               console.log(`Saved ${results.length} results for ${item.filename}`)
@@ -146,7 +146,7 @@ export class ProcessingService {
     } finally {
       this.isProcessing = false
       this.abortController = null
-      
+
       // Check if there are more items to process
       const remainingItems = Array.from(this.queueMap.values()).filter(
         (item) => item.status === "queued"
@@ -180,19 +180,19 @@ export class ProcessingService {
 
         const results: OCRResult[] = []
         const chunks: number[][] = []
-        
+
         // Split pages into chunks
         for (let i = 1; i <= pdf.numPages; i += this.processingSettings.pagesPerChunk) {
           chunks.push(Array.from(
-            { length: Math.min(this.processingSettings.pagesPerChunk, pdf.numPages - i + 1) }, 
+            { length: Math.min(this.processingSettings.pagesPerChunk, pdf.numPages - i + 1) },
             (_, j) => i + j
           ))
         }
-        
+
         // Process chunks with concurrency limit
         for (let i = 0; i < chunks.length; i += this.processingSettings.concurrentChunks) {
           const currentChunks = chunks.slice(i, i + this.processingSettings.concurrentChunks)
-          
+
           await Promise.all(currentChunks.map(async (pageNumbers) => {
             for (const pageNum of pageNumbers) {
               if (signal.aborted) {
@@ -286,8 +286,8 @@ export class ProcessingService {
             ],
             imageContext: this.ocrSettings.language
               ? {
-                  languageHints: [this.ocrSettings.language],
-                }
+                languageHints: [this.ocrSettings.language],
+              }
               : undefined,
           },
         ],
@@ -324,19 +324,20 @@ export class ProcessingService {
       pageNumber: 1,
     }
   }
-
   private async callMicrosoftVision(base64Data: string, signal: AbortSignal): Promise<OCRResult> {
-    const startTime = Date.now()
+    const startTime = Date.now();
 
-    const raw = atob(base64Data)
-    const rawLength = raw.length
-    const arr = new Uint8Array(new ArrayBuffer(rawLength))
+    // Convertir la base64 en tableau d'octets
+    const raw = atob(base64Data);
+    const rawLength = raw.length;
+    const arr = new Uint8Array(new ArrayBuffer(rawLength));
     for (let i = 0; i < rawLength; i++) {
-      arr[i] = raw.charCodeAt(i)
+      arr[i] = raw.charCodeAt(i);
     }
 
-    const endpoint = `https://${this.ocrSettings.region}.api.cognitive.microsoft.com/vision/v3.2/ocr`
-    const url = this.ocrSettings.language ? `${endpoint}?language=${this.ocrSettings.language}` : endpoint
+    // Construire la requête
+    const endpoint = `https://${this.ocrSettings.region}.api.cognitive.microsoft.com/vision/v3.2/ocr`;
+    const url = this.ocrSettings.language ? `${endpoint}?language=${this.ocrSettings.language}` : endpoint;
 
     const response = await fetch(url, {
       method: "POST",
@@ -346,31 +347,56 @@ export class ProcessingService {
         "Content-Type": "application/octet-stream",
       },
       body: arr,
-    })
+    });
 
     if (!response.ok) {
-      const error = await response.json()
-      throw new Error(error.error?.message || `Microsoft Vision API error: ${response.status}`)
+      const error = await response.json();
+      throw new Error(error.error?.message || `Microsoft Vision API error: ${response.status}`);
     }
 
-    const data = await response.json()
+    // Récupérer la réponse JSON
+    const data = await response.json();
+
+    // List of RTL language codes
+    const rtlLanguages = new Set([
+      'ar', // Arabic
+      'he', // Hebrew
+      'fa', // Persian/Farsi
+      'ur', // Urdu
+      'syr', // Syriac
+      'n-bh', // N'Ko
+      'sam', // Samaritan
+      'mend', // Mandaic
+      'man', // Mandaean
+    ]);
+
+    const detectedLanguage = data.language || this.ocrSettings.language || "unknown";
+    const isRTL = rtlLanguages.has(detectedLanguage.toLowerCase().split('-')[0]);
+
+    // Reconstruire le texte
     const text =
       data.regions
         ?.map((region: any) =>
-          region.lines?.map((line: any) => line.words?.map((word: any) => word.text).join(" ")).join("\n"),
+          region.lines
+            ?.map((line: any) => {
+              const words = isRTL ? [...line.words].reverse() : line.words;
+              return words.map((word: any) => word.text).join(" ");
+            })
+            .join("\n")
         )
-        .join("\n\n") || ""
+        .join("\n\n") || "";
 
     return {
       id: crypto.randomUUID(),
       documentId: "",
       text,
       confidence: 1,
-      language: data.language || this.ocrSettings.language || "unknown",
+      language: detectedLanguage,
       processingTime: Date.now() - startTime,
       pageNumber: 1,
-    }
+    };
   }
+
 
   async getStatus(id: string): Promise<ProcessingStatus | undefined> {
     return this.queueMap.get(id) || db.getQueue().then((queue) => queue.find((item) => item.id === id))

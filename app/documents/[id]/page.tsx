@@ -1,7 +1,7 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { ArrowLeft, Download, Copy, ChevronLeft, ChevronRight, Check, AlertCircle, Keyboard, Search, Minus, Plus, ZoomIn, Type } from "lucide-react"
+import { useState, useEffect, useRef } from "react"
+import { ArrowLeft, Download, Copy, ChevronLeft, ChevronRight, Check, AlertCircle, Keyboard, Search, Minus, Plus, ZoomIn, Type, ScanLine } from "lucide-react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -76,6 +76,17 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
   const [searchResults, setSearchResults] = useState<{ page: number; text: string }[]>([])
   const [zoomLevel, setZoomLevel] = useState(100)
   const [textSize, setTextSize] = useState(16) // Default size in pixels
+  const [isDragging, setIsDragging] = useState(false)
+  const [dragPosition, setDragPosition] = useState({ x: 0, y: 0 })
+  const dragRef = useRef<{ startX: number; startY: number; scrollLeft: number; scrollTop: number } | null>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [fitMode, setFitMode] = useState<'width' | 'height' | 'auto'>('auto')
+  const imageRef = useRef<HTMLImageElement>(null)
+  const [imageSize, setImageSize] = useState<{ width: number; height: number } | null>(null)
+  const imageContainerRef = useRef<HTMLDivElement>(null)
+  const [isPanning, setIsPanning] = useState(false)
+  const [panPosition, setPanPosition] = useState({ x: 0, y: 0 })
+  const lastMousePosition = useRef({ x: 0, y: 0 })
 
   const currentResult = results.find((r) => r.pageNumber === currentPage)
 
@@ -329,6 +340,15 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     if (imageLoadingTimeout) {
       clearTimeout(imageLoadingTimeout)
     }
+    if (imageRef.current) {
+      setImageSize({
+        width: imageRef.current.naturalWidth,
+        height: imageRef.current.naturalHeight
+      })
+      // Start at 100% zoom
+      setZoomLevel(100)
+      setPanPosition({ x: 0, y: 0 })
+    }
   }
 
   const handleImageError = () => {
@@ -438,6 +458,162 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     </DropdownMenu>
   )
 
+  // Add drag handlers
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (zoomLevel <= 100) return // Only enable dragging when zoomed in
+    
+    const container = containerRef.current
+    if (!container) return
+
+    setIsDragging(true)
+    dragRef.current = {
+      startX: e.pageX - container.offsetLeft,
+      startY: e.pageY - container.offsetTop,
+      scrollLeft: container.scrollLeft,
+      scrollTop: container.scrollTop
+    }
+  }
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging || !dragRef.current || !containerRef.current || zoomLevel <= 100) return
+
+    e.preventDefault()
+    const container = containerRef.current
+    const dragStart = dragRef.current
+
+    const x = e.pageX - container.offsetLeft
+    const y = e.pageY - container.offsetTop
+    const walkX = (x - dragStart.startX) * 1.5
+    const walkY = (y - dragStart.startY) * 1.5
+
+    container.scrollLeft = dragStart.scrollLeft - walkX
+    container.scrollTop = dragStart.scrollTop - walkY
+  }
+
+  const handleMouseUp = () => {
+    setIsDragging(false)
+    dragRef.current = null
+  }
+
+  // Add cleanup for mouse events
+  useEffect(() => {
+    const handleGlobalMouseUp = () => {
+      setIsDragging(false)
+      dragRef.current = null
+    }
+
+    window.addEventListener('mouseup', handleGlobalMouseUp)
+    return () => window.removeEventListener('mouseup', handleGlobalMouseUp)
+  }, [])
+
+  // Update calculateFitZoom to better handle different image sizes
+  const calculateFitZoom = (mode: 'width' | 'height' | 'auto') => {
+    if (!imageRef.current || !containerRef.current) return 100
+
+    const container = containerRef.current
+    const image = imageRef.current
+    const padding = 32 // Account for padding
+    const containerWidth = container.clientWidth - padding * 2
+    const containerHeight = container.clientHeight - padding * 2
+
+    const imageWidth = image.naturalWidth
+    const imageHeight = image.naturalHeight
+
+    const widthRatio = containerWidth / imageWidth
+    const heightRatio = containerHeight / imageHeight
+
+    if (mode === 'width') {
+      return widthRatio * 100
+    } else if (mode === 'height') {
+      return heightRatio * 100
+    } else {
+      // Auto mode - fit either width or height depending on aspect ratio
+      return Math.min(widthRatio, heightRatio) * 100
+    }
+  }
+
+  // Add zoom presets based on image size
+  const getZoomPresets = () => {
+    if (!imageRef.current) return [25, 50, 75, 100, 125, 150, 200]
+    
+    const fitZoom = calculateFitZoom('auto')
+    const roundedFitZoom = Math.round(fitZoom)
+    
+    return [
+      Math.max(25, Math.round(fitZoom * 0.5)), // Half fit
+      roundedFitZoom, // Fit to screen
+      100, // Actual size
+      Math.min(200, Math.round(fitZoom * 1.5)), // 1.5x fit
+      Math.min(200, Math.round(fitZoom * 2)) // 2x fit
+    ].filter((value, index, self) => self.indexOf(value) === index) // Remove duplicates
+  }
+
+  // Update pan handlers
+  const handlePanStart = (e: React.MouseEvent) => {
+    if (!imageContainerRef.current || zoomLevel <= 100) return
+    
+    e.preventDefault()
+    setIsPanning(true)
+    lastMousePosition.current = { x: e.clientX, y: e.clientY }
+  }
+
+  const handlePanMove = (e: React.MouseEvent) => {
+    if (!isPanning || !imageContainerRef.current || zoomLevel <= 100) return
+
+    e.preventDefault()
+    const deltaX = e.clientX - lastMousePosition.current.x
+    const deltaY = e.clientY - lastMousePosition.current.y
+    lastMousePosition.current = { x: e.clientX, y: e.clientY }
+
+    // Use requestAnimationFrame for smoother panning
+    requestAnimationFrame(() => {
+      setPanPosition(prev => ({
+        x: prev.x + deltaX,
+        y: prev.y + deltaY
+      }))
+    })
+  }
+
+  const handlePanEnd = () => {
+    setIsPanning(false)
+  }
+
+  // Update zoom handlers
+  const handleZoomChange = (newZoom: number) => {
+    if (!imageContainerRef.current || !imageRef.current) return
+
+    const container = imageContainerRef.current
+    const image = imageRef.current
+    
+    // Reset pan position when zooming to 100% or less
+    if (newZoom <= 100) {
+      setPanPosition({ x: 0, y: 0 })
+    } else {
+      // Maintain center point when zooming
+      const containerRect = container.getBoundingClientRect()
+      const imageRect = image.getBoundingClientRect()
+
+      const containerCenterX = containerRect.width / 2
+      const containerCenterY = containerRect.height / 2
+      const imageCenterX = (imageRect.left + imageRect.right) / 2
+      const imageCenterY = (imageRect.top + imageRect.bottom) / 2
+
+      const scaleDiff = newZoom / zoomLevel
+      const newX = (containerCenterX - imageCenterX) * (scaleDiff - 1)
+      const newY = (containerCenterY - imageCenterY) * (scaleDiff - 1)
+
+      // Apply smooth transition to pan position
+      requestAnimationFrame(() => {
+        setPanPosition(prev => ({
+          x: prev.x + newX,
+          y: prev.y + newY
+        }))
+      })
+    }
+
+    setZoomLevel(newZoom)
+  }
+
   if (error) {
     return (
       <div className="container mx-auto p-6">
@@ -519,27 +695,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
             </Button>
           </div>
           <div className="flex items-center gap-1 bg-muted/40 rounded-md p-1">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              onClick={handleZoomOut}
-              disabled={zoomLevel <= 25}
-            >
-              <Minus className="h-4 w-4" />
-            </Button>
-            <span className="text-sm min-w-[50px] text-center">
-              {zoomLevel}%
-            </span>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              onClick={handleZoomIn}
-              disabled={zoomLevel >= 200}
-            >
-              <Plus className="h-4 w-4" />
-            </Button>
+            {renderZoomControls()}
           </div>
         </div>
 
@@ -680,56 +836,169 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     )
   }
 
+  const renderZoomControls = () => (
+    <div className="flex items-center gap-1 bg-muted/40 rounded-md p-1">
+      <TooltipProvider delayDuration={300}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 flex items-center gap-1.5"
+              onClick={() => {
+                handleZoomChange(100)
+                setPanPosition({ x: 0, y: 0 })
+              }}
+            >
+              <ScanLine className="h-4 w-4" />
+              <span className="text-xs">Reset</span>
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Reset to 100%</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-7 w-7"
+        onClick={() => handleZoomChange(Math.max(25, zoomLevel - 10))}
+        disabled={zoomLevel <= 25}
+      >
+        <Minus className="h-4 w-4" />
+      </Button>
+      
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 min-w-[80px] font-medium"
+          >
+            {Math.round(zoomLevel)}%
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="center" className="w-[180px]">
+          <div className="grid grid-cols-1 gap-0.5 p-1">
+            {[25, 50, 75, 100, 125, 150, 175, 200].map((zoom) => (
+              <Button
+                key={zoom}
+                variant={Math.round(zoomLevel) === zoom ? "secondary" : "ghost"}
+                size="sm"
+                className="w-full justify-between"
+                onClick={() => {
+                  handleZoomChange(zoom)
+                  if (zoom === 100) setPanPosition({ x: 0, y: 0 })
+                }}
+              >
+                <span>{zoom}%</span>
+                {zoom === 100 && (
+                  <span className="text-xs text-muted-foreground">(Original)</span>
+                )}
+              </Button>
+            ))}
+          </div>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-7 w-7"
+        onClick={() => handleZoomChange(Math.min(200, zoomLevel + 10))}
+        disabled={zoomLevel >= 200}
+      >
+        <Plus className="h-4 w-4" />
+      </Button>
+    </div>
+  )
+
   const renderImageContent = () => {
     if (isLoading) {
       return (
-        <div className="relative w-full aspect-[3/4]">
-          <Skeleton className="absolute inset-0" />
+        <div className="w-full h-full flex items-center justify-center">
+          <div className="relative w-full h-full">
+            <Skeleton className="absolute inset-0" />
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="flex flex-col items-center gap-3">
+                <div className="h-5 w-5 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+                <p className="text-sm text-muted-foreground animate-pulse">Loading document...</p>
+              </div>
+            </div>
+          </div>
         </div>
       )
     }
 
     if (!currentResult?.imageUrl) {
       return (
-        <div className="relative w-full aspect-[3/4] flex items-center justify-center border-2 border-dashed rounded-lg bg-muted/5">
-          <p className="text-muted-foreground">No preview available</p>
+        <div className="w-full h-full flex items-center justify-center">
+          <div className="relative w-full h-full border-2 border-dashed rounded-lg bg-muted/5">
+            <p className="absolute inset-0 flex items-center justify-center text-muted-foreground">
+              No preview available
+            </p>
+          </div>
         </div>
       )
     }
 
-    const imageUrl = currentResult.imageUrl
-
     return (
-      <div className="relative w-full aspect-[3/4]">
-        {(!imageLoaded || isRetrying) && !imageError && (
-          <div className="absolute inset-0">
-            <Skeleton className="absolute inset-0" />
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="flex flex-col items-center gap-2">
-                <div className="h-4 w-4 border-2 border-primary/50 border-t-transparent rounded-full animate-spin" />
-                <p className="text-sm text-muted-foreground">
-                  {isRetrying ? "Retrying..." : "Loading preview..."}
-                </p>
-              </div>
-            </div>
-          </div>
+      <div 
+        ref={imageContainerRef}
+        className={cn(
+          "relative w-full h-full",
+          zoomLevel > 100 ? "overflow-auto" : "overflow-hidden",
+          isPanning && "cursor-grabbing",
+          zoomLevel > 100 && !isPanning && "cursor-grab"
         )}
-        
-        <img
-          key={`${imageUrl}-${retryCount}`} // Force new image instance on retry
-          src={imageUrl}
-          alt={`Page ${currentPage}`}
-          className={cn(
-            "absolute inset-0 w-full h-full object-contain rounded-lg transition-opacity duration-300",
-            imageLoaded && !imageError ? "opacity-100" : "opacity-0"
-          )}
-          onLoad={handleImageLoad}
-          onError={handleImageError}
-          loading="eager"
-          decoding="async"
-        />
+        onMouseDown={handlePanStart}
+        onMouseMove={handlePanMove}
+        onMouseUp={handlePanEnd}
+        onMouseLeave={handlePanEnd}
+      >
+        <div className="min-h-full flex items-center justify-center p-4">
+          <div
+            className="relative will-change-transform"
+            style={{
+              transform: `scale(${zoomLevel / 100}) translate(${panPosition.x}px, ${panPosition.y}px)`,
+              transformOrigin: 'center',
+              transition: isPanning ? 'none' : 'all 0.15s cubic-bezier(0.4, 0, 0.2, 1)',
+              backfaceVisibility: 'hidden',
+              WebkitBackfaceVisibility: 'hidden',
+            }}
+          >
+            {(!imageLoaded || isRetrying) && !imageError && (
+              <div className="absolute inset-0 flex items-center justify-center bg-muted/5">
+                <div className="flex flex-col items-center gap-3">
+                  <div className="h-5 w-5 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+                  <p className="text-sm text-muted-foreground animate-pulse">
+                    {isRetrying ? "Retrying..." : "Loading preview..."}
+                  </p>
+                </div>
+              </div>
+            )}
 
-        {imageError && renderImageError(imageUrl)}
+            <img
+              ref={imageRef}
+              key={`${currentResult.imageUrl}-${retryCount}`}
+              src={currentResult.imageUrl}
+              alt={`Page ${currentPage}`}
+              className={cn(
+                "max-h-[calc(100vh-14rem)] w-auto rounded-lg select-none",
+                imageLoaded && !imageError ? "opacity-100" : "opacity-0",
+                "transition-opacity duration-300",
+                "will-change-transform"
+              )}
+              onLoad={handleImageLoad}
+              onError={handleImageError}
+              draggable={false}
+              loading="eager"
+              decoding="async"
+            />
+
+            {imageError && renderImageError(currentResult.imageUrl)}
+          </div>
+        </div>
       </div>
     )
   }
@@ -739,58 +1008,52 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
       {renderToolbar()}
       {renderControls()}
       
-      <div className="flex-1 overflow-hidden">
+      <div className="flex-1 overflow-hidden bg-muted/5">
         <div className="container h-full py-6">
           <div className="grid grid-cols-2 gap-6 h-full">
             {/* Source Document View */}
-            <div className="border rounded-lg bg-background overflow-hidden flex flex-col">
-              <div className="p-3 border-b bg-muted/20">
+            <div className="bg-background rounded-lg shadow-sm overflow-hidden flex flex-col border">
+              <div className="px-4 py-3 border-b bg-muted/20">
                 <h2 className="text-sm font-medium">Source Document</h2>
               </div>
               <div className="flex-1 relative">
-                <ScrollArea className="absolute inset-0">
-                  <div className="p-6">
-                    <div 
-                      style={{ 
-                        transform: `scale(${zoomLevel / 100})`, 
-                        transformOrigin: 'top center',
-                        transition: 'transform 0.2s ease-out',
-                        margin: '0 auto'
-                      }}
-                    >
-                      {renderImageContent()}
-                    </div>
-                  </div>
-                </ScrollArea>
+                <div 
+                  ref={containerRef}
+                  className="absolute inset-0"
+                >
+                  {renderImageContent()}
+                </div>
               </div>
             </div>
 
             {/* Extracted Text View */}
-            <div className="border rounded-lg bg-background overflow-hidden flex flex-col">
-              <div className="p-3 border-b bg-muted/20">
+            <div className="bg-background rounded-lg shadow-sm overflow-hidden flex flex-col border">
+              <div className="px-4 py-3 border-b bg-muted/20">
                 <h2 className="text-sm font-medium">Extracted Text</h2>
               </div>
               <ScrollArea className="flex-1">
                 <div className="p-6">
                   {isLoading ? (
-                    <div className="space-y-2">
-                      <Skeleton className="h-4 w-full" />
-                      <Skeleton className="h-4 w-[90%]" />
-                      <Skeleton className="h-4 w-[95%]" />
-                      <Skeleton className="h-4 w-[85%]" />
-                      <Skeleton className="h-4 w-[92%]" />
+                    <div className="space-y-3">
+                      <Skeleton className="h-5 w-full" />
+                      <Skeleton className="h-5 w-[92%]" />
+                      <Skeleton className="h-5 w-[88%]" />
+                      <Skeleton className="h-5 w-[95%]" />
+                      <Skeleton className="h-5 w-[90%]" />
                     </div>
                   ) : currentResult ? (
                     <div
                       dir={currentResult.language === "ar" || currentResult.language === "fa" ? "rtl" : "ltr"}
                       lang={currentResult.language}
                       style={{ fontSize: `${textSize}px` }}
-                      className="max-w-none dark:prose-invert whitespace-pre-wrap"
+                      className="max-w-none text-foreground/90 whitespace-pre-wrap leading-relaxed"
                     >
-                      <pre className="whitespace-pre-wrap font-sans">{currentResult.text}</pre>
+                      {currentResult.text}
                     </div>
                   ) : (
-                    <p className="text-muted-foreground">No text extracted for this page</p>
+                    <div className="flex items-center justify-center h-full min-h-[200px] text-muted-foreground">
+                      No text extracted for this page
+                    </div>
                   )}
                 </div>
               </ScrollArea>
