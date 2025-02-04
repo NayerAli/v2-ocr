@@ -16,6 +16,7 @@ import { db } from "@/lib/indexed-db"
 import { ProcessingService } from "@/lib/processing-service"
 import { formatFileSize } from "@/lib/file-utils"
 import { CONFIG } from "@/config/constants"
+import { initializePDFJS } from "@/lib/pdf-init"
 
 export default function DashboardPage() {
   const settings = useSettings()
@@ -31,11 +32,22 @@ export default function DashboardPage() {
 
   const processingService = React.useMemo(() => new ProcessingService(settings.ocr), [settings.ocr])
 
-  // Load queue and update stats
+  // Initialize PDF.js and load queue
   useEffect(() => {
     let mounted = true
 
-    const loadQueueAndStats = async () => {
+    const init = async () => {
+      try {
+        await initializePDFJS()
+      } catch (error) {
+        console.error("Failed to initialize PDF.js:", error)
+        toast({
+          title: "PDF Support Error",
+          description: "Failed to initialize PDF support. PDF processing may not work correctly.",
+          variant: "destructive",
+        })
+      }
+
       const savedQueue = await db.getQueue()
       if (!mounted) return
 
@@ -43,14 +55,21 @@ export default function DashboardPage() {
       updateStats(savedQueue)
     }
 
-    loadQueueAndStats()
-    const interval = setInterval(loadQueueAndStats, CONFIG.POLLING_INTERVAL)
+    init()
+    const interval = setInterval(() => {
+      if (mounted) {
+        db.getQueue().then((queue) => {
+          setProcessingQueue(queue)
+          updateStats(queue)
+        })
+      }
+    }, CONFIG.POLLING_INTERVAL)
 
     return () => {
       mounted = false
       clearInterval(interval)
     }
-  }, [])
+  }, [toast])
 
   const updateStats = (queue: ProcessingStatus[]) => {
     const completed = queue.filter((item) => item.status === "completed")

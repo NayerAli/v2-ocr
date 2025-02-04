@@ -1,6 +1,7 @@
 import { CONFIG } from "@/config/constants"
 import type { ProcessingStatus, OCRSettings, OCRResult } from "@/types"
 import { db } from "./indexed-db"
+import { loadPDF, renderPageToBase64 } from "./pdf-utils"
 
 export class ProcessingService {
   private queueMap: Map<string, ProcessingStatus> = new Map()
@@ -153,29 +154,65 @@ export class ProcessingService {
 
     // For PDFs, convert to images first
     if (status.file.type === "application/pdf") {
-      const pdf = await this.loadPDF(status.file)
-      status.totalPages = pdf.numPages
-      await db.saveToQueue(status)
-
-      const results: OCRResult[] = []
-      for (let i = 1; i <= pdf.numPages; i++) {
-        if (signal.aborted) throw new Error("Processing aborted")
-
-        status.currentPage = i
-        status.progress = (i / pdf.numPages) * 100
+      try {
+        console.log(`Starting PDF processing for ${status.filename}`)
+        const pdf = await loadPDF(status.file)
+        status.totalPages = pdf.numPages
+        console.log(`PDF loaded successfully. Total pages: ${pdf.numPages}`)
         await db.saveToQueue(status)
 
-        const page = await pdf.getPage(i)
-        const base64 = await this.renderPageToBase64(page)
-        const result = await this.callOCR(base64, signal)
-        result.pageNumber = i
+        const results: OCRResult[] = []
+        for (let i = 1; i <= pdf.numPages; i++) {
+          if (signal.aborted) {
+            console.log("PDF processing aborted")
+            throw new Error("Processing aborted")
+          }
 
-        // Store the page preview as base64
-        result.imageUrl = `data:image/jpeg;base64,${base64}`
-        
-        results.push(result)
+          console.log(`Processing page ${i} of ${pdf.numPages}`)
+          status.currentPage = i
+          status.progress = (i / pdf.numPages) * 100
+          await db.saveToQueue(status)
+
+          try {
+            const page = await pdf.getPage(i)
+            const base64 = await renderPageToBase64(page)
+            console.log(`Page ${i} rendered successfully`)
+
+            const result = await this.callOCR(base64, signal)
+            result.pageNumber = i
+            // Store as PNG for better quality
+            result.imageUrl = `data:image/png;base64,${base64}`
+            results.push(result)
+            console.log(`OCR completed for page ${i}`)
+          } catch (pageError) {
+            console.error(`Error processing page ${i}:`, pageError)
+            results.push({
+              id: crypto.randomUUID(),
+              documentId: "",
+              text: `[Error processing page ${i}]`,
+              confidence: 0,
+              language: this.settings.language || "unknown",
+              processingTime: 0,
+              pageNumber: i,
+              error: pageError instanceof Error ? pageError.message : "Unknown error",
+            })
+          }
+        }
+
+        if (results.length === 0) {
+          throw new Error("No pages could be processed successfully")
+        }
+
+        console.log(`PDF processing completed. Processed ${results.length} pages`)
+        return results
+      } catch (error) {
+        console.error("PDF processing error:", error)
+        throw new Error(
+          error instanceof Error
+            ? `Failed to process PDF: ${error.message}`
+            : "Failed to process PDF"
+        )
       }
-      return results
     }
 
     throw new Error("Unsupported file type")
@@ -186,30 +223,12 @@ export class ProcessingService {
       const reader = new FileReader()
       reader.onload = () => {
         const base64 = reader.result as string
+        // Return the raw base64 data without compression
         resolve(base64.split(",")[1])
       }
       reader.onerror = reject
       reader.readAsDataURL(file)
     })
-  }
-
-  private async loadPDF(file: File) {
-    const { getDocument } = await import("pdfjs-dist")
-    const arrayBuffer = await file.arrayBuffer()
-    return getDocument({ data: arrayBuffer }).promise
-  }
-
-  private async renderPageToBase64(page: any): Promise<string> {
-    const canvas = document.createElement("canvas")
-    const context = canvas.getContext("2d")
-    if (!context) throw new Error("Could not get canvas context")
-
-    const viewport = page.getViewport({ scale: 1.0 })
-    canvas.width = viewport.width
-    canvas.height = viewport.height
-
-    await page.render({ canvasContext: context, viewport }).promise
-    return canvas.toDataURL("image/png").split(",")[1]
   }
 
   private async callOCR(base64Data: string, signal: AbortSignal): Promise<OCRResult> {

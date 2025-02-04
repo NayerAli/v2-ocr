@@ -1,4 +1,5 @@
 import { CONFIG } from "@/config/constants"
+import { loadPDF, renderPageToBase64 } from "./pdf-utils"
 
 export async function generatePreview(file: File): Promise<string> {
   if (file.size > CONFIG.PREVIEW_MAX_SIZE) {
@@ -37,61 +38,38 @@ async function createImageThumbnail(file: File): Promise<string> {
 }
 
 async function createPDFThumbnail(file: File): Promise<string> {
-  const { getDocument } = await import("pdfjs-dist")
-  const arrayBuffer = await file.arrayBuffer()
-  const pdf = await getDocument({ data: arrayBuffer }).promise
-  const page = await pdf.getPage(1)
-
-  const viewport = page.getViewport({ scale: 1.0 })
-  const canvas = document.createElement("canvas")
-  const ctx = canvas.getContext("2d")
-  if (!ctx) throw new Error("Could not get canvas context")
-
-  // Calculate thumbnail dimensions
-  const maxDim = 200
-  const ratio = Math.min(maxDim / viewport.width, maxDim / viewport.height)
-  canvas.width = viewport.width * ratio
-  canvas.height = viewport.height * ratio
-
-  const scaledViewport = page.getViewport({ scale: ratio })
-  await page.render({
-    canvasContext: ctx,
-    viewport: scaledViewport,
-  }).promise
-
-  return canvas.toDataURL("image/jpeg", 0.7)
+  try {
+    const pdf = await loadPDF(file)
+    const page = await pdf.getPage(1)
+    const base64 = await renderPageToBase64(page)
+    return `data:image/jpeg;base64,${base64}`
+  } catch (error) {
+    console.error("Error creating PDF thumbnail:", error)
+    throw new Error("Failed to create PDF thumbnail")
+  }
 }
 
 export async function* processLargeFile(file: File) {
   if (file.type === "application/pdf") {
-    const { getDocument } = await import("pdfjs-dist")
-    const arrayBuffer = await file.arrayBuffer()
-    const pdf = await getDocument({ data: arrayBuffer }).promise
+    try {
+      const pdf = await loadPDF(file)
 
-    // Process PDF in chunks
-    for (let i = 1; i <= pdf.numPages; i += CONFIG.CHUNK_SIZE) {
-      const chunk = []
-      for (let j = i; j < Math.min(i + CONFIG.CHUNK_SIZE, pdf.numPages + 1); j++) {
-        const page = await pdf.getPage(j)
-        const viewport = page.getViewport({ scale: 1.0 })
-        const canvas = document.createElement("canvas")
-        const ctx = canvas.getContext("2d")
-        if (!ctx) throw new Error("Could not get canvas context")
-
-        canvas.width = viewport.width
-        canvas.height = viewport.height
-
-        await page.render({
-          canvasContext: ctx,
-          viewport,
-        }).promise
-
-        chunk.push({
-          pageNumber: j,
-          base64: canvas.toDataURL("image/png").split(",")[1],
-        })
+      // Process PDF in chunks
+      for (let i = 1; i <= pdf.numPages; i += CONFIG.CHUNK_SIZE) {
+        const chunk = []
+        for (let j = i; j < Math.min(i + CONFIG.CHUNK_SIZE, pdf.numPages + 1); j++) {
+          const page = await pdf.getPage(j)
+          const base64 = await renderPageToBase64(page)
+          chunk.push({
+            pageNumber: j,
+            base64,
+          })
+        }
+        yield chunk
       }
-      yield chunk
+    } catch (error) {
+      console.error("Error processing large PDF:", error)
+      throw new Error("Failed to process large PDF")
     }
   } else if (file.type.startsWith("image/")) {
     // For images, process directly
