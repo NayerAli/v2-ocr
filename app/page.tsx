@@ -16,6 +16,8 @@ import { db } from "@/lib/indexed-db"
 import { ProcessingService } from "@/lib/processing-service"
 import { formatFileSize } from "@/lib/file-utils"
 import { initializePDFJS } from "@/lib/pdf-init"
+import { DocumentDetailsDialog } from "./components/document-details-dialog"
+import { DocumentList } from "./components/document-list"
 
 interface DashboardStats {
   totalProcessed: number
@@ -36,6 +38,8 @@ export default function DashboardPage() {
     successRate: 0,
     totalStorage: 0,
   })
+  const [selectedDocument, setSelectedDocument] = useState<ProcessingStatus | null>(null)
+  const [isDetailsOpen, setIsDetailsOpen] = useState(false)
 
   // Initialize PDF.js
   useEffect(() => {
@@ -275,52 +279,26 @@ export default function DashboardPage() {
             </div>
           </CardHeader>
           <CardContent>
-            {processingQueue.length > 0 ? (
-              <div className="space-y-4">
-                {processingQueue.slice(0, 5).map((item) => (
-                  <div key={item.id} className="flex items-center gap-4 p-4 rounded-lg border bg-card hover:bg-accent/5 transition-colors">
-                    <div className="flex items-center gap-4 flex-1 min-w-0">
-                      <div className="flex-1 truncate">
-                        <p className="text-sm font-medium truncate">{item.filename}</p>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          {formatFileSize(item.size)} • {item.totalPages || 1} page(s)
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={cn(
-                            "inline-flex items-center rounded-full px-2 py-1 text-xs font-medium",
-                            item.status === "completed" && "bg-green-50 text-green-700 dark:bg-green-500/20",
-                            item.status === "processing" && "bg-blue-50 text-blue-700 dark:bg-blue-500/20",
-                            item.status === "error" && "bg-red-50 text-red-700 dark:bg-red-500/20",
-                            item.status === "queued" && "bg-yellow-50 text-yellow-700 dark:bg-yellow-500/20"
-                          )}
-                        >
-                          {item.status}
-                        </span>
-                        {item.status === "completed" && (
-                          <Button variant="ghost" size="sm" onClick={() => handleViewResults(item.id)}>
-                            <Eye className="h-4 w-4" />
-                            <span className="sr-only">View results</span>
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center py-8 text-center">
-                <FileText className="h-8 w-8 text-muted-foreground mb-3" />
-                <p className="text-sm text-muted-foreground">
-                  No documents processed yet. Start by uploading a document.
-                </p>
-              </div>
-            )}
+            <DocumentList
+              documents={processingQueue.slice(0, 5)}
+              onShowDetails={(doc) => {
+                setSelectedDocument(doc)
+                setIsDetailsOpen(true)
+              }}
+              onDownload={handleViewResults}
+              onDelete={handleRemoveFromQueue}
+              variant="grid"
+              showHeader={false}
+            />
           </CardContent>
         </Card>
       </div>
 
+      <DocumentDetailsDialog
+        document={selectedDocument}
+        open={isDetailsOpen}
+        onOpenChange={setIsDetailsOpen}
+      />
       <SettingsDialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen} />
     </>
   )

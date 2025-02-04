@@ -2,25 +2,24 @@
 
 import { useState, useEffect } from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
-import { FileText, Search, Filter, MoreVertical, Upload, Eye, Download, Trash2 } from "lucide-react"
+import { Search, Filter, Upload } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { DocumentDetailsDialog } from "../components/document-details-dialog"
+import { DocumentList } from "../components/document-list"
 import { db } from "@/lib/indexed-db"
 import type { ProcessingStatus } from "@/types"
-import { formatFileSize } from "@/lib/file-utils"
 import { cn } from "@/lib/utils"
 
 export default function DocumentsPage() {
-  const router = useRouter()
   const [documents, setDocuments] = useState<ProcessingStatus[]>([])
   const [searchQuery, setSearchQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [sortBy, setSortBy] = useState<string>("date")
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc")
+  const [selectedDocument, setSelectedDocument] = useState<ProcessingStatus | null>(null)
+  const [isDetailsOpen, setIsDetailsOpen] = useState(false)
 
   useEffect(() => {
     const loadDocuments = async () => {
@@ -141,90 +140,21 @@ export default function DocumentsPage() {
         </div>
       </div>
 
-      <div className="rounded-md border bg-card">
-        <Table>
-          <TableHeader>
-            <TableRow className="hover:bg-transparent">
-              <TableHead>Name</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Date</TableHead>
-              <TableHead>Pages</TableHead>
-              <TableHead>Size</TableHead>
-              <TableHead className="w-[100px]">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {filteredDocuments.map((doc) => (
-              <TableRow key={doc.id} className="hover:bg-accent/5">
-                <TableCell>
-                  <div className="flex items-center gap-2">
-                    <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                    <span className="font-medium truncate max-w-[300px]">{doc.filename}</span>
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <span
-                    className={cn(
-                      "inline-flex items-center rounded-full px-2 py-1 text-xs font-medium",
-                      doc.status === "completed" && "bg-green-50 text-green-700 dark:bg-green-500/20",
-                      doc.status === "processing" && "bg-blue-50 text-blue-700 dark:bg-blue-500/20",
-                      doc.status === "error" && "bg-red-50 text-red-700 dark:bg-red-500/20",
-                      doc.status === "queued" && "bg-yellow-50 text-yellow-700 dark:bg-yellow-500/20"
-                    )}
-                  >
-                    {doc.status}
-                  </span>
-                </TableCell>
-                <TableCell>{doc.startTime ? new Date(doc.startTime).toLocaleDateString() : "-"}</TableCell>
-                <TableCell>{doc.totalPages || "-"}</TableCell>
-                <TableCell>{formatFileSize(doc.size ?? 0)}</TableCell>
-                <TableCell>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon" className="h-8 w-8">
-                        <MoreVertical className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => router.push(`/documents/${doc.id}`)}>
-                        <Eye className="h-4 w-4 mr-2" />
-                        View Details
-                      </DropdownMenuItem>
-                      {doc.status === "completed" && (
-                        <DropdownMenuItem onClick={() => handleDownload(doc.id)}>
-                          <Download className="h-4 w-4 mr-2" />
-                          Download Text
-                        </DropdownMenuItem>
-                      )}
-                      <DropdownMenuItem 
-                        className="text-destructive focus:text-destructive" 
-                        onClick={() => handleDelete(doc.id)}
-                      >
-                        <Trash2 className="h-4 w-4 mr-2" />
-                        Delete
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </TableCell>
-              </TableRow>
-            ))}
-            {filteredDocuments.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={6}>
-                  <div className="flex flex-col items-center justify-center py-8 text-center">
-                    <FileText className="h-8 w-8 text-muted-foreground mb-3" />
-                    <p className="text-sm text-muted-foreground">
-                      {searchQuery || statusFilter !== "all"
-                        ? "No documents match your filters"
-                        : "No documents found. Start by uploading a document."}
-                    </p>
-                  </div>
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </div>
+      <DocumentList
+        documents={filteredDocuments}
+        onShowDetails={(doc) => {
+          setSelectedDocument(doc)
+          setIsDetailsOpen(true)
+        }}
+        onDownload={handleDownload}
+        onDelete={handleDelete}
+      />
+
+      <DocumentDetailsDialog
+        document={selectedDocument}
+        open={isDetailsOpen}
+        onOpenChange={setIsDetailsOpen}
+      />
     </div>
   )
 }
