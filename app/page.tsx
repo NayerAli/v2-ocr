@@ -134,6 +134,22 @@ export default function DashboardPage() {
     router.push(`/documents/${id}`)
   }
 
+  const handleCancel = async (id: string) => {
+    try {
+      await processingService.cancelProcessing(id)
+      toast({
+        title: "Processing Cancelled",
+        description: "Document processing has been cancelled",
+      })
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to cancel processing",
+        variant: "destructive",
+      })
+    }
+  }
+
   const isConfigured = settings.ocr.apiKey && (settings.ocr.provider !== "microsoft" || settings.ocr.region)
 
   return (
@@ -195,6 +211,7 @@ export default function DashboardPage() {
                 })
               }}
               onRemove={handleRemoveFromQueue}
+              onCancel={handleCancel}
               disabled={!isConfigured}
               maxFileSize={settings.upload.maxFileSize}
               maxSimultaneousUploads={settings.upload.maxSimultaneousUploads}

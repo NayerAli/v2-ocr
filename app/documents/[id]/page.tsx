@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import { ArrowLeft, Download, Copy, ChevronLeft, ChevronRight, Check, AlertCircle, Keyboard, Search, Minus, Plus, ZoomIn, Type, ScanLine } from "lucide-react"
+import { ArrowLeft, Download, Copy, ChevronLeft, ChevronRight, Check, AlertCircle, Keyboard, Search, Minus, Plus, ZoomIn, Type, ScanLine, Upload, FileText, ImageIcon } from "lucide-react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -25,6 +25,8 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { useRouter } from "next/navigation"
+import { Table, TableHead, TableCell, TableRow } from "@/components/ui/table"
 
 const LOADING_TIMEOUT = 30000 // 30 seconds
 const OPERATION_TIMEOUT = 10000 // 10 seconds
@@ -58,6 +60,25 @@ function KeyboardShortcuts() {
   )
 }
 
+function getStatusDisplay(status: string, currentPage?: number, totalPages?: number) {
+  switch (status) {
+    case "processing":
+      return totalPages 
+        ? `Processing page ${currentPage} of ${totalPages}`
+        : "Processing..."
+    case "completed":
+      return "Completed"
+    case "queued":
+      return "Queued"
+    case "cancelled":
+      return "Processing Cancelled"
+    case "error":
+      return "Error"
+    default:
+      return status
+  }
+}
+
 export default function DocumentPage({ params }: { params: { id: string } }) {
   const { toast } = useToast()
   const [docStatus, setDocStatus] = useState<ProcessingStatus | null>(null)
@@ -87,6 +108,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
   const [isPanning, setIsPanning] = useState(false)
   const [panPosition, setPanPosition] = useState({ x: 0, y: 0 })
   const lastMousePosition = useRef({ x: 0, y: 0 })
+  const router = useRouter()
 
   const currentResult = results.find((r) => r.pageNumber === currentPage)
 
@@ -121,6 +143,12 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
         }
         setDocStatus(doc)
 
+        if (doc.status === "cancelled") {
+          clearTimeout(timeoutId)
+          setIsLoading(false)
+          return
+        }
+
         const docResults = await db.getResults(params.id)
         if (!docResults || docResults.length === 0) {
           setError("No OCR results found for this document")
@@ -131,8 +159,8 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
           })
           return
         }
+        setResults(docResults.sort((a, b) => a.pageNumber - b.pageNumber))
 
-        setResults(docResults)
         clearTimeout(timeoutId)
       } catch (err) {
         const errorMessage = "Failed to load document. Please try again later."
@@ -614,7 +642,35 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     setZoomLevel(newZoom)
   }
 
-  if (error) {
+  const renderToolbar = () => (
+    <div className="h-14 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <div className="container flex h-full items-center justify-between gap-4">
+        <div className="flex items-center gap-2">
+          <Link href="/documents" className="mr-2">
+            <Button variant="ghost" size="icon" className="h-8 w-8">
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+          </Link>
+          {isLoading ? (
+            <Skeleton className="h-8 w-48" />
+          ) : (
+            <div className="flex items-center gap-2">
+              {docStatus?.type?.startsWith('image/') ? (
+                <ImageIcon className="h-6 w-6 text-muted-foreground" />
+              ) : (
+                <FileText className="h-6 w-6 text-muted-foreground" />
+              )}
+              <h1 className="text-lg font-semibold truncate max-w-[300px]">
+                {docStatus?.filename}
+              </h1>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+
+  if (error && docStatus?.status !== "cancelled") {
     return (
       <div className="container mx-auto p-6">
         <div className="space-y-4">
@@ -640,26 +696,56 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     )
   }
 
-  const renderToolbar = () => (
-    <div className="h-14 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="container flex h-full items-center justify-between gap-4">
-        <div className="flex items-center gap-2">
-          <Link href="/documents" className="mr-2">
-            <Button variant="ghost" size="icon" className="h-8 w-8">
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-          </Link>
-          {isLoading ? (
-            <Skeleton className="h-8 w-48" />
-          ) : (
-            <h1 className="text-lg font-semibold truncate max-w-[300px]">
-              {docStatus?.filename}
-            </h1>
-          )}
+  if (docStatus?.status === "cancelled") {
+    return (
+      <div className="flex flex-col h-screen">
+        {renderToolbar()}
+        <div className="flex-1 bg-muted/5">
+          <div className="container h-full flex items-center justify-center">
+            <div className="w-full max-w-2xl p-8 text-center">
+              <div className="mb-8">
+                <div className="relative mx-auto h-24 w-24">
+                  <div className="absolute inset-0 rounded-full border-4 border-dashed border-gray-200 dark:border-gray-800 animate-[spin_10s_linear_infinite]" />
+                  <div className="absolute inset-3 rounded-full bg-muted flex items-center justify-center">
+                    <AlertCircle className="h-8 w-8 text-yellow-600 dark:text-yellow-500" />
+                  </div>
+                </div>
+              </div>
+              <h2 className="text-2xl font-semibold mb-4">Processing Cancelled</h2>
+              <p className="text-muted-foreground mb-8">
+                This document's processing was cancelled. You may want to try processing it again.
+              </p>
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+                <Button 
+                  variant="outline" 
+                  onClick={() => router.push('/documents')}
+                  className="w-full sm:w-auto"
+                >
+                  <ArrowLeft className="h-4 w-4 mr-2" />
+                  Back to Documents
+                </Button>
+                <Button
+                  variant="default"
+                  onClick={() => router.push('/')}
+                  className="w-full sm:w-auto"
+                >
+                  <Upload className="h-4 w-4 mr-2" />
+                  Try Processing Again
+                </Button>
+              </div>
+              {docStatus.error && (
+                <Alert variant="destructive" className="mt-8">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertTitle>Processing Error</AlertTitle>
+                  <AlertDescription>{docStatus.error}</AlertDescription>
+                </Alert>
+              )}
+            </div>
+          </div>
         </div>
       </div>
-    </div>
-  )
+    )
+  }
 
   const renderControls = () => (
     <div className="h-14 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -680,7 +766,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
                 <Skeleton className="h-4 w-12" />
               ) : (
                 <span className="text-sm">
-                  {currentPage} / {results.length}
+                  {currentPage} / {docStatus?.currentPage || results.length}
                 </span>
               )}
             </div>
@@ -688,8 +774,8 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
               variant="ghost"
               size="icon"
               className="h-7 w-7"
-              disabled={currentPage >= results.length || isLoading}
-              onClick={() => setCurrentPage((p) => Math.min(results.length, p + 1))}
+              disabled={currentPage >= (docStatus?.currentPage || results.length) || isLoading}
+              onClick={() => setCurrentPage((p) => Math.min(docStatus?.currentPage || results.length, p + 1))}
             >
               <ChevronRight className="h-4 w-4" />
             </Button>
@@ -763,8 +849,11 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
               variant="ghost"
               size="sm"
               onClick={handleDownload}
-              disabled={isLoading || !results.length}
-              className="h-9"
+              disabled={isLoading || !results.length || docStatus?.status === "cancelled"}
+              className={cn(
+                "h-9",
+                docStatus?.status === "cancelled" && "cursor-not-allowed"
+              )}
             >
               {isDownloading ? (
                 <>
@@ -772,10 +861,21 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
                   <span>Downloaded</span>
                 </>
               ) : (
-                <>
-                  <Download className="h-4 w-4 mr-2" />
-                  <span>Download</span>
-                </>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="flex items-center">
+                        <Download className="h-4 w-4 mr-2" />
+                        <span>Download</span>
+                      </div>
+                    </TooltipTrigger>
+                    {docStatus?.status === "cancelled" && (
+                      <TooltipContent>
+                        <p>Download is not available for cancelled files</p>
+                      </TooltipContent>
+                    )}
+                  </Tooltip>
+                </TooltipProvider>
               )}
             </Button>
           </div>
@@ -930,6 +1030,81 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
       )
     }
 
+    if (docStatus?.status === "cancelled" && !results.length) {
+      return (
+        <div className="w-full h-full flex items-center justify-center">
+          <div className="relative w-full h-full">
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="w-full max-w-md p-6 text-center">
+                <div className="mb-6">
+                  <div className="relative mx-auto h-24 w-24">
+                    <div className="absolute inset-0 rounded-full border-4 border-dashed border-gray-200 dark:border-gray-800 animate-[spin_10s_linear_infinite]" />
+                    <div className="absolute inset-3 rounded-full bg-muted flex items-center justify-center">
+                      <AlertCircle className="h-8 w-8 text-muted-foreground" />
+                    </div>
+                  </div>
+                </div>
+                <h3 className="text-lg font-semibold mb-2">Processing Cancelled</h3>
+                {(docStatus.currentPage ?? 0) > 0 ? (
+                  <>
+                    <p className="text-muted-foreground mb-6">
+                      This document's processing was cancelled, but {docStatus.currentPage ?? 0} {(docStatus.currentPage ?? 0) === 1 ? 'page was' : 'pages were'} processed successfully.
+                      Use the navigation controls above to view the processed pages.
+                    </p>
+                    <div className="flex flex-col gap-3 sm:flex-row items-center justify-center">
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        onClick={() => router.push('/documents')}
+                        className="w-full sm:w-auto"
+                      >
+                        <ArrowLeft className="h-4 w-4 mr-2" />
+                        Back to Documents
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-muted-foreground mb-6">
+                      This document's processing was cancelled before any pages could be processed.
+                      You may want to try processing it again.
+                    </p>
+                    <div className="flex flex-col gap-3 sm:flex-row items-center justify-center">
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        onClick={() => router.push('/documents')}
+                        className="w-full sm:w-auto"
+                      >
+                        <ArrowLeft className="h-4 w-4 mr-2" />
+                        Back to Documents
+                      </Button>
+                      <Button
+                        variant="default"
+                        size="sm"
+                        onClick={() => router.push('/')}
+                        className="w-full sm:w-auto"
+                      >
+                        <Upload className="h-4 w-4 mr-2" />
+                        Try Processing Again
+                      </Button>
+                    </div>
+                  </>
+                )}
+                {docStatus.error && (
+                  <Alert variant="destructive" className="mt-6">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertTitle>Processing Error</AlertTitle>
+                    <AlertDescription>{docStatus.error}</AlertDescription>
+                  </Alert>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )
+    }
+
     if (!currentResult?.imageUrl) {
       return (
         <div className="w-full h-full flex items-center justify-center">
@@ -1041,6 +1216,16 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
                       <Skeleton className="h-5 w-[95%]" />
                       <Skeleton className="h-5 w-[90%]" />
                     </div>
+                  ) : docStatus?.status === "failed" && !currentResult ? (
+                    <div className="flex items-center justify-center h-full min-h-[200px] text-center">
+                      <div className="max-w-sm">
+                        <p className="text-muted-foreground">
+                          {(docStatus.currentPage || 0) > 0
+                            ? "Select a processed page to view its extracted text"
+                            : "No text was extracted before processing was cancelled"}
+                        </p>
+                      </div>
+                    </div>
                   ) : currentResult ? (
                     <div
                       dir={currentResult.language === "ar" || currentResult.language === "fa" ? "rtl" : "ltr"}
@@ -1062,7 +1247,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
         </div>
       </div>
 
-      {!isLoading && results.length > 1 && (
+      {!isLoading && results.length > 1 && docStatus?.status !== "processing" && docStatus?.status !== "pending" && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2">
           <div className="bg-background/95 backdrop-blur-sm supports-[backdrop-filter]:bg-background/60 shadow-lg rounded-full border px-3 py-1.5 flex items-center gap-3">
             <Progress 

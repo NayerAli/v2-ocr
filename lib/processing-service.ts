@@ -11,7 +11,7 @@ export class ProcessingService {
   private ocrSettings: OCRSettings
   private processingSettings: ProcessingSettings
   private uploadSettings: UploadSettings
-  private abortController: AbortController | null = null
+  private abortControllers: Map<string, AbortController> = new Map()
 
   constructor(settings: { ocr: OCRSettings; processing: ProcessingSettings; upload: UploadSettings }) {
     this.ocrSettings = settings.ocr
@@ -71,9 +71,9 @@ export class ProcessingService {
 
   async pauseQueue() {
     this.isPaused = true
-    if (this.abortController) {
-      this.abortController.abort()
-      this.abortController = null
+    if (this.abortControllers.size > 0) {
+      Array.from(this.abortControllers.values()).forEach(controller => controller.abort())
+      this.abortControllers.clear()
     }
     // Save current state to IndexedDB
     for (const status of Array.from(this.queueMap.values())) {
@@ -98,11 +98,28 @@ export class ProcessingService {
     )
   }
 
+  async cancelProcessing(id: string) {
+    const status = this.queueMap.get(id)
+    if (!status) return
+
+    // Abort processing if in progress
+    const controller = this.abortControllers.get(id)
+    if (controller) {
+      controller.abort()
+      this.abortControllers.delete(id)
+    }
+
+    // Update status
+    status.status = "cancelled"
+    status.progress = 0
+    status.endTime = Date.now()
+    await db.saveToQueue(status)
+  }
+
   private async processQueue() {
     if (this.isProcessing || this.isPaused || !this.ocrSettings.apiKey) return
 
     this.isProcessing = true
-    this.abortController = new AbortController()
 
     try {
       const queue = Array.from(this.queueMap.values())
@@ -115,12 +132,19 @@ export class ProcessingService {
         await Promise.all(
           batch.map(async (item) => {
             try {
+              // Create new abort controller for this item
+              const controller = new AbortController()
+              this.abortControllers.set(item.id, controller)
+
               item.status = "processing"
               item.startTime = Date.now()
               await db.saveToQueue(item)
 
               console.log(`Processing ${item.filename}`)
-              const results = await this.processFile(item, this.abortController!.signal)
+              const results = await this.processFile(item, controller.signal)
+
+              // Clean up controller
+              this.abortControllers.delete(item.id)
 
               // Save results before updating status
               await db.saveResults(item.id, results)
@@ -134,9 +158,17 @@ export class ProcessingService {
 
             } catch (error) {
               console.error(`Error processing ${item.filename}:`, error)
-              item.status = "error"
-              item.error = error instanceof Error ? error.message : "Unknown error occurred"
+              
+              // Check if this was a cancellation
+              if (error instanceof Error && error.name === "AbortError") {
+                item.status = "cancelled"
+              } else {
+                item.status = "error"
+                item.error = error instanceof Error ? error.message : "Unknown error occurred"
+              }
+              
               await db.saveToQueue(item)
+              this.abortControllers.delete(item.id)
             }
           })
         )
@@ -145,7 +177,6 @@ export class ProcessingService {
       console.error("Queue processing error:", error)
     } finally {
       this.isProcessing = false
-      this.abortController = null
 
       // Check if there are more items to process
       const remainingItems = Array.from(this.queueMap.values()).filter(
@@ -174,38 +205,45 @@ export class ProcessingService {
       try {
         console.log(`Starting PDF processing for ${status.filename}`)
         const pdf = await loadPDF(status.file)
-        status.totalPages = pdf.numPages
-        console.log(`PDF loaded successfully. Total pages: ${pdf.numPages}`)
+        const numPages = pdf.numPages
+        status.totalPages = numPages
+        status.currentPage = 0
+        status.progress = 0
+        console.log(`PDF loaded successfully. Total pages: ${numPages}`)
         await db.saveToQueue(status)
 
         const results: OCRResult[] = []
-        const chunks: number[][] = []
+        const processedPages = new Set<number>()
 
-        // Split pages into chunks
-        for (let i = 1; i <= pdf.numPages; i += this.processingSettings.pagesPerChunk) {
-          chunks.push(Array.from(
-            { length: Math.min(this.processingSettings.pagesPerChunk, pdf.numPages - i + 1) },
-            (_, j) => i + j
-          ))
+        // Calculate chunks more efficiently
+        const chunks: number[][] = []
+        for (let i = 0; i < numPages; i += this.processingSettings.pagesPerChunk) {
+          const chunkSize = Math.min(this.processingSettings.pagesPerChunk, numPages - i)
+          const chunk = Array.from({ length: chunkSize }, (_, j) => i + j + 1)
+          chunks.push(chunk)
         }
 
-        // Process chunks with concurrency limit
-        for (let i = 0; i < chunks.length; i += this.processingSettings.concurrentChunks) {
-          const currentChunks = chunks.slice(i, i + this.processingSettings.concurrentChunks)
+        console.log(`Created ${chunks.length} chunks for processing`)
 
-          await Promise.all(currentChunks.map(async (pageNumbers) => {
-            for (const pageNum of pageNumbers) {
-              if (signal.aborted) {
-                console.log("PDF processing aborted")
-                throw new Error("Processing aborted")
-              }
+        // Process chunks sequentially to maintain order
+        for (let i = 0; i < chunks.length; i++) {
+          if (signal.aborted) {
+            console.log("PDF processing aborted")
+            throw new Error("Processing aborted")
+          }
 
-              console.log(`Processing page ${pageNum} of ${pdf.numPages}`)
-              status.currentPage = pageNum
-              status.progress = (pageNum / pdf.numPages) * 100
-              await db.saveToQueue(status)
+          const chunk = chunks[i]
+          console.log(`Processing chunk ${i + 1}/${chunks.length} (pages ${chunk[0]}-${chunk[chunk.length - 1]})`)
 
+          // Process pages within chunk concurrently
+          const chunkResults = await Promise.all(
+            chunk.map(async (pageNum) => {
               try {
+                if (pageNum > numPages) {
+                  console.warn(`Skipping invalid page number ${pageNum} (total pages: ${numPages})`)
+                  return null
+                }
+
                 const page = await pdf.getPage(pageNum)
                 const base64 = await renderPageToBase64(page)
                 console.log(`Page ${pageNum} rendered successfully`)
@@ -214,26 +252,33 @@ export class ProcessingService {
                 result.documentId = status.id
                 result.pageNumber = pageNum
                 result.imageUrl = `data:image/png;base64,${base64}`
-                results.push(result)
+
+                // Update progress atomically
+                processedPages.add(pageNum)
+                status.currentPage = pageNum
+                status.progress = (processedPages.size / numPages) * 100
+                await db.saveToQueue(status)
+
                 console.log(`OCR completed for page ${pageNum}`)
-              } catch (pageError) {
-                console.error(`Error processing page ${pageNum}:`, pageError)
-                results.push({
-                  id: crypto.randomUUID(),
-                  documentId: status.id,
-                  text: `[Error processing page ${pageNum}]`,
-                  confidence: 0,
-                  language: this.ocrSettings.language || "unknown",
-                  processingTime: 0,
-                  pageNumber: pageNum,
-                  error: pageError instanceof Error ? pageError.message : "Unknown error",
-                })
+                return result
+              } catch (error) {
+                console.error(`Error processing page ${pageNum}:`, error)
+                throw error
               }
-            }
-          }))
+            })
+          )
+
+          // Filter out null results and add to final results
+          results.push(...chunkResults.filter((r): r is OCRResult => r !== null))
         }
 
-        return results
+        // Ensure final progress is 100%
+        status.progress = 100
+        status.currentPage = numPages
+        await db.saveToQueue(status)
+
+        // Return results sorted by page number
+        return results.sort((a, b) => a.pageNumber - b.pageNumber)
 
       } catch (error) {
         console.error("PDF processing error:", error)

@@ -21,7 +21,7 @@ export interface OCRResult {
 export interface ProcessingStatus {
   id: string
   filename: string
-  status: 'pending' | 'processing' | 'completed' | 'failed' | 'queued' | 'error'
+  status: 'pending' | 'processing' | 'completed' | 'failed' | 'queued' | 'error' | 'cancelled'
   progress?: number
   error?: string
   file?: File

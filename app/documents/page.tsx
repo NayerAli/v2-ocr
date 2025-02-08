@@ -116,6 +116,7 @@ export default function DocumentsPage() {
               <SelectItem value="completed">Completed</SelectItem>
               <SelectItem value="processing">Processing</SelectItem>
               <SelectItem value="queued">Queued</SelectItem>
+              <SelectItem value="cancelled">Cancelled</SelectItem>
               <SelectItem value="error">Error</SelectItem>
             </SelectContent>
           </Select>
