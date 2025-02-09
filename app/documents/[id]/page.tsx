@@ -27,6 +27,13 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { useRouter } from "next/navigation"
 import { Table, TableHead, TableCell, TableRow } from "@/components/ui/table"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
 
 const LOADING_TIMEOUT = 30000 // 30 seconds
 const OPERATION_TIMEOUT = 10000 // 10 seconds
@@ -92,52 +99,6 @@ class ImageCache {
 
 const imageCache = new ImageCache(15) // Cache up to 15 pages
 
-function KeyboardShortcuts() {
-  return (
-    <TooltipProvider delayDuration={300}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button variant="ghost" size="icon" className="hidden md:flex">
-            <Keyboard className="h-4 w-4" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent side="bottom" align="end" className="w-64">
-          <div className="space-y-2 text-sm">
-            <h4 className="font-semibold">Keyboard Shortcuts</h4>
-            <div className="grid grid-cols-2 gap-2 text-muted-foreground">
-              <span>Previous Page</span>
-              <span className="font-mono">←</span>
-              <span>Next Page</span>
-              <span className="font-mono">→</span>
-              <span>Copy Text</span>
-              <span className="font-mono">Ctrl + C</span>
-            </div>
-          </div>
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
-  )
-}
-
-function getStatusDisplay(status: string, currentPage?: number, totalPages?: number) {
-  switch (status) {
-    case "processing":
-      return totalPages 
-        ? `Processing page ${currentPage} of ${totalPages}`
-        : "Processing..."
-    case "completed":
-      return "Completed"
-    case "queued":
-      return "Queued"
-    case "cancelled":
-      return "Processing Cancelled"
-    case "error":
-      return "Error"
-    default:
-      return status
-  }
-}
-
 export default function DocumentPage({ params }: { params: { id: string } }) {
   const { toast } = useToast()
   const [docStatus, setDocStatus] = useState<ProcessingStatus | null>(null)
@@ -168,8 +129,74 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
   const [panPosition, setPanPosition] = useState({ x: 0, y: 0 })
   const lastMousePosition = useRef({ x: 0, y: 0 })
   const router = useRouter()
+  const [pageInputValue, setPageInputValue] = useState<string>("")
+  const [isEditingPage, setIsEditingPage] = useState(false)
 
   const currentResult = results.find((r) => r.pageNumber === currentPage)
+
+  // Move getStatusDisplay inside the component
+  const getStatusDisplay = (status: string, currentPage?: number, totalPages?: number) => {
+    switch (status) {
+      case "processing":
+        return totalPages 
+          ? `Processing page ${currentPage} of ${totalPages}`
+          : "Processing..."
+      case "completed":
+        return "Completed"
+      case "queued":
+        return "Queued"
+      case "cancelled":
+        return "Processing Cancelled"
+      case "error":
+        return "Error"
+      default:
+        return status
+    }
+  }
+
+  // Zoom-related functions
+  const handleZoomChange = useCallback((newZoom: number) => {
+    if (!imageContainerRef.current || !imageRef.current) return
+
+    const container = imageContainerRef.current
+    const image = imageRef.current
+    
+    // Reset pan position when zooming to 100% or less
+    if (newZoom <= 100) {
+      setPanPosition({ x: 0, y: 0 })
+    } else {
+      // Maintain center point when zooming
+      const containerRect = container.getBoundingClientRect()
+      const imageRect = image.getBoundingClientRect()
+
+      const containerCenterX = containerRect.width / 2
+      const containerCenterY = containerRect.height / 2
+      const imageCenterX = (imageRect.left + imageRect.right) / 2
+      const imageCenterY = (imageRect.top + imageRect.bottom) / 2
+
+      const scaleDiff = newZoom / zoomLevel
+      const newX = (containerCenterX - imageCenterX) * (scaleDiff - 1)
+      const newY = (containerCenterY - imageCenterY) * (scaleDiff - 1)
+
+      // Apply smooth transition to pan position
+      requestAnimationFrame(() => {
+        setPanPosition(prev => ({
+          x: prev.x + newX,
+          y: prev.y + newY
+        }))
+      })
+    }
+
+    setZoomLevel(newZoom)
+  }, [zoomLevel])
+
+  const handleZoomIn = useCallback(() => {
+    handleZoomChange(Math.min(zoomLevel + 25, 200))
+  }, [handleZoomChange, zoomLevel])
+
+  const handleZoomOut = useCallback(() => {
+    handleZoomChange(Math.max(zoomLevel - 25, 25))
+  }, [handleZoomChange, zoomLevel])
 
   useEffect(() => {
     const loadDocument = async () => {
@@ -506,41 +533,6 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     setSearchResults(matches)
   }, [results])
 
-  const handleZoomChange = useCallback((newZoom: number) => {
-    if (!imageContainerRef.current || !imageRef.current) return
-
-    const container = imageContainerRef.current
-    const image = imageRef.current
-    
-    // Reset pan position when zooming to 100% or less
-    if (newZoom <= 100) {
-      setPanPosition({ x: 0, y: 0 })
-    } else {
-      // Maintain center point when zooming
-      const containerRect = container.getBoundingClientRect()
-      const imageRect = image.getBoundingClientRect()
-
-      const containerCenterX = containerRect.width / 2
-      const containerCenterY = containerRect.height / 2
-      const imageCenterX = (imageRect.left + imageRect.right) / 2
-      const imageCenterY = (imageRect.top + imageRect.bottom) / 2
-
-      const scaleDiff = newZoom / zoomLevel
-      const newX = (containerCenterX - imageCenterX) * (scaleDiff - 1)
-      const newY = (containerCenterY - imageCenterY) * (scaleDiff - 1)
-
-      // Apply smooth transition to pan position
-      requestAnimationFrame(() => {
-        setPanPosition(prev => ({
-          x: prev.x + newX,
-          y: prev.y + newY
-        }))
-      })
-    }
-
-    setZoomLevel(newZoom)
-  }, [zoomLevel])
-
   // Move calculateFitZoom before its usage
   const calculateFitZoom = (mode: 'width' | 'height' | 'auto') => {
     if (!imageRef.current || !containerRef.current) return 100
@@ -604,9 +596,63 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
         case "ArrowRight":
           setCurrentPage((p) => Math.min(results.length, p + 1))
           break
+        case "Home":
+          setCurrentPage(1)
+          break
+        case "End":
+          setCurrentPage(results.length)
+          break
         case "c":
           if (e.ctrlKey && currentResult?.text) {
             handleCopyText()
+          }
+          break
+        case "f":
+        case "/":
+          if (!e.ctrlKey || e.key === "/") {
+            e.preventDefault()
+            const searchInput = document.querySelector('input[type="text"][placeholder*="Search"]') as HTMLInputElement
+            searchInput?.focus()
+          }
+          break
+        case "+":
+        case "=":
+          if (e.ctrlKey) {
+            e.preventDefault()
+            handleZoomIn()
+          }
+          break
+        case "-":
+          if (e.ctrlKey) {
+            e.preventDefault()
+            handleZoomOut()
+          }
+          break
+        case "0":
+          if (e.ctrlKey) {
+            e.preventDefault()
+            handleZoomChange(100)
+            setPanPosition({ x: 0, y: 0 })
+          }
+          break
+        case "t":
+        case "T":
+          if (!e.ctrlKey) {
+            e.preventDefault()
+            // Find and click the text size button
+            const textSizeButton = document.querySelector('button[class*="h-9"]:has(.lucide-type)') as HTMLButtonElement
+            textSizeButton?.click()
+          }
+          break
+        case "f":
+        case "F":
+          if (!e.ctrlKey) {
+            e.preventDefault()
+            if (document.fullscreenElement) {
+              document.exitFullscreen()
+            } else {
+              document.documentElement.requestFullscreen()
+            }
           }
           break
       }
@@ -614,58 +660,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
 
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [results.length, currentResult])
-
-  const handleZoomIn = () => setZoomLevel(prev => Math.min(prev + 25, 200))
-  const handleZoomOut = () => setZoomLevel(prev => Math.max(prev - 25, 25))
-
-  const renderTextSizeControl = () => (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-9"
-        >
-          <Type className="h-4 w-4 mr-2" />
-          <span>{textSize}px</span>
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-80 p-4">
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h4 className="font-medium">Text Size</h4>
-            <span className="text-sm text-muted-foreground">{textSize}px</span>
-          </div>
-          <div className="flex items-center gap-4">
-            <span className="text-sm text-muted-foreground">A</span>
-            <Slider
-              value={[textSize]}
-              min={12}
-              max={24}
-              step={1}
-              onValueChange={([value]) => setTextSize(value)}
-              className="flex-1"
-            />
-            <span className="text-lg font-medium">A</span>
-          </div>
-          <div className="grid grid-cols-3 gap-2">
-            {[14, 16, 18].map((size) => (
-              <Button
-                key={size}
-                variant={textSize === size ? "default" : "outline"}
-                size="sm"
-                onClick={() => setTextSize(size)}
-                className="w-full"
-              >
-                {size}px
-              </Button>
-            ))}
-          </div>
-        </div>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  )
+  }, [results.length, currentResult, handleCopyText, handleZoomIn, handleZoomOut, handleZoomChange])
 
   // Add drag handlers
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -745,6 +740,54 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     setIsPanning(false)
   }
 
+  const renderTextSizeControl = () => (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-9"
+        >
+          <Type className="h-4 w-4 mr-2" />
+          <span>{textSize}px</span>
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-80 p-4">
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h4 className="font-medium">Text Size</h4>
+            <span className="text-sm text-muted-foreground">{textSize}px</span>
+          </div>
+          <div className="flex items-center gap-4">
+            <span className="text-sm text-muted-foreground">A</span>
+            <Slider
+              value={[textSize]}
+              min={12}
+              max={24}
+              step={1}
+              onValueChange={([value]) => setTextSize(value)}
+              className="flex-1"
+            />
+            <span className="text-lg font-medium">A</span>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            {[14, 16, 18].map((size) => (
+              <Button
+                key={size}
+                variant={textSize === size ? "default" : "outline"}
+                size="sm"
+                onClick={() => setTextSize(size)}
+                className="w-full"
+              >
+                {size}px
+              </Button>
+            ))}
+          </div>
+        </div>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+
   const renderToolbar = () => (
     <div className="h-14 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-full items-center justify-between gap-4">
@@ -772,6 +815,136 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
       </div>
     </div>
   )
+
+  const handlePageInputChange = (value: string) => {
+    // Only allow numbers
+    const numericValue = value.replace(/[^0-9]/g, '')
+    setPageInputValue(numericValue)
+  }
+
+  const handlePageInputSubmit = () => {
+    const newPage = parseInt(pageInputValue)
+    if (newPage && newPage >= 1 && newPage <= (docStatus?.currentPage || results.length)) {
+      setCurrentPage(newPage)
+    } else {
+      // Reset to current page if invalid
+      setPageInputValue(currentPage.toString())
+    }
+    setIsEditingPage(false)
+  }
+
+  const handlePageInputKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      handlePageInputSubmit()
+    } else if (e.key === 'Escape') {
+      setIsEditingPage(false)
+      setPageInputValue(currentPage.toString())
+    }
+  }
+
+  // Add this new function before renderControls
+  const calculatePageFromPosition = (clientX: number, element: HTMLElement) => {
+    const rect = element.getBoundingClientRect()
+    const x = clientX - rect.left
+    const percentage = x / rect.width
+    return Math.max(1, Math.min(Math.round(percentage * results.length), results.length))
+  }
+
+  // Define KeyboardShortcuts component
+  const KeyboardShortcuts = () => {
+    const shortcuts = [
+      {
+        category: "Navigation",
+        items: [
+          { key: "←", description: "Previous page", action: () => setCurrentPage((p: number) => Math.max(1, p - 1)) },
+          { key: "→", description: "Next page", action: () => setCurrentPage((p: number) => Math.min(results.length, p + 1)) },
+        ]
+      },
+      {
+        category: "Zoom",
+        items: [
+          { key: "Ctrl +", description: "Zoom in", action: handleZoomIn },
+          { key: "Ctrl -", description: "Zoom out", action: handleZoomOut },
+          { key: "Ctrl 0", description: "Reset zoom", action: () => { handleZoomChange(100); setPanPosition({ x: 0, y: 0 }); } },
+        ]
+      },
+      {
+        category: "Document",
+        items: [
+          { key: "Ctrl C", description: "Copy text", action: handleCopyText },
+          { key: "/", description: "Focus search", action: () => {
+            const searchInput = document.querySelector('input[type="text"][placeholder*="Search"]') as HTMLInputElement
+            searchInput?.focus()
+          }},
+        ]
+      }
+    ]
+
+    return (
+      <TooltipProvider delayDuration={0}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className="h-9 px-3 gap-2 font-normal"
+            >
+              <Keyboard className="h-4 w-4" />
+              <span className="text-sm hidden sm:inline-block">Shortcuts</span>
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent 
+            side="bottom" 
+            align="end" 
+            className="w-[280px] p-3 bg-popover/95 backdrop-blur supports-[backdrop-filter]:bg-popover/85"
+            sideOffset={8}
+          >
+            <div className="space-y-4">
+              {shortcuts.map((category) => (
+                <div key={category.category} className="space-y-2">
+                  <h4 className="text-xs font-medium text-muted-foreground/70 px-1 uppercase tracking-wider">
+                    {category.category}
+                  </h4>
+                  <div className="space-y-1">
+                    {category.items.map((shortcut) => (
+                      <button
+                        key={shortcut.key}
+                        onClick={(e) => {
+                          e.preventDefault()
+                          shortcut.action()
+                        }}
+                        className="w-full flex items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      >
+                        <span className="text-muted-foreground">{shortcut.description}</span>
+                        <div className="flex items-center gap-1">
+                          {shortcut.key.split(" ").map((key, keyIdx) => (
+                            <kbd 
+                              key={key}
+                              className={cn(
+                                "pointer-events-none inline-flex h-5 select-none items-center justify-center rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground",
+                                keyIdx > 0 && "ml-1"
+                              )}
+                            >
+                              {key}
+                            </kbd>
+                          ))}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              <div className="pt-1 mt-4 border-t">
+                <p className="text-[10px] text-muted-foreground/60 text-center">
+                  Click any shortcut to trigger its action
+                </p>
+              </div>
+            </div>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    )
+  }
 
   if (error && docStatus?.status !== "cancelled") {
     return (
@@ -867,10 +1040,26 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
             <div className="flex items-center min-w-[80px] justify-center">
               {isLoading ? (
                 <Skeleton className="h-4 w-12" />
+              ) : isEditingPage ? (
+                <Input
+                  type="text"
+                  value={pageInputValue}
+                  onChange={(e) => handlePageInputChange(e.target.value)}
+                  onBlur={handlePageInputSubmit}
+                  onKeyDown={handlePageInputKeyDown}
+                  className="h-7 w-16 px-2 text-center"
+                  autoFocus
+                />
               ) : (
-                <span className="text-sm">
+                <button
+                  onClick={() => {
+                    setIsEditingPage(true)
+                    setPageInputValue(currentPage.toString())
+                  }}
+                  className="text-sm hover:bg-accent hover:text-accent-foreground px-2 py-1 rounded"
+                >
                   {currentPage} / {docStatus?.currentPage || results.length}
-                </span>
+                </button>
               )}
             </div>
             <Button
@@ -1356,10 +1545,47 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
       {!isLoading && results.length > 1 && docStatus?.status !== "processing" && docStatus?.status !== "pending" && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2">
           <div className="bg-background/95 backdrop-blur-sm supports-[backdrop-filter]:bg-background/60 shadow-lg rounded-full border px-3 py-1.5 flex items-center gap-3">
-            <Progress 
-              value={(currentPage / results.length) * 100} 
-              className="w-48 h-1.5"
-            />
+            <div className="relative group">
+              <Progress 
+                value={(currentPage / results.length) * 100} 
+                className="w-48 h-1.5 cursor-pointer relative z-10"
+                onClick={(e) => {
+                  const newPage = calculatePageFromPosition(e.clientX, e.currentTarget)
+                  setCurrentPage(newPage)
+                }}
+                onMouseMove={(e) => {
+                  const tooltip = e.currentTarget.parentElement?.querySelector('[data-hover-tooltip]')
+                  if (tooltip) {
+                    const newPage = calculatePageFromPosition(e.clientX, e.currentTarget)
+                    const percentage = (e.clientX - e.currentTarget.getBoundingClientRect().left) / e.currentTarget.offsetWidth
+                    const tooltipWidth = tooltip.getBoundingClientRect().width
+                    const maxOffset = e.currentTarget.offsetWidth - tooltipWidth
+                    const offset = Math.max(0, Math.min(percentage * e.currentTarget.offsetWidth - tooltipWidth / 2, maxOffset))
+                    
+                    // Update tooltip content and position
+                    const pageSpan = tooltip.querySelector('[data-page]')
+                    if (pageSpan) {
+                      pageSpan.textContent = newPage.toString()
+                    }
+                    ;(tooltip as HTMLElement).style.transform = `translateX(${offset}px)`
+                    tooltip.classList.remove('opacity-0')
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  const tooltip = e.currentTarget.parentElement?.querySelector('[data-hover-tooltip]')
+                  if (tooltip) {
+                    tooltip.classList.add('opacity-0')
+                  }
+                }}
+              />
+              {/* Hover tooltip */}
+              <div
+                data-hover-tooltip
+                className="absolute -top-7 opacity-0 transition-all duration-100 bg-popover text-popover-foreground px-2 py-1 rounded shadow-md text-xs whitespace-nowrap pointer-events-none"
+              >
+                Go to page <span data-page>1</span>
+              </div>
+            </div>
             <span className="text-xs text-muted-foreground whitespace-nowrap">
               Page {currentPage} of {results.length}
             </span>

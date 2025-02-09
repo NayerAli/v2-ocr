@@ -2,10 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  font-family: Arial, Helvetica, sans-serif;
-}
-
 @layer utilities {
   .text-balance {
     text-wrap: balance;
@@ -33,11 +29,6 @@ body {
     --border: 240 5.9% 90%;
     --input: 240 5.9% 90%;
     --ring: 240 5.9% 10%;
-    --chart-1: 12 76% 61%;
-    --chart-2: 173 58% 39%;
-    --chart-3: 197 37% 24%;
-    --chart-4: 43 74% 66%;
-    --chart-5: 27 87% 67%;
     --radius: 0.5rem;
   }
   .dark {
@@ -60,11 +51,6 @@ body {
     --border: 220 25% 15%;
     --input: 220 25% 13%;
     --ring: 217 91% 60%;
-    --chart-1: 217 91% 60%;
-    --chart-2: 142 76% 56%;
-    --chart-3: 47 95% 64%;
-    --chart-4: 310 86% 65%;
-    --chart-5: 26 95% 64%;
   }
 }
 
@@ -79,91 +65,66 @@ body {
 
 /* Modern subtle gradient background for dark mode */
 .dark body {
-  background: linear-gradient(
-    180deg, 
-    hsl(220 25% 8%) 0%,
-    hsl(220 25% 9%) 100%
-  );
-  background-attachment: fixed;
+  @apply bg-gradient-to-b from-[hsl(220_25%_8%)] to-background bg-fixed;
 }
 
 /* Glass-like card effect for dark mode */
 .dark .card {
-  background: linear-gradient(
-    180deg,
-    hsla(220, 25%, 12%, 0.95) 0%,
-    hsla(220, 25%, 11%, 0.95) 100%
-  );
-  box-shadow: 
-    0 1px 2px hsla(220, 25%, 5%, 0.1),
-    0 4px 12px hsla(220, 25%, 5%, 0.1);
-  backdrop-filter: blur(8px);
-  border: 1px solid hsla(220, 25%, 15%, 0.5);
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  @apply bg-gradient-to-b from-[hsla(220,25%,12%,0.95)] to-[hsla(220,25%,11%,0.95)]
+    shadow-sm backdrop-blur-md border border-[hsla(220,25%,15%,0.5)]
+    transition-all duration-200 ease-out;
 }
 
 .dark .card:hover {
-  background: linear-gradient(
-    180deg,
-    hsla(220, 25%, 13%, 0.95) 0%,
-    hsla(220, 25%, 12%, 0.95) 100%
-  );
-  border-color: hsla(220, 25%, 18%, 0.6);
-  box-shadow: 
-    0 2px 4px hsla(220, 25%, 5%, 0.1),
-    0 6px 16px hsla(220, 25%, 5%, 0.1);
-  transform: translateY(-1px);
+  @apply bg-gradient-to-b from-[hsla(220,25%,13%,0.95)] to-[hsla(220,25%,12%,0.95)]
+    border-[hsla(220,25%,18%,0.6)] shadow-lg -translate-y-[1px];
 }
 
-/* Refined scrollbar for dark mode */
-.dark ::-webkit-scrollbar {
-  width: 14px;
+/* Refined scrollbars */
+::-webkit-scrollbar {
+  @apply w-[14px];
 }
 
-.dark ::-webkit-scrollbar-track {
-  background-color: transparent;
-  border-left: 1px solid hsla(220, 25%, 15%, 0.3);
+::-webkit-scrollbar-track {
+  @apply bg-transparent border-l border-l-border/30;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-muted-foreground/20 rounded-[7px] border-4 border-background min-h-[40px];
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-muted-foreground/30;
 }
 
 .dark ::-webkit-scrollbar-thumb {
   background-color: hsla(220, 25%, 25%, 0.4);
-  border: 4px solid hsl(220 25% 9%);
-  border-radius: 7px;
-  min-height: 40px;
+  border-color: hsl(220 25% 9%);
 }
 
 .dark ::-webkit-scrollbar-thumb:hover {
   background-color: hsla(220, 25%, 30%, 0.5);
 }
 
-/* Enhanced focus states for dark mode */
+/* Enhanced focus states */
+:focus-visible {
+  @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+}
+
 .dark :focus-visible {
-  outline: 2px solid hsl(217 91% 60% / 0.5);
-  outline-offset: 2px;
+  @apply ring-primary/50;
 }
 
 /* Button enhancements for dark mode */
-.dark .button, 
 .dark button:not(.unstyled) {
-  background: linear-gradient(
-    180deg,
-    hsla(220, 25%, 13%, 0.95) 0%,
-    hsla(220, 25%, 11%, 0.95) 100%
-  );
-  border: 1px solid hsla(220, 25%, 15%, 0.5);
-  box-shadow: 
-    0 1px 2px hsla(220, 25%, 5%, 0.1),
-    inset 0 1px 0 hsla(220, 25%, 30%, 0.1);
+  @apply bg-gradient-to-b from-[hsla(220,25%,13%,0.95)] to-[hsla(220,25%,11%,0.95)]
+    border border-[hsla(220,25%,15%,0.5)]
+    shadow-[0_1px_2px_hsla(220,25%,5%,0.1),inset_0_1px_0_hsla(220,25%,30%,0.1)];
 }
 
-.dark .button:hover, 
 .dark button:not(.unstyled):hover {
-  background: linear-gradient(
-    180deg,
-    hsla(220, 25%, 15%, 0.95) 0%,
-    hsla(220, 25%, 13%, 0.95) 100%
-  );
-  border-color: hsla(220, 25%, 18%, 0.6);
+  @apply bg-gradient-to-b from-[hsla(220,25%,15%,0.95)] to-[hsla(220,25%,13%,0.95)]
+    border-[hsla(220,25%,18%,0.6)];
 }
 
 /* Language Direction Utilities */
@@ -200,71 +161,14 @@ body {
   .dialog-content {
     @apply p-4;
   }
-  
-  .form-field {
-    @apply flex-col;
-  }
-  
-  .form-field-label {
-    @apply mb-2;
-  }
-}
-
-/* Mobile Navigation */
-@media (max-width: 1024px) {
-  .sidebar {
-    @apply fixed inset-0 z-50 bg-background/80 backdrop-blur-sm;
-    transition: opacity 0.3s ease-in-out;
-  }
-  
-  .sidebar[data-state="open"] {
-    @apply opacity-100;
-  }
-  
-  .sidebar[data-state="closed"] {
-    @apply opacity-0 pointer-events-none;
-  }
-  
-  .sidebar-content {
-    @apply fixed left-0 top-0 h-full w-[240px] border-r bg-background p-6;
-    transform: translateX(-100%);
-    transition: transform 0.3s ease-in-out;
-  }
-  
-  .sidebar[data-state="open"] .sidebar-content {
-    transform: translateX(0);
-  }
-}
-
-/* Enhanced Focus States */
-:focus-visible {
-  @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
 }
 
 /* Better Touch Targets for Mobile */
 @media (max-width: 640px) {
-  button, 
-  .button,
+  button,
   select,
   input[type="checkbox"],
   input[type="radio"] {
     @apply min-h-[44px] min-w-[44px];
   }
-}
-
-/* Improved Scrollbars */
-::-webkit-scrollbar {
-  @apply w-2;
-}
-
-::-webkit-scrollbar-track {
-  @apply bg-secondary/50;
-}
-
-::-webkit-scrollbar-thumb {
-  @apply bg-muted-foreground/20 rounded-full;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  @apply bg-muted-foreground/30;
 }
