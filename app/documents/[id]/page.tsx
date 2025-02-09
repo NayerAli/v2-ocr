@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { ArrowLeft, Download, Copy, ChevronLeft, ChevronRight, Check, AlertCircle, Keyboard, Search, Minus, Plus, ZoomIn, Type, ScanLine, Upload, FileText, ImageIcon } from "lucide-react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
@@ -32,6 +32,65 @@ const LOADING_TIMEOUT = 30000 // 30 seconds
 const OPERATION_TIMEOUT = 10000 // 10 seconds
 const IMAGE_RETRY_TIMEOUT = 3000 // 3 seconds
 const IMAGE_LOAD_DELAY = 800 // 0.8 seconds for better UX
+
+// Add LRU Cache for images
+class ImageCache {
+  private cache: Map<string, HTMLImageElement>
+  private maxSize: number
+
+  constructor(maxSize = 10) {
+    this.cache = new Map()
+    this.maxSize = maxSize
+  }
+
+  has(key: string): boolean {
+    return this.cache.has(key)
+  }
+
+  get(key: string): HTMLImageElement | undefined {
+    const item = this.cache.get(key)
+    if (item) {
+      // Move to end (most recently used)
+      this.cache.delete(key)
+      this.cache.set(key, item)
+    }
+    return item
+  }
+
+  set(key: string, image: HTMLImageElement): void {
+    if (this.cache.size >= this.maxSize) {
+      // Remove least recently used
+      const firstKey = this.cache.keys().next().value
+      if (firstKey) {
+        this.cache.delete(firstKey)
+      }
+    }
+    this.cache.set(key, image)
+  }
+
+  preload(url: string): Promise<HTMLImageElement> {
+    return new Promise((resolve, reject) => {
+      if (this.has(url)) {
+        resolve(this.get(url)!)
+        return
+      }
+
+      const img = new Image()
+      img.onload = () => {
+        this.set(url, img)
+        resolve(img)
+      }
+      img.onerror = reject
+      img.src = url
+    })
+  }
+
+  clear(): void {
+    this.cache.clear()
+  }
+}
+
+const imageCache = new ImageCache(15) // Cache up to 15 pages
 
 function KeyboardShortcuts() {
   return (
@@ -223,6 +282,44 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     }
   }, [currentPage, imageLoadingTimeout])
 
+  // Add preloading logic
+  useEffect(() => {
+    if (!results.length) return
+
+    const preloadImages = async () => {
+      const currentIdx = currentPage - 1
+      const pagesToPreload = [
+        // Current page
+        currentIdx,
+        // Next 2 pages
+        currentIdx + 1,
+        currentIdx + 2,
+        // Previous page
+        currentIdx - 1
+      ].filter(idx => idx >= 0 && idx < results.length)
+
+      for (const idx of pagesToPreload) {
+        const result = results[idx]
+        if (result?.imageUrl) {
+          try {
+            await imageCache.preload(result.imageUrl)
+          } catch (error) {
+            console.error(`Failed to preload image for page ${idx + 1}:`, error)
+          }
+        }
+      }
+    }
+
+    preloadImages()
+  }, [currentPage, results])
+
+  // Clear cache when component unmounts or document changes
+  useEffect(() => {
+    return () => {
+      imageCache.clear()
+    }
+  }, [params.id])
+
   // Handle image loading
   const handleImageRetry = (imageUrl: string | undefined) => {
     if (!imageUrl || isRetrying) return
@@ -362,7 +459,8 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     }
   }
 
-  const handleImageLoad = () => {
+  // Update image loading logic
+  const handleImageLoad = useCallback(() => {
     setImageLoaded(true)
     setImageError(false)
     if (imageLoadingTimeout) {
@@ -377,9 +475,9 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
       setZoomLevel(100)
       setPanPosition({ x: 0, y: 0 })
     }
-  }
+  }, [imageLoadingTimeout])
 
-  const handleImageError = () => {
+  const handleImageError = useCallback(() => {
     setImageError(true)
     setImageLoaded(false)
     if (imageLoadingTimeout) {
@@ -390,7 +488,106 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
       title: "Image Load Error",
       description: "Failed to load image preview. You can still view the extracted text.",
     })
+  }, [imageLoadingTimeout, toast])
+
+  const handleSearch = useCallback((query: string) => {
+    setSearchQuery(query)
+    if (!query.trim()) {
+      setSearchResults([])
+      return
+    }
+
+    const matches = results
+      .filter(result => result.text.toLowerCase().includes(query.toLowerCase()))
+      .map(result => ({
+        page: result.pageNumber,
+        text: result.text
+      }))
+    setSearchResults(matches)
+  }, [results])
+
+  const handleZoomChange = useCallback((newZoom: number) => {
+    if (!imageContainerRef.current || !imageRef.current) return
+
+    const container = imageContainerRef.current
+    const image = imageRef.current
+    
+    // Reset pan position when zooming to 100% or less
+    if (newZoom <= 100) {
+      setPanPosition({ x: 0, y: 0 })
+    } else {
+      // Maintain center point when zooming
+      const containerRect = container.getBoundingClientRect()
+      const imageRect = image.getBoundingClientRect()
+
+      const containerCenterX = containerRect.width / 2
+      const containerCenterY = containerRect.height / 2
+      const imageCenterX = (imageRect.left + imageRect.right) / 2
+      const imageCenterY = (imageRect.top + imageRect.bottom) / 2
+
+      const scaleDiff = newZoom / zoomLevel
+      const newX = (containerCenterX - imageCenterX) * (scaleDiff - 1)
+      const newY = (containerCenterY - imageCenterY) * (scaleDiff - 1)
+
+      // Apply smooth transition to pan position
+      requestAnimationFrame(() => {
+        setPanPosition(prev => ({
+          x: prev.x + newX,
+          y: prev.y + newY
+        }))
+      })
+    }
+
+    setZoomLevel(newZoom)
+  }, [zoomLevel])
+
+  // Move calculateFitZoom before its usage
+  const calculateFitZoom = (mode: 'width' | 'height' | 'auto') => {
+    if (!imageRef.current || !containerRef.current) return 100
+
+    const container = containerRef.current
+    const image = imageRef.current
+    const padding = 32 // Account for padding
+    const containerWidth = container.clientWidth - padding * 2
+    const containerHeight = container.clientHeight - padding * 2
+
+    const imageWidth = image.naturalWidth
+    const imageHeight = image.naturalHeight
+
+    const widthRatio = containerWidth / imageWidth
+    const heightRatio = containerHeight / imageHeight
+
+    if (mode === 'width') {
+      return widthRatio * 100
+    } else if (mode === 'height') {
+      return heightRatio * 100
+    } else {
+      // Auto mode - fit either width or height depending on aspect ratio
+      return Math.min(widthRatio, heightRatio) * 100
+    }
   }
+
+  // Memoize complex calculations
+  const zoomPresets = useMemo(() => {
+    if (!imageRef.current) return [25, 50, 75, 100, 125, 150, 200]
+    
+    const fitZoom = calculateFitZoom('auto')
+    const roundedFitZoom = Math.round(fitZoom)
+    
+    return [
+      Math.max(25, Math.round(fitZoom * 0.5)), // Half fit
+      roundedFitZoom, // Fit to screen
+      100, // Actual size
+      Math.min(200, Math.round(fitZoom * 1.5)), // 1.5x fit
+      Math.min(200, Math.round(fitZoom * 2)) // 2x fit
+    ].filter((value, index, self) => self.indexOf(value) === index)
+  }, [imageRef.current])
+
+  // Memoize status display
+  const statusDisplay = useMemo(() => 
+    getStatusDisplay(docStatus?.status || '', currentPage, results.length),
+    [docStatus?.status, currentPage, results.length]
+  )
 
   // Add keyboard navigation
   useEffect(() => {
@@ -418,22 +615,6 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
   }, [results.length, currentResult])
-
-  const handleSearch = (query: string) => {
-    setSearchQuery(query)
-    if (!query.trim()) {
-      setSearchResults([])
-      return
-    }
-
-    const matches = results
-      .filter(result => result.text.toLowerCase().includes(query.toLowerCase()))
-      .map(result => ({
-        page: result.pageNumber,
-        text: result.text
-      }))
-    setSearchResults(matches)
-  }
 
   const handleZoomIn = () => setZoomLevel(prev => Math.min(prev + 25, 200))
   const handleZoomOut = () => setZoomLevel(prev => Math.max(prev - 25, 25))
@@ -534,48 +715,6 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     return () => window.removeEventListener('mouseup', handleGlobalMouseUp)
   }, [])
 
-  // Update calculateFitZoom to better handle different image sizes
-  const calculateFitZoom = (mode: 'width' | 'height' | 'auto') => {
-    if (!imageRef.current || !containerRef.current) return 100
-
-    const container = containerRef.current
-    const image = imageRef.current
-    const padding = 32 // Account for padding
-    const containerWidth = container.clientWidth - padding * 2
-    const containerHeight = container.clientHeight - padding * 2
-
-    const imageWidth = image.naturalWidth
-    const imageHeight = image.naturalHeight
-
-    const widthRatio = containerWidth / imageWidth
-    const heightRatio = containerHeight / imageHeight
-
-    if (mode === 'width') {
-      return widthRatio * 100
-    } else if (mode === 'height') {
-      return heightRatio * 100
-    } else {
-      // Auto mode - fit either width or height depending on aspect ratio
-      return Math.min(widthRatio, heightRatio) * 100
-    }
-  }
-
-  // Add zoom presets based on image size
-  const getZoomPresets = () => {
-    if (!imageRef.current) return [25, 50, 75, 100, 125, 150, 200]
-    
-    const fitZoom = calculateFitZoom('auto')
-    const roundedFitZoom = Math.round(fitZoom)
-    
-    return [
-      Math.max(25, Math.round(fitZoom * 0.5)), // Half fit
-      roundedFitZoom, // Fit to screen
-      100, // Actual size
-      Math.min(200, Math.round(fitZoom * 1.5)), // 1.5x fit
-      Math.min(200, Math.round(fitZoom * 2)) // 2x fit
-    ].filter((value, index, self) => self.indexOf(value) === index) // Remove duplicates
-  }
-
   // Update pan handlers
   const handlePanStart = (e: React.MouseEvent) => {
     if (!imageContainerRef.current || zoomLevel <= 100) return
@@ -604,42 +743,6 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
 
   const handlePanEnd = () => {
     setIsPanning(false)
-  }
-
-  // Update zoom handlers
-  const handleZoomChange = (newZoom: number) => {
-    if (!imageContainerRef.current || !imageRef.current) return
-
-    const container = imageContainerRef.current
-    const image = imageRef.current
-    
-    // Reset pan position when zooming to 100% or less
-    if (newZoom <= 100) {
-      setPanPosition({ x: 0, y: 0 })
-    } else {
-      // Maintain center point when zooming
-      const containerRect = container.getBoundingClientRect()
-      const imageRect = image.getBoundingClientRect()
-
-      const containerCenterX = containerRect.width / 2
-      const containerCenterY = containerRect.height / 2
-      const imageCenterX = (imageRect.left + imageRect.right) / 2
-      const imageCenterY = (imageRect.top + imageRect.bottom) / 2
-
-      const scaleDiff = newZoom / zoomLevel
-      const newX = (containerCenterX - imageCenterX) * (scaleDiff - 1)
-      const newY = (containerCenterY - imageCenterY) * (scaleDiff - 1)
-
-      // Apply smooth transition to pan position
-      requestAnimationFrame(() => {
-        setPanPosition(prev => ({
-          x: prev.x + newX,
-          y: prev.y + newY
-        }))
-      })
-    }
-
-    setZoomLevel(newZoom)
   }
 
   const renderToolbar = () => (
@@ -980,7 +1083,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
         </DropdownMenuTrigger>
         <DropdownMenuContent align="center" className="w-[180px]">
           <div className="grid grid-cols-1 gap-0.5 p-1">
-            {[25, 50, 75, 100, 125, 150, 175, 200].map((zoom) => (
+            {zoomPresets.map((zoom) => (
               <Button
                 key={zoom}
                 variant={Math.round(zoomLevel) === zoom ? "secondary" : "ghost"}
@@ -1117,6 +1220,9 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
       )
     }
 
+    const cachedImage = imageCache.get(currentResult.imageUrl)
+    const showLoadingState = !imageLoaded && !cachedImage
+
     return (
       <div 
         ref={imageContainerRef}
@@ -1142,7 +1248,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
               WebkitBackfaceVisibility: 'hidden',
             }}
           >
-            {(!imageLoaded || isRetrying) && !imageError && (
+            {showLoadingState && !imageError && (
               <div className="absolute inset-0 flex items-center justify-center bg-muted/5">
                 <div className="flex flex-col items-center gap-3">
                   <div className="h-5 w-5 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
@@ -1160,7 +1266,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
               alt={`Page ${currentPage}`}
               className={cn(
                 "max-h-[calc(100vh-14rem)] w-auto rounded-lg select-none",
-                imageLoaded && !imageError ? "opacity-100" : "opacity-0",
+                (imageLoaded || cachedImage) && !imageError ? "opacity-100" : "opacity-0",
                 "transition-opacity duration-300",
                 "will-change-transform"
               )}

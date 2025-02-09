@@ -34,6 +34,8 @@ interface FileUploadProps {
   maxFileSize: number
   maxSimultaneousUploads: number
   allowedFileTypes: string[]
+  isPageDragging?: boolean
+  onDragStateChange?: (isDragging: boolean) => void
 }
 
 function getStatusDisplay(status: string, currentPage?: number, totalPages?: number) {
@@ -84,6 +86,8 @@ export function FileUpload({
   maxFileSize,
   maxSimultaneousUploads,
   allowedFileTypes,
+  isPageDragging = false,
+  onDragStateChange,
 }: FileUploadProps) {
   const [isUploading, setIsUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({})
@@ -169,6 +173,10 @@ export function FileUpload({
     maxSize: maxFileSize * 1024 * 1024,
     maxFiles: maxSimultaneousUploads,
     disabled: isUploading || disabled,
+    onDragEnter: () => onDragStateChange?.(true),
+    onDragLeave: () => onDragStateChange?.(false),
+    onDropAccepted: () => onDragStateChange?.(false),
+    onDropRejected: () => onDragStateChange?.(false),
   })
 
   const getFileIcon = (filename: string) => {
@@ -219,38 +227,113 @@ export function FileUpload({
       <div
         {...getRootProps()}
         className={cn(
-          "border-2 border-dashed rounded-lg p-8",
-          "flex flex-col items-center justify-center gap-4",
-          "transition-all duration-200 ease-in-out",
-          "cursor-pointer hover:border-primary/50",
-          isDragActive ? "border-primary bg-primary/10 scale-[1.02]" : "border-muted",
+          "relative border-2 border-dashed rounded-lg",
+          "h-[240px] flex flex-col items-center justify-center",
+          "transition-all duration-300 ease-out",
+          "cursor-pointer group overflow-hidden",
+          isDragActive 
+            ? "border-primary bg-primary/5 scale-[1.01]" 
+            : isPageDragging
+              ? "border-primary/40 bg-muted/5"
+              : "border-muted/40 hover:border-primary/50 hover:bg-muted/5",
           (isUploading || disabled) && "opacity-50 cursor-not-allowed",
         )}
       >
         <input {...getInputProps()} />
-        <Upload 
-          className={cn(
-            "h-10 w-10 text-muted-foreground",
-            "transition-transform duration-200",
-            isDragActive && "scale-110 text-primary"
-          )} 
-        />
-        <div className="text-center space-y-2">
-          <p className="text-muted-foreground">
-            {isDragActive
-              ? "Drop the files here"
-              : disabled
-                ? "Configure API settings to upload files"
-                : `Drag and drop files here, or click to select (up to ${maxSimultaneousUploads} files)`}
-          </p>
-          <p className="text-xs text-muted-foreground">
-            Supported formats: {allowedFileTypes.join(", ")} (max {maxFileSize}MB)
-          </p>
+        
+        {/* Animated Background Pattern */}
+        <div className="absolute inset-0 pointer-events-none select-none">
+          <div className="absolute inset-0 bg-grid-primary/[0.02] [mask-image:radial-gradient(ellipse_at_center,transparent_20%,black)]" />
+          <div className="absolute inset-4 grid grid-cols-3 gap-4">
+            <div className="flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-500">
+              <FileText className={cn(
+                "h-12 w-12 text-muted-foreground/10 transition-all duration-500",
+                "group-hover:scale-110 group-hover:-rotate-6 group-hover:-translate-y-2",
+                isDragActive && "scale-110 -rotate-6 -translate-y-2"
+              )} />
+            </div>
+            <div className="flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-500 delay-75">
+              <ImageIcon className={cn(
+                "h-12 w-12 text-muted-foreground/10 transition-all duration-500",
+                "group-hover:scale-110 group-hover:rotate-3 group-hover:-translate-y-2",
+                isDragActive && "scale-110 rotate-3 -translate-y-2"
+              )} />
+            </div>
+            <div className="flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-500 delay-150">
+              <FileText className={cn(
+                "h-12 w-12 text-muted-foreground/10 transition-all duration-500",
+                "group-hover:scale-110 group-hover:rotate-6 group-hover:-translate-y-2",
+                isDragActive && "scale-110 rotate-6 -translate-y-2"
+              )} />
+            </div>
+          </div>
         </div>
+
+        {/* Content */}
+        <div className="relative flex flex-col items-center gap-6 text-center z-10 px-4">
+          <div className="relative">
+            <div className="absolute inset-0 bg-gradient-to-b from-primary/10 to-primary/5 rounded-full blur-xl group-hover:blur-2xl transition-all duration-500 opacity-0 group-hover:opacity-100" />
+            <div className="relative p-4 rounded-full bg-gradient-to-b from-muted to-muted/80 group-hover:from-primary/10 group-hover:to-primary/5 transition-all duration-300">
+              <Upload 
+                className={cn(
+                  "h-8 w-8 text-muted-foreground",
+                  "transition-all duration-300",
+                  isDragActive && "scale-125 text-primary",
+                  "group-hover:scale-110 group-hover:text-primary"
+                )} 
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2 max-w-[320px]">
+            <p className={cn(
+              "text-base font-medium transition-colors duration-200",
+              isDragActive ? "text-primary" : "text-foreground"
+            )}>
+              {isDragActive
+                ? "Drop files here to start processing"
+                : disabled
+                  ? "Configure API settings to upload files"
+                  : "Drag and drop your files here"}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              {!disabled && (
+                <>
+                  or <span className="text-primary font-medium underline decoration-dashed underline-offset-4 hover:decoration-solid cursor-pointer group-hover:decoration-solid">browse</span> to choose files
+                </>
+              )}
+            </p>
+            <div className="pt-2 flex items-center justify-center gap-4 text-xs text-muted-foreground/80">
+              <span className="flex items-center gap-1.5">
+                <FileText className="h-3.5 w-3.5" />
+                Supports: {allowedFileTypes.join(", ")}
+              </span>
+              <span className="flex items-center gap-1.5">
+                <Upload className="h-3.5 w-3.5" />
+                Up to {maxSimultaneousUploads} files, {maxFileSize}MB each
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Progress Overlay */}
+        {isUploading && (
+          <div className="absolute inset-0 bg-background/60 backdrop-blur-sm flex items-center justify-center rounded-lg">
+            <div className="text-center space-y-3">
+              <div className="relative">
+                <div className="absolute inset-0 bg-primary/20 rounded-full blur-xl animate-pulse" />
+                <div className="relative p-4 rounded-full bg-primary/10">
+                  <Upload className="h-6 w-6 text-primary animate-bounce" />
+                </div>
+              </div>
+              <p className="text-sm font-medium text-primary">Uploading files...</p>
+            </div>
+          </div>
+        )}
       </div>
 
       {error && (
-        <Alert variant="destructive">
+        <Alert variant="destructive" className="animate-in fade-in-0 slide-in-from-top-1">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>{error}</AlertDescription>
         </Alert>
@@ -299,7 +382,7 @@ export function FileUpload({
                       {item.size && (
                         <span className="text-xs text-muted-foreground">
                           {formatFileSize(item.size)}
-                          {item.totalPages ? ` • ${item.totalPages} pages` : ''}
+                          {item.totalPages && item.totalPages > 0 ? ` • ${item.totalPages} pages` : ''}
                         </span>
                       )}
                     </span>

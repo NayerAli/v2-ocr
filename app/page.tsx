@@ -10,6 +10,7 @@ import { FileUpload } from "./components/file-upload"
 import { SettingsDialog } from "./components/settings-dialog"
 import type { ProcessingStatus } from "@/types"
 import { useSettings } from "@/store/settings"
+import { useSettingsInit } from "@/hooks/use-settings-init"
 import { useToast } from "@/hooks/use-toast"
 import { cn } from "@/lib/utils"
 import { db } from "@/lib/indexed-db"
@@ -30,8 +31,10 @@ export default function DashboardPage() {
   const router = useRouter()
   const settings = useSettings()
   const { toast } = useToast()
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const { isInitialized, isConfigured, shouldShowSettings, setShouldShowSettings } = useSettingsInit()
   const [processingQueue, setProcessingQueue] = useState<ProcessingStatus[]>([])
+  const [isDraggingOverPage, setIsDraggingOverPage] = useState(false)
+  const [isLoadingData, setIsLoadingData] = useState(true)
   const [stats, setStats] = useState<DashboardStats>({
     totalProcessed: 0,
     avgProcessingTime: 0,
@@ -41,58 +44,77 @@ export default function DashboardPage() {
   const [selectedDocument, setSelectedDocument] = useState<ProcessingStatus | null>(null)
   const [isDetailsOpen, setIsDetailsOpen] = useState(false)
 
-  // Initialize PDF.js
-  useEffect(() => {
-    initializePDFJS()
-  }, [])
-
-  // Create processing service with current settings
+  // Create processing service with current settings - memoize with isInitialized
   const processingService = useMemo(
     () => new ProcessingService({
       ocr: settings.ocr,
       processing: settings.processing,
       upload: settings.upload
     }),
-    [settings.ocr, settings.processing, settings.upload]
+    [settings.ocr, settings.processing, settings.upload, isInitialized]
   )
+
+  // Initialize PDF.js only after settings are loaded
+  useEffect(() => {
+    if (isInitialized) {
+      initializePDFJS()
+    }
+  }, [isInitialized])
 
   // Load queue and update stats
   useEffect(() => {
-    const loadQueue = async () => {
+    let isMounted = true
+
+    const loadQueue = async (isInitialLoad = false) => {
+      if (!isInitialized) return
+
       try {
+        if (isInitialLoad) {
+          setIsLoadingData(true)
+        }
+
+        // Load queue first and update UI immediately
         const queue = await db.getQueue()
+        if (!isMounted) return
         setProcessingQueue(queue)
-        updateStats(queue)
-        
-        // Update storage stats
+
+        // Then load stats in the background
         const dbStats = await db.getDatabaseStats()
-        setStats(prev => ({ ...prev, totalStorage: dbStats.dbSize }))
+        if (!isMounted) return
+
+        // Update stats after both are loaded
+        const completed = queue.filter((item) => item.status === "completed")
+        const totalProcessed = completed.length
+        const avgTime = completed.reduce((acc, item) => {
+          return acc + ((item.endTime || 0) - (item.startTime || 0))
+        }, 0) / (totalProcessed || 1)
+
+        setStats({
+          totalProcessed,
+          avgProcessingTime: avgTime,
+          successRate: queue.length ? (totalProcessed / queue.length) * 100 : 0,
+          totalStorage: dbStats.dbSize
+        })
       } catch (error) {
         console.error("Error loading queue:", error)
+      } finally {
+        if (isMounted && isInitialLoad) {
+          setIsLoadingData(false)
+        }
       }
     }
 
-    loadQueue()
-    const interval = setInterval(loadQueue, 1000)
-    return () => clearInterval(interval)
-  }, [])
+    // Initial load with loading state
+    loadQueue(true)
+    
+    // Setup polling without loading state
+    const interval = setInterval(() => loadQueue(false), 3000)
 
-  const updateStats = (queue: ProcessingStatus[]) => {
-    const completed = queue.filter((item) => item.status === "completed")
-    const totalProcessed = completed.length
-
-    const avgTime =
-      completed.reduce((acc, item) => {
-        return acc + ((item.endTime || 0) - (item.startTime || 0))
-      }, 0) / (totalProcessed || 1)
-
-    setStats(prev => ({
-      ...prev,
-      totalProcessed,
-      avgProcessingTime: avgTime,
-      successRate: queue.length ? (totalProcessed / queue.length) * 100 : 0,
-    }))
-  }
+    return () => {
+      isMounted = false
+      clearInterval(interval)
+    }
+  }, [isInitialized])
 
   const handleFilesAccepted = async (files: File[]) => {
     try {
@@ -150,7 +172,23 @@ export default function DashboardPage() {
     }
   }
 
-  const isConfigured = settings.ocr.apiKey && (settings.ocr.provider !== "microsoft" || settings.ocr.region)
+  // Add loading skeletons for stats cards
+  const renderStatsCard = (title: string, icon: React.ReactNode, content: React.ReactNode) => (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between pb-2">
+        <CardTitle className="text-sm font-medium">{title}</CardTitle>
+        {icon}
+      </CardHeader>
+      <CardContent>
+        {isLoadingData || !processingQueue.length ? (
+          <div className="space-y-2">
+            <div className="h-8 w-16 animate-pulse rounded bg-muted" />
+            <div className="h-4 w-24 animate-pulse rounded bg-muted" />
+          </div>
+        ) : content}
+      </CardContent>
+    </Card>
+  )
 
   return (
     <>
@@ -164,14 +202,13 @@ export default function DashboardPage() {
           </p>
         </div>
 
-        {/* Configuration Alert */}
         {!isConfigured && (
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
             <AlertTitle>Action Required</AlertTitle>
             <AlertDescription className="mt-2">
               <p className="mb-2">Please configure your OCR API settings before uploading documents.</p>
-              <Button variant="secondary" size="sm" onClick={() => setIsSettingsOpen(true)}>
+              <Button variant="secondary" size="sm" onClick={() => setShouldShowSettings(true)}>
                 Configure Settings
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
@@ -180,103 +217,103 @@ export default function DashboardPage() {
         )}
 
         {/* Upload Section */}
-        <Card className="border-dashed">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Upload className="h-5 w-5" />
-              Upload Documents
-            </CardTitle>
-            <CardDescription>
-              Drag and drop your documents here or click to browse.
-              <br />
-              <span className="text-xs">Maximum file size: {formatFileSize(settings.upload.maxFileSize)}</span>
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <FileUpload
-              onFilesAccepted={handleFilesAccepted}
-              processingQueue={processingQueue}
-              onPause={async () => {
-                await processingService.pauseQueue()
-                toast({
-                  title: "Processing Paused",
-                  description: "Document processing has been paused",
-                })
-              }}
-              onResume={async () => {
-                await processingService.resumeQueue()
-                toast({
-                  title: "Processing Resumed",
-                  description: "Document processing has been resumed",
-                })
-              }}
-              onRemove={handleRemoveFromQueue}
-              onCancel={handleCancel}
-              disabled={!isConfigured}
-              maxFileSize={settings.upload.maxFileSize}
-              maxSimultaneousUploads={settings.upload.maxSimultaneousUploads}
-              allowedFileTypes={settings.upload.allowedFileTypes}
-            />
-          </CardContent>
-        </Card>
+        <div className="relative">
+          <Card className={cn(
+            "border-dashed transition-all duration-300",
+            isDraggingOverPage && "ring-2 ring-primary shadow-lg"
+          )}>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Upload className={cn(
+                  "h-5 w-5 transition-colors duration-300",
+                  isDraggingOverPage ? "text-primary" : "text-primary/80"
+                )} />
+                Upload Documents
+              </CardTitle>
+              <CardDescription>
+                Process and extract text from your documents using our advanced OCR technology.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <FileUpload
+                onFilesAccepted={handleFilesAccepted}
+                processingQueue={processingQueue}
+                onPause={async () => {
+                  await processingService.pauseQueue()
+                  toast({
+                    title: "Processing Paused",
+                    description: "Document processing has been paused",
+                  })
+                }}
+                onResume={async () => {
+                  await processingService.resumeQueue()
+                  toast({
+                    title: "Processing Resumed",
+                    description: "Document processing has been resumed",
+                  })
+                }}
+                onRemove={handleRemoveFromQueue}
+                onCancel={handleCancel}
+                disabled={!isConfigured || !isInitialized}
+                maxFileSize={settings.upload.maxFileSize}
+                maxSimultaneousUploads={settings.upload.maxSimultaneousUploads}
+                allowedFileTypes={settings.upload.allowedFileTypes}
+                isPageDragging={isDraggingOverPage}
+                onDragStateChange={setIsDraggingOverPage}
+              />
+            </CardContent>
+          </Card>
+        </div>
 
         {/* Stats Grid */}
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Total Documents</CardTitle>
-              <FileText className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
+          {renderStatsCard(
+            "Total Documents",
+            <FileText className="h-4 w-4 text-muted-foreground" />,
+            <>
               <div className="text-2xl font-bold">{processingQueue.length}</div>
               <p className="text-xs text-muted-foreground mt-1">
                 {stats.totalProcessed} processed • {formatFileSize(stats.totalStorage * 1024 * 1024)} used
               </p>
-            </CardContent>
-          </Card>
+            </>
+          )}
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">In Progress</CardTitle>
-              <Upload className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
+          {renderStatsCard(
+            "In Progress",
+            <Upload className="h-4 w-4 text-muted-foreground" />,
+            <>
               <div className="text-2xl font-bold">
                 {processingQueue.filter((item) => item.status === "processing").length}
               </div>
               <p className="text-xs text-muted-foreground mt-1">
                 {processingQueue.filter((item) => item.status === "queued").length} queued
               </p>
-            </CardContent>
-          </Card>
+            </>
+          )}
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Success Rate</CardTitle>
-              <CheckCircle className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
+          {renderStatsCard(
+            "Success Rate",
+            <CheckCircle className="h-4 w-4 text-muted-foreground" />,
+            <>
               <div className="text-2xl font-bold">{stats.successRate.toFixed(1)}%</div>
               <p className="text-xs text-muted-foreground mt-1">
                 Avg. {Math.round(stats.avgProcessingTime / 1000)}s per file
               </p>
-            </CardContent>
-          </Card>
+            </>
+          )}
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Processing Speed</CardTitle>
-              <AlertCircle className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
+          {renderStatsCard(
+            "Processing Speed",
+            <AlertCircle className="h-4 w-4 text-muted-foreground" />,
+            <>
               <div className="text-2xl font-bold">
                 {settings.processing.maxConcurrentJobs * settings.processing.pagesPerChunk}
               </div>
               <p className="text-xs text-muted-foreground mt-1">
                 Pages per batch • {settings.processing.concurrentChunks} chunks
               </p>
-            </CardContent>
-          </Card>
+            </>
+          )}
         </div>
 
         {/* Recent Documents */}
@@ -296,17 +333,31 @@ export default function DashboardPage() {
             </div>
           </CardHeader>
           <CardContent>
-            <DocumentList
-              documents={processingQueue.slice(0, 5)}
-              onShowDetails={(doc) => {
-                setSelectedDocument(doc)
-                setIsDetailsOpen(true)
-              }}
-              onDownload={handleViewResults}
-              onDelete={handleRemoveFromQueue}
-              variant="grid"
-              showHeader={false}
-            />
+            {isLoadingData ? (
+              <div className="space-y-4">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i} className="flex items-center gap-4">
+                    <div className="h-12 w-12 rounded bg-muted animate-pulse" />
+                    <div className="flex-1 space-y-2">
+                      <div className="h-4 w-48 bg-muted rounded animate-pulse" />
+                      <div className="h-3 w-24 bg-muted rounded animate-pulse" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <DocumentList
+                documents={processingQueue.slice(0, 5)}
+                onShowDetails={(doc) => {
+                  setSelectedDocument(doc)
+                  setIsDetailsOpen(true)
+                }}
+                onDownload={handleViewResults}
+                onDelete={handleRemoveFromQueue}
+                variant="grid"
+                showHeader={false}
+              />
+            )}
           </CardContent>
         </Card>
       </div>
@@ -316,7 +367,16 @@ export default function DashboardPage() {
         open={isDetailsOpen}
         onOpenChange={setIsDetailsOpen}
       />
-      <SettingsDialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen} />
+      <SettingsDialog 
+        open={shouldShowSettings} 
+        onOpenChange={(open) => {
+          setShouldShowSettings(open)
+          // If settings are configured and dialog is being closed, refresh the page
+          if (!open && isConfigured) {
+            router.refresh()
+          }
+        }}
+      />
     </>
   )
 }

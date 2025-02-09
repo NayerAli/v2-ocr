@@ -22,6 +22,7 @@ interface DocumentListProps {
   onDelete: (id: string) => void
   variant?: "table" | "grid"
   showHeader?: boolean
+  isLoading?: boolean
 }
 
 export function DocumentList({ 
@@ -30,7 +31,8 @@ export function DocumentList({
   onDownload, 
   onDelete, 
   variant = "table",
-  showHeader = true 
+  showHeader = true,
+  isLoading = false
 }: DocumentListProps) {
   const router = useRouter()
 
@@ -154,6 +156,54 @@ export function DocumentList({
             </div>
           </div>
         ))}
+      </div>
+    )
+  }
+
+  if (isLoading) {
+    return (
+      <div className="rounded-md border bg-card">
+        <Table>
+          <TableHeader>
+            <TableRow className="hover:bg-transparent">
+              <TableHead>Name</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Date</TableHead>
+              <TableHead>Pages</TableHead>
+              <TableHead>Size</TableHead>
+              <TableHead className="w-[100px]">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {Array.from({ length: 8 }).map((_, i) => (
+              <TableRow key={i}>
+                <TableCell>
+                  <div className="flex items-center gap-2">
+                    <div className="h-4 w-4 rounded bg-muted/60 animate-pulse flex-shrink-0" />
+                    <div className="h-4 w-[200px] bg-muted/60 rounded animate-pulse" />
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div className="h-6 w-24 bg-muted/60 rounded-full animate-pulse" />
+                </TableCell>
+                <TableCell>
+                  <div className="h-4 w-20 bg-muted/60 rounded animate-pulse" />
+                </TableCell>
+                <TableCell>
+                  <div className="h-4 w-6 bg-muted/60 rounded animate-pulse" />
+                </TableCell>
+                <TableCell>
+                  <div className="h-4 w-16 bg-muted/60 rounded animate-pulse" />
+                </TableCell>
+                <TableCell>
+                  <div className="flex justify-end">
+                    <div className="h-8 w-8 rounded bg-muted/60 animate-pulse" />
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
       </div>
     )
   }

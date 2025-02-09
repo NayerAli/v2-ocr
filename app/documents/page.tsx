@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo, useCallback, useTransition } from "react"
 import Link from "next/link"
 import { Search, Filter, Upload } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -11,9 +11,14 @@ import { DocumentList } from "../components/document-list"
 import { db } from "@/lib/indexed-db"
 import type { ProcessingStatus } from "@/types"
 import { cn } from "@/lib/utils"
+import { useSettingsInit } from "@/hooks/use-settings-init"
+import { Table, TableHeader, TableBody, TableCell, TableHead, TableRow } from "@/components/ui/table"
 
 export default function DocumentsPage() {
+  const { isInitialized, isConfigured, shouldShowSettings, setShouldShowSettings } = useSettingsInit()
+  const [isPending, startTransition] = useTransition()
   const [documents, setDocuments] = useState<ProcessingStatus[]>([])
+  const [isLoadingData, setIsLoadingData] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [sortBy, setSortBy] = useState<string>("date")
@@ -21,46 +26,87 @@ export default function DocumentsPage() {
   const [selectedDocument, setSelectedDocument] = useState<ProcessingStatus | null>(null)
   const [isDetailsOpen, setIsDetailsOpen] = useState(false)
 
-  useEffect(() => {
-    const loadDocuments = async () => {
-      const queue = await db.getQueue()
-      setDocuments(queue)
-    }
-
-    loadDocuments()
-    const interval = setInterval(loadDocuments, 1000)
-    return () => clearInterval(interval)
+  const handleShowDetails = useCallback((doc: ProcessingStatus) => {
+    setSelectedDocument(doc)
+    setIsDetailsOpen(true)
   }, [])
 
-  const filteredDocuments = documents
-    .filter(
-      (doc) =>
-        doc.filename.toLowerCase().includes(searchQuery.toLowerCase()) &&
-        (statusFilter === "all" || doc.status === statusFilter),
-    )
-    .sort((a, b) => {
-      if (sortBy === "date") {
+  useEffect(() => {
+    let isSubscribed = true
+    const loadDocuments = async (isInitialLoad = false) => {
+      if (!isInitialized) return
+
+      try {
+        // Only show loading state on initial load
+        if (isInitialLoad) {
+          setIsLoadingData(true)
+        }
+        
+        const queue = await db.getQueue()
+        if (isSubscribed) {
+          setDocuments(queue)
+        }
+      } catch (error) {
+        console.error("Error loading documents:", error)
+      } finally {
+        if (isSubscribed && isInitialLoad) {
+          setIsLoadingData(false)
+        }
+      }
+    }
+
+    // Initial load with loading state
+    loadDocuments(true)
+    
+    // Setup polling without loading state
+    const interval = setInterval(() => loadDocuments(false), 3000)
+    
+    return () => {
+      isSubscribed = false
+      clearInterval(interval)
+    }
+  }, [isInitialized])
+
+  const getSortedDocuments = useCallback((docs: ProcessingStatus[], sort: string, order: "asc" | "desc") => {
+    return [...docs].sort((a, b) => {
+      if (sort === "date") {
         const aTime = a.startTime || 0
         const bTime = b.startTime || 0
-        return sortOrder === "desc" ? bTime - aTime : aTime - bTime
+        return order === "desc" ? bTime - aTime : aTime - bTime
       }
-      if (sortBy === "name") {
-        return sortOrder === "desc" ? b.filename.localeCompare(a.filename) : a.filename.localeCompare(b.filename)
+      if (sort === "name") {
+        return order === "desc" ? b.filename.localeCompare(a.filename) : a.filename.localeCompare(b.filename)
       }
-      if (sortBy === "size") {
-        return sortOrder === "desc" 
+      if (sort === "size") {
+        return order === "desc" 
           ? (b.size ?? 0) - (a.size ?? 0) 
           : (a.size ?? 0) - (b.size ?? 0)
       }
       return 0
     })
+  }, [])
 
-  const handleDelete = async (id: string) => {
+  const filteredDocuments = useMemo(() => {
+    const filtered = documents.filter(
+      (doc) =>
+        doc.filename.toLowerCase().includes(searchQuery.toLowerCase()) &&
+        (statusFilter === "all" || doc.status === statusFilter),
+    )
+    return getSortedDocuments(filtered, sortBy, sortOrder)
+  }, [documents, searchQuery, statusFilter, sortBy, sortOrder, getSortedDocuments])
+
+  const debouncedSearch = useCallback((value: string) => {
+    startTransition(() => {
+      setSearchQuery(value)
+    })
+  }, [])
+
+  const handleDelete = useCallback(async (id: string) => {
     await db.removeFromQueue(id)
     setDocuments((prev) => prev.filter((doc) => doc.id !== id))
-  }
+  }, [])
 
-  const handleDownload = async (id: string) => {
+  const handleDownload = useCallback(async (id: string) => {
     const results = await db.getResults(id)
     if (!results) return
 
@@ -74,7 +120,7 @@ export default function DocumentsPage() {
     a.click()
     document.body.removeChild(a)
     URL.revokeObjectURL(url)
-  }
+  }, [])
 
   return (
     <div className="space-y-8">
@@ -101,13 +147,14 @@ export default function DocumentsPage() {
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder="Search documents by name..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            defaultValue={searchQuery}
+            onChange={(e) => debouncedSearch(e.target.value)}
             className="pl-9 w-full"
+            disabled={isLoadingData}
           />
         </div>
         <div className="flex items-center gap-4">
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <Select value={statusFilter} onValueChange={setStatusFilter} disabled={isLoadingData}>
             <SelectTrigger className="w-[160px]">
               <SelectValue placeholder="Filter by status" />
             </SelectTrigger>
@@ -120,7 +167,7 @@ export default function DocumentsPage() {
               <SelectItem value="error">Error</SelectItem>
             </SelectContent>
           </Select>
-          <Select value={sortBy} onValueChange={setSortBy}>
+          <Select value={sortBy} onValueChange={setSortBy} disabled={isLoadingData}>
             <SelectTrigger className="w-[160px]">
               <SelectValue placeholder="Sort by" />
             </SelectTrigger>
@@ -135,6 +182,7 @@ export default function DocumentsPage() {
             size="icon"
             onClick={() => setSortOrder((prev) => (prev === "asc" ? "desc" : "asc"))}
             className="h-10 w-10"
+            disabled={isLoadingData}
           >
             <Filter className={cn("h-4 w-4 transition-transform", sortOrder === "desc" && "rotate-180")} />
           </Button>
@@ -143,12 +191,10 @@ export default function DocumentsPage() {
 
       <DocumentList
         documents={filteredDocuments}
-        onShowDetails={(doc) => {
-          setSelectedDocument(doc)
-          setIsDetailsOpen(true)
-        }}
+        onShowDetails={handleShowDetails}
         onDownload={handleDownload}
         onDelete={handleDelete}
+        isLoading={isLoadingData}
       />
 
       <DocumentDetailsDialog

@@ -1,5 +1,5 @@
 import { create } from "zustand"
-import { persist } from "zustand/middleware"
+import { persist, createJSONStorage } from "zustand/middleware"
 import { CONFIG } from "@/config/constants"
 import type { SettingsState, OCRSettings, ProcessingSettings, UploadSettings, DisplaySettings, DatabaseSettings } from "@/types/settings"
 
@@ -50,6 +50,22 @@ export const useSettings = create<SettingsState>()(
     {
       name: "pdf-ocr-settings",
       version: 1,
+      storage: createJSONStorage(() => localStorage),
+      skipHydration: false,
+      onRehydrateStorage: () => {
+        // Return a handler that will be called after rehydration
+        return (state) => {
+          if (state) {
+            // Ensure all required fields exist after rehydration
+            const hasAllFields = state.ocr && state.processing && state.upload && 
+                               state.display && state.database
+            if (!hasAllFields) {
+              // Reset to defaults if any required field is missing
+              state.resetSettings()
+            }
+          }
+        }
+      }
     },
   ),
 )

@@ -15,6 +15,17 @@ class DatabaseService {
   private dbName = "ocr-dashboard"
   private version = 2
   private db: Promise<IDBPDatabase<OCRDatabase>> | null = null
+  private cache: {
+    queue: ProcessingStatus[]
+    results: Map<string, OCRResult[]>
+    stats: DatabaseStats | null
+  } = {
+    queue: [],
+    results: new Map(),
+    stats: null
+  }
+  private lastUpdate = 0
+  private CACHE_TTL = 2000 // 2 seconds
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -48,6 +59,11 @@ class DatabaseService {
   }
 
   async getDatabaseStats(): Promise<DatabaseStats> {
+    const now = Date.now()
+    if (this.cache.stats && now - this.lastUpdate < this.CACHE_TTL) {
+      return this.cache.stats
+    }
+
     if (!this.db) return { totalDocuments: 0, totalResults: 0, dbSize: 0 }
     const db = await this.db
     
@@ -65,12 +81,16 @@ class DatabaseService {
     const queueSize = new Blob([JSON.stringify(queue)]).size
     const resultsSize = new Blob([JSON.stringify(results)]).size
     
-    return {
+    const stats = {
       totalDocuments: queue.length,
       totalResults: results.length,
       dbSize: Math.round((queueSize + resultsSize) / (1024 * 1024)), // Convert to MB
       lastCleared
     }
+
+    this.cache.stats = stats
+    this.lastUpdate = now
+    return stats
   }
 
   async cleanupOldRecords(retentionPeriod: number) {
@@ -108,6 +128,22 @@ class DatabaseService {
     })
   }
 
+  async getQueue(): Promise<ProcessingStatus[]> {
+    const now = Date.now()
+    if (this.cache.queue.length && now - this.lastUpdate < this.CACHE_TTL) {
+      return this.cache.queue
+    }
+
+    if (!this.db) return []
+    const db = await this.db
+    const queue = await db.getAll("queue")
+    const sorted = queue.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+    
+    this.cache.queue = sorted
+    this.lastUpdate = now
+    return sorted
+  }
+
   async saveToQueue(item: ProcessingStatus) {
     if (!this.db) return
     const db = await this.db
@@ -115,21 +151,46 @@ class DatabaseService {
       ...item,
       updatedAt: new Date()
     })
+    
+    // Invalidate cache
+    this.lastUpdate = 0
+    this.cache.queue = []
+    this.cache.stats = null
   }
 
   async removeFromQueue(id: string) {
     if (!this.db) return
     const db = await this.db
-    await db.delete("queue", id)
+    
+    // Batch delete operation
+    const tx = db.transaction(["queue", "results"], "readwrite")
+    await tx.objectStore("queue").delete(id)
+    
     const results = await this.getResults(id)
-    await Promise.all(results.map(result => db.delete("results", result.id)))
+    await Promise.all(results.map(result => 
+      tx.objectStore("results").delete(result.id)
+    ))
+    
+    await tx.done
+    
+    // Invalidate cache
+    this.lastUpdate = 0
+    this.cache.queue = []
+    this.cache.results.delete(id)
+    this.cache.stats = null
   }
 
-  async getQueue(): Promise<ProcessingStatus[]> {
+  async getResults(documentId: string): Promise<OCRResult[]> {
+    const cached = this.cache.results.get(documentId)
+    if (cached) return cached
+
     if (!this.db) return []
     const db = await this.db
-    const queue = await db.getAll("queue")
-    return queue.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+    const allResults = await db.getAll("results")
+    const filtered = allResults.filter(r => r.documentId === documentId)
+    
+    this.cache.results.set(documentId, filtered)
+    return filtered
   }
 
   async saveResults(documentId: string, results: OCRResult[]) {
@@ -144,13 +205,10 @@ class DatabaseService {
       }))
     )
     await tx.done
-  }
-
-  async getResults(documentId: string): Promise<OCRResult[]> {
-    if (!this.db) return []
-    const db = await this.db
-    const allResults = await db.getAll("results")
-    return allResults.filter(r => r.documentId === documentId)
+    
+    // Update cache
+    this.cache.results.set(documentId, results)
+    this.cache.stats = null
   }
 }
 

@@ -27,6 +27,8 @@ export async function mockOCRProcess(file: File): Promise<OCRResult[]> {
       language: MOCK_LANGUAGES[Math.floor(Math.random() * MOCK_LANGUAGES.length)],
       processingTime: Math.random() * 1000 + 500, // Random processing time between 500-1500ms
       pageNumber: i + 1,
+      id: "",
+      documentId: ""
     })
   }
 
