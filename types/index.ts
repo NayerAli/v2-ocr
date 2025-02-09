@@ -34,6 +34,11 @@ export interface ProcessingStatus {
   results?: OCRResult[]
   createdAt: Date
   updatedAt: Date
+  rateLimitInfo?: {
+    isRateLimited: boolean
+    retryAfter: number
+    rateLimitStart: number
+  }
 }
 
 export interface OCRSettings {

@@ -41,16 +41,23 @@ export interface DatabaseSettings {
   maxStorageSize: number // in MB
 }
 
+export interface ExportSettings {
+  format: 'txt' | 'json' | 'csv'
+  naming: string
+}
+
 export interface SettingsState {
   ocr: OCRSettings
   processing: ProcessingSettings
   upload: UploadSettings
   display: DisplaySettings
   database: DatabaseSettings
+  export: ExportSettings
   updateOCRSettings: (settings: Partial<OCRSettings>) => void
   updateProcessingSettings: (settings: Partial<ProcessingSettings>) => void
   updateUploadSettings: (settings: Partial<UploadSettings>) => void
   updateDisplaySettings: (settings: Partial<DisplaySettings>) => void
   updateDatabaseSettings: (settings: Partial<DatabaseSettings>) => void
+  updateExportSettings: (settings: Partial<ExportSettings>) => void
   resetSettings: () => void
 } 

@@ -4,6 +4,34 @@ import type { OCRSettings, ProcessingSettings, UploadSettings } from "@/types/se
 import { db } from "./indexed-db"
 import { loadPDF, renderPageToBase64 } from "./pdf-utils"
 
+class AzureRateLimiter {
+  private isRateLimited: boolean = false;
+  private rateLimitEndTime: number = 0;
+
+  constructor() {
+    console.log('[Azure] Service initialized');
+  }
+
+  async waitIfLimited(): Promise<void> {
+    if (this.isRateLimited) {
+      const waitTime = this.rateLimitEndTime - Date.now();
+      if (waitTime > 0) {
+        const remainingSeconds = Math.ceil(waitTime/1000);
+        console.log(`[Azure] Rate limited - Waiting ${remainingSeconds}s before resuming`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+      }
+      console.log('[Azure] Rate limit period ended - Resuming processing');
+      this.isRateLimited = false;
+    }
+  }
+
+  setRateLimit(retryAfter: number) {
+    this.isRateLimited = true;
+    this.rateLimitEndTime = Date.now() + (retryAfter * 1000);
+    console.log(`[Azure] Rate limit encountered - Must wait ${retryAfter}s`);
+  }
+}
+
 export class ProcessingService {
   private queueMap: Map<string, ProcessingStatus> = new Map()
   private isProcessing = false
@@ -12,11 +40,13 @@ export class ProcessingService {
   private processingSettings: ProcessingSettings
   private uploadSettings: UploadSettings
   private abortControllers: Map<string, AbortController> = new Map()
+  private azureRateLimiter: AzureRateLimiter
 
   constructor(settings: { ocr: OCRSettings; processing: ProcessingSettings; upload: UploadSettings }) {
     this.ocrSettings = settings.ocr
     this.processingSettings = settings.processing
     this.uploadSettings = settings.upload
+    this.azureRateLimiter = new AzureRateLimiter()
     this.initializeQueue()
   }
 
@@ -117,176 +147,224 @@ export class ProcessingService {
   }
 
   private async processQueue() {
-    if (this.isProcessing || this.isPaused || !this.ocrSettings.apiKey) return
-
-    this.isProcessing = true
+    if (this.isProcessing || this.isPaused) return;
+    this.isProcessing = true;
 
     try {
-      const queue = Array.from(this.queueMap.values())
-      const pendingItems = queue.filter((item) => item.status === "queued")
+      const queuedItems = Array.from(this.queueMap.values()).filter(
+        (item) => item.status === "queued"
+      );
 
-      for (let i = 0; i < pendingItems.length; i += this.processingSettings.maxConcurrentJobs) {
-        if (this.isPaused) break
+      for (const item of queuedItems) {
+        if (this.isPaused) break;
 
-        const batch = pendingItems.slice(i, i + this.processingSettings.maxConcurrentJobs)
-        await Promise.all(
-          batch.map(async (item) => {
-            try {
-              // Create new abort controller for this item
-              const controller = new AbortController()
-              this.abortControllers.set(item.id, controller)
+        try {
+          // Create abort controller for this item
+          const controller = new AbortController();
+          this.abortControllers.set(item.id, controller);
 
-              item.status = "processing"
-              item.startTime = Date.now()
-              await db.saveToQueue(item)
+          // Update status to processing
+          item.status = "processing";
+          item.startTime = Date.now();
+          await db.saveToQueue(item);
 
-              console.log(`Processing ${item.filename}`)
-              const results = await this.processFile(item, controller.signal)
+          // Process the file
+          const results = await this.processFile(item, controller.signal);
 
-              // Clean up controller
-              this.abortControllers.delete(item.id)
+          // Clean up controller
+          this.abortControllers.delete(item.id);
 
-              // Save results before updating status
-              await db.saveResults(item.id, results)
-              console.log(`Saved ${results.length} results for ${item.filename}`)
+          // Save results
+          await db.saveResults(item.id, results);
 
-              item.status = "completed"
-              item.endTime = Date.now()
-              item.progress = 100
-              await db.saveToQueue(item)
-              console.log(`Completed processing ${item.filename}`)
+          // Update status to completed
+          item.status = "completed";
+          item.endTime = Date.now();
+          item.progress = 100;
+          await db.saveToQueue(item);
 
-            } catch (error) {
-              console.error(`Error processing ${item.filename}:`, error)
-              
-              // Check if this was a cancellation
-              if (error instanceof Error && error.name === "AbortError") {
-                item.status = "cancelled"
-              } else {
-                item.status = "error"
-                item.error = error instanceof Error ? error.message : "Unknown error occurred"
-              }
-              
-              await db.saveToQueue(item)
-              this.abortControllers.delete(item.id)
-            }
-          })
-        )
+        } catch (error) {
+          console.error(`Error processing ${item.filename}:`, error);
+          
+          // Check if this was a cancellation
+          if (error instanceof Error && error.name === "AbortError") {
+            item.status = "cancelled";
+          } else {
+            item.status = "error";
+            item.error = error instanceof Error ? error.message : "Unknown error occurred";
+          }
+          
+          await db.saveToQueue(item);
+          this.abortControllers.delete(item.id);
+        }
       }
     } catch (error) {
-      console.error("Queue processing error:", error)
+      console.error("Queue processing error:", error);
     } finally {
-      this.isProcessing = false
+      this.isProcessing = false;
 
       // Check if there are more items to process
       const remainingItems = Array.from(this.queueMap.values()).filter(
         (item) => item.status === "queued"
-      )
+      );
       if (remainingItems.length > 0 && !this.isPaused) {
-        this.processQueue()
+        // Use setTimeout to prevent stack overflow with recursive calls
+        setTimeout(() => this.processQueue(), 0);
       }
     }
   }
 
   private async processFile(status: ProcessingStatus, signal: AbortSignal): Promise<OCRResult[]> {
     if (!status.file) throw new Error("No file to process")
+    console.log(`[Process] Starting ${status.filename}`);
 
-    // For images, process directly
+    // For images
     if (status.file.type.startsWith("image/")) {
       const base64 = await this.fileToBase64(status.file)
-      const result = await this.callOCR(base64, signal)
-      result.documentId = status.id
-      result.imageUrl = `data:${status.file.type};base64,${base64}`
-      return [result]
+      try {
+        if (this.ocrSettings.provider === "microsoft") {
+          await this.azureRateLimiter.waitIfLimited();
+        }
+        console.log(`[Process] Processing image: ${status.filename}`);
+        const result = await this.callOCR(base64, signal)
+        result.documentId = status.id
+        result.imageUrl = `data:${status.file.type};base64,${base64}`
+        console.log(`[Process] Completed image: ${status.filename}`);
+        return [result]
+      } catch (error) {
+        if (error instanceof Error && error.message.startsWith("RATE_LIMIT:")) {
+          const retryAfter = parseInt(error.message.split(":")[1], 10)
+          console.log(`[Process] Rate limit on ${status.filename} - Waiting ${retryAfter}s`);
+          this.azureRateLimiter.setRateLimit(retryAfter);
+          status.rateLimitInfo = {
+            isRateLimited: true,
+            retryAfter,
+            rateLimitStart: Date.now()
+          }
+          await db.saveToQueue(status)
+          await this.azureRateLimiter.waitIfLimited();
+          status.rateLimitInfo = undefined
+          await db.saveToQueue(status)
+          return this.processFile(status, signal)
+        }
+        throw error
+      }
     }
 
-    // For PDFs, convert to images first
+    // For PDFs
     if (status.file.type === "application/pdf") {
       try {
-        console.log(`Starting PDF processing for ${status.filename}`)
         const pdf = await loadPDF(status.file)
         const numPages = pdf.numPages
+        const concurrentChunks = this.processingSettings.concurrentChunks
+        const pagesPerChunk = this.processingSettings.pagesPerChunk
+        
+        console.log(`[Process] Starting PDF: ${status.filename} (${numPages} pages)`);
+        console.log(`[Process] Using ${concurrentChunks} concurrent chunks, ${pagesPerChunk} pages per chunk`);
+        
         status.totalPages = numPages
         status.currentPage = 0
         status.progress = 0
-        console.log(`PDF loaded successfully. Total pages: ${numPages}`)
         await db.saveToQueue(status)
 
         const results: OCRResult[] = []
         const processedPages = new Set<number>()
 
-        // Calculate chunks more efficiently
-        const chunks: number[][] = []
-        for (let i = 0; i < numPages; i += this.processingSettings.pagesPerChunk) {
-          const chunkSize = Math.min(this.processingSettings.pagesPerChunk, numPages - i)
-          const chunk = Array.from({ length: chunkSize }, (_, j) => i + j + 1)
-          chunks.push(chunk)
-        }
+        // Process pages in chunks
+        for (let startPage = 1; startPage <= numPages; startPage += pagesPerChunk * concurrentChunks) {
+          if (signal.aborted) throw new Error("Processing aborted")
 
-        console.log(`Created ${chunks.length} chunks for processing`)
+          const chunkPromises: Promise<OCRResult>[] = []
+          
+          // Create chunks for concurrent processing
+          for (let chunk = 0; chunk < concurrentChunks && startPage + (chunk * pagesPerChunk) <= numPages; chunk++) {
+            const chunkStartPage = startPage + (chunk * pagesPerChunk)
+            const chunkEndPage = Math.min(chunkStartPage + pagesPerChunk - 1, numPages)
+            
+            console.log(`[Process] Creating chunk ${chunk + 1}: pages ${chunkStartPage}-${chunkEndPage}`);
+            
+            for (let pageNum = chunkStartPage; pageNum <= chunkEndPage; pageNum++) {
+              chunkPromises.push(
+                (async () => {
+                  try {
+                    console.log(`[Process] Starting page ${pageNum}/${numPages}`);
+                    const page = await pdf.getPage(pageNum)
+                    const base64 = await renderPageToBase64(page)
 
-        // Process chunks sequentially to maintain order
-        for (let i = 0; i < chunks.length; i++) {
-          if (signal.aborted) {
-            console.log("PDF processing aborted")
-            throw new Error("Processing aborted")
+                    if (this.ocrSettings.provider === "microsoft") {
+                      await this.azureRateLimiter.waitIfLimited();
+                    }
+
+                    const result = await this.callOCR(base64, signal)
+                    result.documentId = status.id
+                    result.pageNumber = pageNum
+                    result.imageUrl = `data:image/png;base64,${base64}`
+
+                    processedPages.add(pageNum)
+                    status.currentPage = pageNum
+                    status.progress = Math.round((processedPages.size / numPages) * 100)
+                    console.log(`[Process] Completed page ${pageNum}/${numPages} (${status.progress}%)`);
+                    await db.saveToQueue(status)
+
+                    return result
+                  } catch (error) {
+                    if (error instanceof Error && error.message.startsWith("RATE_LIMIT:")) {
+                      const retryAfter = parseInt(error.message.split(":")[1], 10)
+                      console.log(`[Process] Rate limit on page ${pageNum} - Waiting ${retryAfter}s`);
+                      this.azureRateLimiter.setRateLimit(retryAfter);
+                      status.rateLimitInfo = {
+                        isRateLimited: true,
+                        retryAfter,
+                        rateLimitStart: Date.now()
+                      }
+                      await db.saveToQueue(status)
+                      await this.azureRateLimiter.waitIfLimited();
+                      status.rateLimitInfo = undefined
+                      await db.saveToQueue(status)
+                      // Retry this page
+                      return this.processPage(pdf, pageNum, status, signal)
+                    }
+                    throw error
+                  }
+                })()
+              )
+            }
           }
 
-          const chunk = chunks[i]
-          console.log(`Processing chunk ${i + 1}/${chunks.length} (pages ${chunk[0]}-${chunk[chunk.length - 1]})`)
-
-          // Process pages within chunk concurrently
-          const chunkResults = await Promise.all(
-            chunk.map(async (pageNum) => {
-              try {
-                if (pageNum > numPages) {
-                  console.warn(`Skipping invalid page number ${pageNum} (total pages: ${numPages})`)
-                  return null
-                }
-
-                const page = await pdf.getPage(pageNum)
-                const base64 = await renderPageToBase64(page)
-                console.log(`Page ${pageNum} rendered successfully`)
-
-                const result = await this.callOCR(base64, signal)
-                result.documentId = status.id
-                result.pageNumber = pageNum
-                result.imageUrl = `data:image/png;base64,${base64}`
-
-                // Update progress atomically
-                processedPages.add(pageNum)
-                status.currentPage = pageNum
-                status.progress = (processedPages.size / numPages) * 100
-                await db.saveToQueue(status)
-
-                console.log(`OCR completed for page ${pageNum}`)
-                return result
-              } catch (error) {
-                console.error(`Error processing page ${pageNum}:`, error)
-                throw error
-              }
-            })
-          )
-
-          // Filter out null results and add to final results
-          results.push(...chunkResults.filter((r): r is OCRResult => r !== null))
+          // Process current batch of chunks
+          const chunkResults = await Promise.all(chunkPromises)
+          results.push(...chunkResults)
         }
 
-        // Ensure final progress is 100%
         status.progress = 100
         status.currentPage = numPages
         await db.saveToQueue(status)
+        console.log(`[Process] Completed PDF: ${status.filename}`);
 
-        // Return results sorted by page number
         return results.sort((a, b) => a.pageNumber - b.pageNumber)
-
       } catch (error) {
-        console.error("PDF processing error:", error)
+        console.error(`[Process] Error processing PDF ${status.filename}:`, error)
         throw error
       }
     }
 
     throw new Error(`Unsupported file type: ${status.file.type}`)
+  }
+
+  // Helper method to process a single page (used for retries)
+  private async processPage(pdf: any, pageNum: number, status: ProcessingStatus, signal: AbortSignal): Promise<OCRResult> {
+    const page = await pdf.getPage(pageNum)
+    const base64 = await renderPageToBase64(page)
+
+    if (this.ocrSettings.provider === "microsoft") {
+      await this.azureRateLimiter.waitIfLimited();
+    }
+
+    const result = await this.callOCR(base64, signal)
+    result.documentId = status.id
+    result.pageNumber = pageNum
+    result.imageUrl = `data:image/png;base64,${base64}`
+    return result
   }
 
   private async fileToBase64(file: File): Promise<string> {
@@ -369,79 +447,86 @@ export class ProcessingService {
       pageNumber: 1,
     }
   }
+
   private async callMicrosoftVision(base64Data: string, signal: AbortSignal): Promise<OCRResult> {
-    const startTime = Date.now();
+    const startTime = Date.now()
 
-    // Convertir la base64 en tableau d'octets
-    const raw = atob(base64Data);
-    const rawLength = raw.length;
-    const arr = new Uint8Array(new ArrayBuffer(rawLength));
-    for (let i = 0; i < rawLength; i++) {
-      arr[i] = raw.charCodeAt(i);
+    try {
+      const raw = atob(base64Data)
+      const arr = new Uint8Array(new ArrayBuffer(raw.length))
+      for (let i = 0; i < raw.length; i++) {
+        arr[i] = raw.charCodeAt(i)
+      }
+
+      const endpoint = `https://${this.ocrSettings.region}.api.cognitive.microsoft.com/vision/v3.2/ocr`
+      const url = this.ocrSettings.language ? `${endpoint}?language=${this.ocrSettings.language}` : endpoint
+
+      const response = await fetch(url, {
+        method: "POST",
+        signal,
+        headers: {
+          "Ocp-Apim-Subscription-Key": this.ocrSettings.apiKey,
+          "Content-Type": "application/octet-stream",
+        },
+        body: arr,
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        if (response.status === 429) {
+          const retryAfter = parseInt(response.headers.get("Retry-After") || "60", 10)
+          throw new Error(`RATE_LIMIT:${retryAfter}`)
+        }
+        throw new Error(error.error?.message || `Microsoft Vision API error: ${response.status}`)
+      }
+
+      const data = await response.json()
+
+      // List of RTL language codes
+      const rtlLanguages = new Set([
+        'ar', // Arabic
+        'he', // Hebrew
+        'fa', // Persian/Farsi
+        'ur', // Urdu
+        'syr', // Syriac
+        'n-bh', // N'Ko
+        'sam', // Samaritan
+        'mend', // Mandaic
+        'man', // Mandaean
+      ])
+
+      const detectedLanguage = data.language || this.ocrSettings.language || "unknown"
+      const isRTL = rtlLanguages.has(detectedLanguage.toLowerCase().split('-')[0])
+
+      // Reconstruire le texte
+      const text =
+        data.regions
+          ?.map((region: any) =>
+            region.lines
+              ?.map((line: any) => {
+                const words = isRTL ? [...line.words].reverse() : line.words
+                return words.map((word: any) => word.text).join(" ")
+              })
+              .join("\n")
+          )
+          .join("\n\n") || ""
+
+      return {
+        id: crypto.randomUUID(),
+        documentId: "",
+        text,
+        confidence: 1,
+        language: detectedLanguage,
+        processingTime: Date.now() - startTime,
+        pageNumber: 1,
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("RATE_LIMIT:")) {
+        throw error
+      }
+      throw new Error(`Microsoft Vision API error: ${error instanceof Error ? error.message : String(error)}`)
     }
-
-    // Construire la requête
-    const endpoint = `https://${this.ocrSettings.region}.api.cognitive.microsoft.com/vision/v3.2/ocr`;
-    const url = this.ocrSettings.language ? `${endpoint}?language=${this.ocrSettings.language}` : endpoint;
-
-    const response = await fetch(url, {
-      method: "POST",
-      signal,
-      headers: {
-        "Ocp-Apim-Subscription-Key": this.ocrSettings.apiKey,
-        "Content-Type": "application/octet-stream",
-      },
-      body: arr,
-    });
-
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error?.message || `Microsoft Vision API error: ${response.status}`);
-    }
-
-    // Récupérer la réponse JSON
-    const data = await response.json();
-
-    // List of RTL language codes
-    const rtlLanguages = new Set([
-      'ar', // Arabic
-      'he', // Hebrew
-      'fa', // Persian/Farsi
-      'ur', // Urdu
-      'syr', // Syriac
-      'n-bh', // N'Ko
-      'sam', // Samaritan
-      'mend', // Mandaic
-      'man', // Mandaean
-    ]);
-
-    const detectedLanguage = data.language || this.ocrSettings.language || "unknown";
-    const isRTL = rtlLanguages.has(detectedLanguage.toLowerCase().split('-')[0]);
-
-    // Reconstruire le texte
-    const text =
-      data.regions
-        ?.map((region: any) =>
-          region.lines
-            ?.map((line: any) => {
-              const words = isRTL ? [...line.words].reverse() : line.words;
-              return words.map((word: any) => word.text).join(" ");
-            })
-            .join("\n")
-        )
-        .join("\n\n") || "";
-
-    return {
-      id: crypto.randomUUID(),
-      documentId: "",
-      text,
-      confidence: 1,
-      language: detectedLanguage,
-      processingTime: Date.now() - startTime,
-      pageNumber: 1,
-    };
   }
-
 
   async getStatus(id: string): Promise<ProcessingStatus | undefined> {
     return this.queueMap.get(id) || db.getQueue().then((queue) => queue.find((item) => item.id === id))

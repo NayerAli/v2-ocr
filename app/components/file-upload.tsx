@@ -1,77 +1,28 @@
 "use client"
 
-import { useCallback, useState, useMemo } from "react"
+import { useCallback, useState, useEffect } from "react"
 import { useDropzone } from "react-dropzone"
-import { Upload, X, FileText, ImageIcon, AlertCircle } from "lucide-react"
+import { Upload, X, FileText, ImageIcon, Clock, Loader2, AlertCircle, ArrowDown, CheckCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
-import { ScrollArea } from "@/components/ui/scroll-area"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import type { ProcessingStatus } from "@/types"
-import { cn } from "@/lib/utils"
 import { formatFileSize } from "@/lib/file-utils"
-
-// Map file extensions to MIME types
-const MIME_TYPES = {
-  '.pdf': 'application/pdf',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.png': 'image/png',
-  '.tiff': 'image/tiff',
-  '.tif': 'image/tiff',
-  '.webp': 'image/webp'
-} as const
+import { cn } from "@/lib/utils"
+import type { ProcessingStatus } from "@/types"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 
 interface FileUploadProps {
-  onFilesAccepted: (files: File[]) => Promise<void>
+  onFilesAccepted: (files: File[]) => void
   processingQueue: ProcessingStatus[]
   onPause: () => void
   onResume: () => void
   onRemove: (id: string) => void
   onCancel: (id: string) => void
   disabled?: boolean
-  className?: string
   maxFileSize: number
   maxSimultaneousUploads: number
   allowedFileTypes: string[]
   isPageDragging?: boolean
   onDragStateChange?: (isDragging: boolean) => void
-}
-
-function getStatusDisplay(status: string, currentPage?: number, totalPages?: number) {
-  switch (status) {
-    case "processing":
-      return totalPages 
-        ? `Processing page ${currentPage} of ${totalPages}`
-        : "Processing..."
-    case "completed":
-      return "Completed"
-    case "queued":
-      return "Queued"
-    case "cancelled":
-      return "Cancelled"
-    case "error":
-      return "Error"
-    default:
-      return status
-  }
-}
-
-function getStatusColor(status: string) {
-  switch (status) {
-    case "processing":
-      return "text-blue-500"
-    case "completed":
-      return "text-green-500"
-    case "error":
-      return "text-red-500"
-    case "cancelled":
-      return "text-gray-500"
-    case "queued":
-      return "text-yellow-500"
-    default:
-      return "text-muted-foreground"
-  }
 }
 
 export function FileUpload({
@@ -81,149 +32,129 @@ export function FileUpload({
   onResume,
   onRemove,
   onCancel,
-  disabled = false,
-  className,
+  disabled,
   maxFileSize,
   maxSimultaneousUploads,
   allowedFileTypes,
-  isPageDragging = false,
-  onDragStateChange,
+  isPageDragging,
+  onDragStateChange
 }: FileUploadProps) {
   const [isUploading, setIsUploading] = useState(false)
-  const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({})
-  const [error, setError] = useState<string | null>(null)
+  const [countdowns, setCountdowns] = useState<Record<string, number>>({})
+  const [lastCompletedId, setLastCompletedId] = useState<string | null>(null)
 
-  // Convert allowed file types to accept object for dropzone
-  const acceptConfig = useMemo(() => {
-    const config: Record<string, string[]> = {}
-    allowedFileTypes.forEach(type => {
-      const ext = type.startsWith('.') ? type : `.${type}`
-      const mimeType = MIME_TYPES[ext as keyof typeof MIME_TYPES]
-      if (mimeType) {
-        if (!config[mimeType]) {
-          config[mimeType] = []
-        }
-        config[mimeType].push(ext)
-      }
-    })
-    return config
-  }, [allowedFileTypes])
+  // Update countdowns every second
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCountdowns(prev => {
+        const now = Date.now()
+        const updated: Record<string, number> = {}
+        let hasChanges = false
 
-  const onDrop = useCallback(
-    async (acceptedFiles: File[], rejectedFiles: any[]) => {
-      setError(null)
-
-      if (disabled) {
-        setError("Please configure API settings before uploading files")
-        return
-      }
-
-      if (rejectedFiles.length > 0) {
-        setError(rejectedFiles[0].errors[0].message || "Invalid file type or size")
-        return
-      }
-
-      if (acceptedFiles.length === 0) return
-
-      if (acceptedFiles.length > maxSimultaneousUploads) {
-        setError(`Maximum ${maxSimultaneousUploads} files can be uploaded at once`)
-        return
-      }
-
-      setIsUploading(true)
-      
-      // Initialize progress for each file
-      const initialProgress: Record<string, number> = {}
-      acceptedFiles.forEach(file => {
-        initialProgress[file.name] = 0
-      })
-      setUploadProgress(initialProgress)
-
-      try {
-        // Simulate upload progress
-        const uploadPromises = acceptedFiles.map(async (file) => {
-          // Simulate chunked upload
-          const chunks = 10
-          for (let i = 1; i <= chunks; i++) {
-            if (!isUploading) break // Allow cancellation
-            await new Promise(resolve => setTimeout(resolve, 100)) // Simulate network delay
-            setUploadProgress(prev => ({
-              ...prev,
-              [file.name]: (i / chunks) * 100
-            }))
+        processingQueue.forEach(item => {
+          if (item.rateLimitInfo?.isRateLimited) {
+            const remaining = Math.max(0, Math.ceil(
+              (item.rateLimitInfo.retryAfter * 1000 - (now - item.rateLimitInfo.rateLimitStart)) / 1000
+            ))
+            if (remaining !== prev[item.id]) {
+              hasChanges = true
+              updated[item.id] = remaining
+            }
           }
-          return file
         })
 
-        const uploadedFiles = await Promise.all(uploadPromises)
-        await onFilesAccepted(uploadedFiles)
-      } catch (error) {
-        setError(error instanceof Error ? error.message : "Failed to upload files")
-      } finally {
-        setIsUploading(false)
-        setUploadProgress({})
-      }
-    },
-    [onFilesAccepted, disabled, maxSimultaneousUploads],
-  )
+        return hasChanges ? { ...prev, ...updated } : prev
+      })
+    }, 1000)
+
+    return () => clearInterval(interval)
+  }, [processingQueue])
+
+  const onDrop = useCallback((acceptedFiles: File[]) => {
+    setIsUploading(true)
+    Promise.resolve(onFilesAccepted(acceptedFiles))
+      .finally(() => setIsUploading(false))
+  }, [onFilesAccepted])
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    accept: acceptConfig,
+    disabled,
     maxSize: maxFileSize * 1024 * 1024,
-    maxFiles: maxSimultaneousUploads,
-    disabled: isUploading || disabled,
+    accept: {
+      'application/pdf': ['.pdf'],
+      'image/jpeg': ['.jpg', '.jpeg'],
+      'image/png': ['.png']
+    },
     onDragEnter: () => onDragStateChange?.(true),
     onDragLeave: () => onDragStateChange?.(false),
     onDropAccepted: () => onDragStateChange?.(false),
     onDropRejected: () => onDragStateChange?.(false),
   })
 
-  const getFileIcon = (filename: string) => {
-    const ext = filename.split(".").pop()?.toLowerCase()
-    return ext === "pdf" ? <FileText className="h-4 w-4" /> : <ImageIcon className="h-4 w-4" />
-  }
+  const activeFiles = processingQueue.filter(
+    (item) => item.status === "processing" || item.status === "queued"
+  )
 
-  const handleAction = (item: ProcessingStatus) => {
-    if (item.status === "processing") {
+  const isProcessing = activeFiles.some((item) => item.status === "processing")
+  const isRateLimited = activeFiles.some((item) => item.rateLimitInfo?.isRateLimited)
+
+  const getQueueItemStatus = (item: ProcessingStatus) => {
+    if (item.rateLimitInfo?.isRateLimited) {
+      const countdown = countdowns[item.id] || Math.max(0, Math.ceil(
+        (item.rateLimitInfo.retryAfter * 1000 - (Date.now() - item.rateLimitInfo.rateLimitStart)) / 1000
+      ))
+      
       return (
-        <div className="flex items-center gap-1">
-          <Button 
-            variant="ghost" 
-            size="icon"
-            className="h-6 w-6 text-red-500 hover:text-red-600"
-            onClick={(e) => {
-              e.stopPropagation()
-              onCancel(item.id)
-            }}
-          >
-            <X className="h-4 w-4" />
-          </Button>
+        <div className="flex items-center gap-1.5 text-purple-600 dark:text-purple-400">
+          <Clock className="h-3.5 w-3.5 animate-pulse" />
+          <div className="flex items-center gap-2">
+            <span className="text-xs">Resuming in</span>
+            <span className="font-mono text-xs tabular-nums">
+              {Math.floor(countdown / 60)}:{(countdown % 60).toString().padStart(2, '0')}
+            </span>
+          </div>
         </div>
       )
     }
-    
-    if (item.status !== "cancelled") {
+
+    if (item.status === "processing") {
       return (
-        <Button 
-          variant="ghost" 
-          size="icon" 
-          className="h-6 w-6" 
-          onClick={(e) => {
-            e.stopPropagation()
-            onRemove(item.id)
-          }}
-        >
-          <X className="h-4 w-4" />
-        </Button>
+        <div className="flex items-center gap-1.5 text-blue-600 dark:text-blue-400">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          <span className="text-xs">Processing page {item.currentPage} of {item.totalPages}</span>
+        </div>
+      )
+    }
+
+    if (item.status === "queued") {
+      return (
+        <div className="flex items-center gap-1.5 text-yellow-600 dark:text-yellow-400">
+          <AlertCircle className="h-3.5 w-3.5" />
+          <span className="text-xs">Queued</span>
+        </div>
       )
     }
 
     return null
   }
 
+  const getProgressInfo = (item: ProcessingStatus) => {
+    if (!item.totalPages) return null
+    
+    const processed = item.currentPage || 0
+    const remaining = item.totalPages - processed
+    const percent = Math.round((processed / item.totalPages) * 100)
+
+    return (
+      <div className="flex items-center justify-between text-xs text-muted-foreground mt-1">
+        <span>{processed} of {item.totalPages} pages</span>
+        <span className="font-mono">{percent}%</span>
+      </div>
+    )
+  }
+
   return (
-    <div className={cn("space-y-4", className)}>
+    <div className="space-y-4">
       <div
         {...getRootProps()}
         className={cn(
@@ -316,7 +247,7 @@ export function FileUpload({
           </div>
         </div>
 
-        {/* Progress Overlay */}
+        {/* Upload Overlay */}
         {isUploading && (
           <div className="absolute inset-0 bg-background/60 backdrop-blur-sm flex items-center justify-center rounded-lg">
             <div className="text-center space-y-3">
@@ -332,84 +263,104 @@ export function FileUpload({
         )}
       </div>
 
-      {error && (
-        <Alert variant="destructive" className="animate-in fade-in-0 slide-in-from-top-1">
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
+      {activeFiles.length > 0 ? (
+        <div className="space-y-3 rounded-lg border bg-card p-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-medium flex items-center gap-2">
+              <FileText className="h-4 w-4 text-muted-foreground" />
+              Processing Queue
+            </h3>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={isProcessing ? onPause : onResume}
+              disabled={isRateLimited}
+              className="h-7 px-2 text-xs gap-1.5"
+            >
+              {isProcessing ? (
+                <>
+                  <AlertCircle className="h-3.5 w-3.5" />
+                  Pause
+                </>
+              ) : (
+                <>
+                  <Upload className="h-3.5 w-3.5" />
+                  Resume
+                </>
+              )}
+            </Button>
+          </div>
 
-      {(isUploading || processingQueue.length > 0) && (
-        <ScrollArea className="h-[200px] rounded-md border">
-          <div className="p-4 space-y-4">
-            {/* Upload Progress */}
-            {isUploading && Object.entries(uploadProgress).map(([filename, progress]) => (
-              <div key={filename} className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm truncate flex items-center gap-2">
-                    {getFileIcon(filename)}
-                    <span className="flex flex-col">
-                      <span>{filename}</span>
-                    </span>
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-blue-500">
-                      Uploading {Math.round(progress)}%
-                    </span>
-                  </div>
-                </div>
-                <div className="relative w-full">
-                  <Progress value={progress} className="h-2" />
-                  <div 
-                    className="absolute inset-0 bg-gradient-to-r from-transparent via-blue-500/10 to-transparent animate-progress" 
-                    style={{ 
-                      clipPath: `inset(0 ${100 - progress}% 0 0)`,
-                      transition: 'clip-path 0.3s ease-in-out'
-                    }} 
-                  />
-                </div>
-              </div>
-            ))}
-            
-            {/* Queue Items */}
-            {processingQueue.map((item) => (
-              <div key={item.id} className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm truncate flex items-center gap-2">
-                    {getFileIcon(item.filename)}
-                    <span className="flex flex-col">
-                      <span>{item.filename}</span>
-                      {item.size && (
-                        <span className="text-xs text-muted-foreground">
-                          {formatFileSize(item.size)}
-                          {item.totalPages && item.totalPages > 0 ? ` • ${item.totalPages} pages` : ''}
-                        </span>
-                      )}
-                    </span>
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <span className={cn("text-xs", getStatusColor(item.status))}>
-                      {getStatusDisplay(item.status, item.currentPage, item.totalPages)}
-                    </span>
-                    {handleAction(item)}
-                  </div>
-                </div>
-                {item.status === "processing" && item.totalPages && (
-                  <div className="relative w-full">
-                    <Progress 
-                      value={(item.currentPage || 0) / item.totalPages * 100} 
-                      className="h-2"
-                    />
-                    <div className="mt-1 flex justify-between text-xs text-muted-foreground">
-                      <span>Page {item.currentPage} of {item.totalPages}</span>
-                      <span>{Math.round((item.currentPage || 0) / item.totalPages * 100)}%</span>
+          {isRateLimited && (
+            <div className="flex items-center gap-2 p-2 rounded-md bg-purple-50 dark:bg-purple-950/50 text-purple-600 dark:text-purple-400 text-xs">
+              <Clock className="h-3.5 w-3.5 animate-pulse" />
+              <span>Rate limit reached - Processing will resume automatically</span>
+            </div>
+          )}
+
+          <div className="space-y-2">
+            {activeFiles.map((item) => (
+              <div
+                key={item.id}
+                className={cn(
+                  "flex flex-col gap-1.5 p-2 rounded-md border bg-background/40",
+                  item.rateLimitInfo?.isRateLimited && "border-purple-200 dark:border-purple-800"
+                )}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    {item.type?.startsWith('image/') ? (
+                      <ImageIcon className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                    ) : (
+                      <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                    )}
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">{item.filename}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {formatFileSize(item.size ?? 0)}
+                      </p>
                     </div>
                   </div>
-                )}
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={() => onRemove(item.id)}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                    <span className="sr-only">Remove</span>
+                  </Button>
+                </div>
+
+                <div className="space-y-1">
+                  {getQueueItemStatus(item)}
+                  <Progress 
+                    value={item.progress} 
+                    className={cn(
+                      "h-1.5",
+                      item.rateLimitInfo?.isRateLimited && "bg-purple-100 dark:bg-purple-900",
+                      "[&>div]:transition-all [&>div]:duration-500",
+                      item.rateLimitInfo?.isRateLimited ? "[&>div]:bg-purple-500" : "[&>div]:bg-blue-500"
+                    )}
+                  />
+                  {getProgressInfo(item)}
+                </div>
               </div>
             ))}
           </div>
-        </ScrollArea>
+        </div>
+      ) : (
+        <div className="rounded-lg border bg-card/50 p-8">
+          <div className="flex flex-col items-center justify-center text-center">
+            <div className="p-3 rounded-full bg-primary/5 mb-3">
+              <FileText className="h-6 w-6 text-muted-foreground" />
+            </div>
+            <h3 className="text-sm font-medium">No Active Uploads</h3>
+            <p className="text-xs text-muted-foreground mt-1 max-w-[240px]">
+              Drop your files above to start processing. Your queue will appear here.
+            </p>
+          </div>
+        </div>
       )}
     </div>
   )

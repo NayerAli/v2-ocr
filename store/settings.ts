@@ -3,7 +3,7 @@ import { persist, createJSONStorage } from "zustand/middleware"
 import { CONFIG } from "@/config/constants"
 import type { SettingsState, OCRSettings, ProcessingSettings, UploadSettings, DisplaySettings, DatabaseSettings } from "@/types/settings"
 
-const defaultSettings: Omit<SettingsState, 'updateOCRSettings' | 'updateProcessingSettings' | 'updateUploadSettings' | 'updateDisplaySettings' | 'updateDatabaseSettings' | 'resetSettings'> = {
+const defaultSettings: Omit<SettingsState, 'updateOCRSettings' | 'updateProcessingSettings' | 'updateUploadSettings' | 'updateDisplaySettings' | 'updateDatabaseSettings' | 'updateExportSettings' | 'resetSettings'> = {
   ocr: {
     provider: "google" as const,
     apiKey: "",
@@ -33,6 +33,10 @@ const defaultSettings: Omit<SettingsState, 'updateOCRSettings' | 'updateProcessi
     cleanupThreshold: 90, // 90 days
     retentionPeriod: 30, // 30 days
     maxStorageSize: 1000 // 1GB
+  },
+  export: {
+    format: 'txt' as const,
+    naming: '{filename}-{timestamp}'
   }
 }
 
@@ -45,6 +49,7 @@ export const useSettings = create<SettingsState>()(
       updateUploadSettings: (settings) => set((state) => ({ upload: { ...state.upload, ...settings } })),
       updateDisplaySettings: (settings) => set((state) => ({ display: { ...state.display, ...settings } })),
       updateDatabaseSettings: (settings) => set((state) => ({ database: { ...state.database, ...settings } })),
+      updateExportSettings: (settings) => set((state) => ({ export: { ...state.export, ...settings } })),
       resetSettings: () => set(defaultSettings),
     }),
     {

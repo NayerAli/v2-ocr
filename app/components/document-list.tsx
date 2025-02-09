@@ -1,7 +1,7 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { FileText, MoreVertical, Download, Trash2, ImageIcon } from "lucide-react"
+import { FileText, MoreVertical, Download, Trash2, ImageIcon, Clock, Loader2, CheckCircle, AlertCircle, Pause } from "lucide-react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
@@ -47,22 +47,71 @@ export function DocumentList({
 
   const getStatusBadgeClass = (doc: ProcessingStatus) => {
     return cn(
-      "inline-flex items-center rounded-full px-2 py-1 text-xs font-medium",
-      doc.status === "completed" && "bg-green-50 text-green-700 dark:bg-green-500/20",
-      doc.status === "processing" && "bg-blue-50 text-blue-700 dark:bg-blue-500/20",
-      doc.status === "error" && "bg-red-50 text-red-700 dark:bg-red-500/20",
-      doc.status === "queued" && "bg-yellow-50 text-yellow-700 dark:bg-yellow-500/20",
-      doc.status === "cancelled" && "bg-gray-50 text-gray-700 dark:bg-gray-500/20"
+      "inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium",
+      {
+        "bg-green-50 text-green-700 dark:bg-green-500/20": doc.status === "completed",
+        "bg-blue-50 text-blue-700 dark:bg-blue-500/20": doc.status === "processing" && !doc.rateLimitInfo?.isRateLimited,
+        "bg-yellow-50 text-yellow-700 dark:bg-yellow-500/20": doc.status === "queued",
+        "bg-red-50 text-red-700 dark:bg-red-500/20": doc.status === "error",
+        "bg-gray-50 text-gray-700 dark:bg-gray-500/20": doc.status === "cancelled",
+        "bg-purple-50 text-purple-700 dark:bg-purple-500/20": doc.rateLimitInfo?.isRateLimited
+      }
     )
   }
 
+  const getStatusIcon = (doc: ProcessingStatus) => {
+    if (doc.rateLimitInfo?.isRateLimited) {
+      return <Clock className="h-3 w-3 animate-pulse" />
+    }
+    switch (doc.status) {
+      case "completed":
+        return <CheckCircle className="h-3 w-3" />
+      case "processing":
+        return <Loader2 className="h-3 w-3 animate-spin" />
+      case "queued":
+        return <Pause className="h-3 w-3" />
+      case "error":
+        return <AlertCircle className="h-3 w-3" />
+      case "cancelled":
+        return <AlertCircle className="h-3 w-3" />
+      default:
+        return null
+    }
+  }
+
   const getStatusText = (doc: ProcessingStatus) => {
+    if (doc.rateLimitInfo?.isRateLimited) {
+      const remainingTime = Math.max(0, Math.ceil(
+        (doc.rateLimitInfo.retryAfter * 1000 - (Date.now() - doc.rateLimitInfo.rateLimitStart)) / 1000
+      ));
+      return `Resuming in ${remainingTime}s`;
+    }
+    if (doc.status === "processing") {
+      return `Processing ${doc.currentPage}/${doc.totalPages}`
+    }
     if (doc.status === "cancelled") {
       return (doc.currentPage || 0) > 0 
         ? `Cancelled (${doc.currentPage} pages processed)`
-        : "Cancelled (No results)"
+        : "Cancelled"
     }
     return doc.status.charAt(0).toUpperCase() + doc.status.slice(1)
+  }
+
+  const getProgressIndicator = (doc: ProcessingStatus) => {
+    if (doc.status === "processing" || doc.rateLimitInfo?.isRateLimited) {
+      return (
+        <div className="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
+          <div 
+            className={cn(
+              "h-full transition-all duration-500",
+              doc.rateLimitInfo?.isRateLimited ? "bg-purple-500" : "bg-blue-500"
+            )}
+            style={{ width: `${doc.progress}%` }}
+          />
+        </div>
+      )
+    }
+    return null
   }
 
   if (variant === "grid") {
@@ -72,7 +121,7 @@ export function DocumentList({
           <div 
             key={doc.id} 
             className={cn(
-              "flex items-center gap-4 p-4 rounded-lg border bg-card transition-colors",
+              "flex flex-col gap-3 p-4 rounded-lg border bg-card transition-colors",
               canViewDocument(doc) && "hover:bg-accent/5 cursor-pointer"
             )}
             onClick={() => {
@@ -99,6 +148,7 @@ export function DocumentList({
               </div>
               <div className="flex items-center gap-2">
                 <span className={getStatusBadgeClass(doc)}>
+                  {getStatusIcon(doc)}
                   {getStatusText(doc)}
                 </span>
                 <div onClick={(e) => e.stopPropagation()}>
@@ -154,6 +204,7 @@ export function DocumentList({
                 </div>
               </div>
             </div>
+            {getProgressIndicator(doc)}
           </div>
         ))}
       </div>
@@ -168,6 +219,7 @@ export function DocumentList({
             <TableRow className="hover:bg-transparent">
               <TableHead>Name</TableHead>
               <TableHead>Status</TableHead>
+              <TableHead>Progress</TableHead>
               <TableHead>Date</TableHead>
               <TableHead>Pages</TableHead>
               <TableHead>Size</TableHead>
@@ -216,6 +268,7 @@ export function DocumentList({
             <TableRow className="hover:bg-transparent">
               <TableHead>Name</TableHead>
               <TableHead>Status</TableHead>
+              <TableHead>Progress</TableHead>
               <TableHead>Date</TableHead>
               <TableHead>Pages</TableHead>
               <TableHead>Size</TableHead>
@@ -249,8 +302,12 @@ export function DocumentList({
               </TableCell>
               <TableCell>
                 <span className={getStatusBadgeClass(doc)}>
+                  {getStatusIcon(doc)}
                   {getStatusText(doc)}
                 </span>
+              </TableCell>
+              <TableCell>
+                {getProgressIndicator(doc)}
               </TableCell>
               <TableCell>{doc.startTime ? new Date(doc.startTime).toLocaleDateString() : "-"}</TableCell>
               <TableCell>{doc.type?.startsWith('image/') ? '1' : doc.totalPages || doc.currentPage || '-'}</TableCell>

@@ -78,8 +78,25 @@ class DatabaseService {
       console.warn('Metadata store not available:', error)
     }
     
-    const queueSize = new Blob([JSON.stringify(queue)]).size
-    const resultsSize = new Blob([JSON.stringify(results)]).size
+    // Calculate sizes in chunks to avoid string length issues
+    const calculateSize = (items: any[]): number => {
+      const CHUNK_SIZE = 100
+      let totalSize = 0
+      
+      for (let i = 0; i < items.length; i += CHUNK_SIZE) {
+        const chunk = items.slice(i, i + CHUNK_SIZE)
+        try {
+          totalSize += new Blob([JSON.stringify(chunk)]).size
+        } catch (error) {
+          console.warn('Error calculating chunk size:', error)
+        }
+      }
+      
+      return totalSize
+    }
+    
+    const queueSize = calculateSize(queue)
+    const resultsSize = calculateSize(results)
     
     const stats = {
       totalDocuments: queue.length,

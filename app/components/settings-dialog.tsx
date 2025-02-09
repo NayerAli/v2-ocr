@@ -386,21 +386,21 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                         <div className="space-y-2">
                           <div className="flex justify-between">
                             <span>Total Documents:</span>
-                            <span className="font-mono">{dbStats?.totalDocuments ?? 0}</span>
+                            <span className="font-mono tabular-nums">{dbStats?.totalDocuments.toLocaleString() ?? '0'}</span>
                           </div>
                           <div className="flex justify-between">
                             <span>Total Results:</span>
-                            <span className="font-mono">{dbStats?.totalResults ?? 0}</span>
+                            <span className="font-mono tabular-nums">{dbStats?.totalResults.toLocaleString() ?? '0'}</span>
                           </div>
                           <div className="flex justify-between">
                             <span>Storage Used:</span>
-                            <span className="font-mono">{dbStats?.dbSize ?? 0} MB</span>
+                            <span className="font-mono tabular-nums">{dbStats?.dbSize.toLocaleString()} MB</span>
                           </div>
                           <div className="flex justify-between">
                             <span>Average Size/Doc:</span>
-                            <span className="font-mono">
+                            <span className="font-mono tabular-nums">
                               {dbStats?.totalDocuments ? 
-                                (dbStats.dbSize / dbStats.totalDocuments).toFixed(2) : 0} MB
+                                (dbStats.dbSize / dbStats.totalDocuments).toFixed(2) : '0'} MB
                             </span>
                           </div>
                         </div>

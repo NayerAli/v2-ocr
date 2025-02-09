@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { FileText, Upload, Settings, CheckCircle, AlertCircle, Eye, ArrowRight } from "lucide-react"
+import { FileText, Upload, Settings, CheckCircle, AlertCircle, Eye, ArrowRight, Clock } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { FileUpload } from "./components/file-upload"
 import { SettingsDialog } from "./components/settings-dialog"
@@ -279,15 +279,27 @@ export default function DashboardPage() {
           )}
 
           {renderStatsCard(
-            "In Progress",
+            "Processing Status",
             <Upload className="h-4 w-4 text-muted-foreground" />,
             <>
-              <div className="text-2xl font-bold">
-                {processingQueue.filter((item) => item.status === "processing").length}
+              <div className="flex items-center gap-2">
+                <div className="text-2xl font-bold">
+                  {processingQueue.filter((item) => item.status === "processing").length}
+                </div>
+                {processingQueue.some(doc => doc.rateLimitInfo?.isRateLimited) && (
+                  <Clock className="h-5 w-5 text-purple-500 animate-pulse" />
+                )}
               </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                {processingQueue.filter((item) => item.status === "queued").length} queued
-              </p>
+              <div className="flex flex-col gap-1 mt-1">
+                <p className="text-xs text-muted-foreground">
+                  {processingQueue.filter((item) => item.status === "queued").length} queued
+                </p>
+                {processingQueue.some(doc => doc.rateLimitInfo?.isRateLimited) && (
+                  <p className="text-xs text-purple-600 dark:text-purple-400">
+                    Rate limited • Auto-resuming
+                  </p>
+                )}
+              </div>
             </>
           )}
 
@@ -332,7 +344,7 @@ export default function DashboardPage() {
               )}
             </div>
           </CardHeader>
-          <CardContent>
+          <CardContent data-section="recent-documents">
             {isLoadingData ? (
               <div className="space-y-4">
                 {Array.from({ length: 3 }).map((_, i) => (
