@@ -100,7 +100,6 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
   const [isDownloading, setIsDownloading] = useState(false)
   const [imageLoaded, setImageLoaded] = useState(false)
   const [imageError, setImageError] = useState(false)
-  const [imageLoadingTimeout, setImageLoadingTimeout] = useState<NodeJS.Timeout | null>(null)
   const [isRetrying, setIsRetrying] = useState(false)
   const [retryCount, setRetryCount] = useState(0)
   const [searchQuery, setSearchQuery] = useState("")
@@ -108,12 +107,9 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
   const [zoomLevel, setZoomLevel] = useState(100)
   const [textSize, setTextSize] = useState(16) // Default size in pixels
   const [isDragging, setIsDragging] = useState(false)
-  const [ setDragPosition] = useState({ x: 0, y: 0 })
   const dragRef = useRef<{ startX: number; startY: number; scrollLeft: number; scrollTop: number } | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
-  const [ setFitMode] = useState<'width' | 'height' | 'auto'>('auto')
   const imageRef = useRef<HTMLImageElement>(null)
-  const [imageSize, setImageSize] = useState<{ width: number; height: number } | null>(null)
   const imageContainerRef = useRef<HTMLDivElement>(null)
   const [isPanning, setIsPanning] = useState(false)
   const [panPosition, setPanPosition] = useState({ x: 0, y: 0 })
@@ -261,10 +257,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     setImageError(false)
     setRetryCount(0)
     setIsRetrying(false)
-    if (imageLoadingTimeout) {
-      clearTimeout(imageLoadingTimeout)
-    }
-  }, [imageLoadingTimeout])
+  }, [])
 
   // Preload image when URL changes
   useEffect(() => {
@@ -294,10 +287,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     setImageLoaded(false)
     setImageError(false)
     setIsRetrying(false)
-    if (imageLoadingTimeout) {
-      clearTimeout(imageLoadingTimeout)
-    }
-  }, [currentPage, imageLoadingTimeout])
+  }, [currentPage])
 
   // Add preloading logic
   useEffect(() => {
@@ -372,7 +362,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     img.src = imageUrl
   }
 
-  const handleCopyText = async () => {
+  const handleCopyText = useCallback(async () => {
     if (!currentResult?.text || isCopying) return
     
     try {
@@ -404,7 +394,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     } finally {
       setIsCopying(false)
     }
-  }
+  }, [currentResult?.text, isCopying, toast])
 
   const handleDownload = async () => {
     if (!results.length || !docStatus || isDownloading) return
@@ -480,32 +470,22 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
   const handleImageLoad = useCallback(() => {
     setImageLoaded(true)
     setImageError(false)
-    if (imageLoadingTimeout) {
-      clearTimeout(imageLoadingTimeout)
-    }
     if (imageRef.current) {
-      setImageSize({
-        width: imageRef.current.naturalWidth,
-        height: imageRef.current.naturalHeight
-      })
       // Start at 100% zoom
       setZoomLevel(100)
       setPanPosition({ x: 0, y: 0 })
     }
-  }, [imageLoadingTimeout])
+  }, [])
 
   const handleImageError = useCallback(() => {
     setImageError(true)
     setImageLoaded(false)
-    if (imageLoadingTimeout) {
-      clearTimeout(imageLoadingTimeout)
-    }
     toast({
       variant: "destructive",
       title: "Image Load Error",
       description: "Failed to load image preview. You can still view the extracted text.",
     })
-  }, [imageLoadingTimeout, toast])
+  }, [toast])
 
   const handleSearch = useCallback((query: string) => {
     setSearchQuery(query)
@@ -563,13 +543,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
       Math.min(200, Math.round(fitZoom * 1.5)), // 1.5x fit
       Math.min(200, Math.round(fitZoom * 2)) // 2x fit
     ].filter((value, index, self) => self.indexOf(value) === index)
-  }, [imageRef.current])
-
-  // Memoize status display
-  const statusDisplay = useMemo(() => 
-    getStatusDisplay(docStatus?.status || '', currentPage, results.length),
-    [docStatus?.status, currentPage, results.length]
-  )
+  }, [])
 
   // Add keyboard navigation
   useEffect(() => {
@@ -796,9 +770,16 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
               ) : (
                 <FileText className="h-6 w-6 text-muted-foreground" />
               )}
-              <h1 className="text-lg font-semibold truncate max-w-[300px]">
-                {docStatus?.filename}
-              </h1>
+              <div className="flex flex-col">
+                <h1 className="text-lg font-semibold truncate max-w-[300px]">
+                  {docStatus?.filename}
+                </h1>
+                {docStatus && (
+                  <p className="text-xs text-muted-foreground">
+                    {getStatusDisplay(docStatus.status, currentPage, results.length)}
+                  </p>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -979,7 +960,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
               </div>
               <h2 className="text-2xl font-semibold mb-4">Processing Cancelled</h2>
               <p className="text-muted-foreground mb-8">
-                This document's processing was cancelled. You may want to try processing it again.
+                This document&apos;s processing was cancelled. You may want to try processing it again.
               </p>
               <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
                 <Button 
@@ -1323,7 +1304,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
                 {(docStatus.currentPage ?? 0) > 0 ? (
                   <>
                     <p className="text-muted-foreground mb-6">
-                      This document's processing was cancelled, but {docStatus.currentPage ?? 0} {(docStatus.currentPage ?? 0) === 1 ? 'page was' : 'pages were'} processed successfully.
+                      This document&apos;s processing was cancelled, but {docStatus.currentPage ?? 0} {(docStatus.currentPage ?? 0) === 1 ? "page was" : "pages were"} processed successfully.
                       Use the navigation controls above to view the processed pages.
                     </p>
                     <div className="flex flex-col gap-3 sm:flex-row items-center justify-center">
@@ -1341,7 +1322,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
                 ) : (
                   <>
                     <p className="text-muted-foreground mb-6">
-                      This document's processing was cancelled before any pages could be processed.
+                      This document&apos;s processing was cancelled before any pages could be processed.
                       You may want to try processing it again.
                     </p>
                     <div className="flex flex-col gap-3 sm:flex-row items-center justify-center">
@@ -1424,6 +1405,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
               </div>
             )}
 
+            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               ref={imageRef}
               key={`${currentResult.imageUrl}-${retryCount}`}
@@ -1466,6 +1448,9 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
                 <div 
                   ref={containerRef}
                   className="absolute inset-0"
+                  onMouseDown={handleMouseDown}
+                  onMouseMove={handleMouseMove}
+                  onMouseUp={handleMouseUp}
                 >
                   {renderImageContent()}
                 </div>

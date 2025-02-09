@@ -81,7 +81,7 @@ class DatabaseService {
     }
     
     // Calculate sizes in chunks to avoid string length issues
-    const calculateSize = (items: any[]): number => {
+    const calculateSize = (items: (ProcessingStatus | OCRResult)[]): number => {
       const CHUNK_SIZE = 100
       let totalSize = 0
       

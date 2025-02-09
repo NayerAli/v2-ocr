@@ -32,6 +32,19 @@ class AzureRateLimiter {
   }
 }
 
+interface MicrosoftVisionRegion {
+  lines: Array<{
+    words: Array<{
+      text: string
+    }>
+  }>
+}
+
+interface MicrosoftVisionResponse {
+  language?: string
+  regions?: MicrosoftVisionRegion[]
+}
+
 export class ProcessingService {
   private queueMap: Map<string, ProcessingStatus> = new Map()
   private isProcessing = false
@@ -593,14 +606,14 @@ export class ProcessingService {
       const detectedLanguage = data.language || this.ocrSettings.language || "unknown"
       const isRTL = rtlLanguages.has(detectedLanguage.toLowerCase().split('-')[0])
 
-      // Reconstruire le texte
+      // Reconstruct text
       const text =
-        data.regions
-          ?.map((region: any) =>
+        (data as MicrosoftVisionResponse).regions
+          ?.map((region) =>
             region.lines
-              ?.map((line: any) => {
+              ?.map((line) => {
                 const words = isRTL ? [...line.words].reverse() : line.words
-                return words.map((word: any) => word.text).join(" ")
+                return words.map((word) => word.text).join(" ")
               })
               .join("\n")
           )

@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { FileText, Upload, Settings, CheckCircle, AlertCircle, Eye, ArrowRight, Clock } from "lucide-react"
+import { FileText, Upload, CheckCircle, AlertCircle, ArrowRight, Clock } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { FileUpload } from "./components/file-upload"
 import { SettingsDialog } from "./components/settings-dialog"
@@ -44,14 +44,14 @@ export default function DashboardPage() {
   const [selectedDocument, setSelectedDocument] = useState<ProcessingStatus | null>(null)
   const [isDetailsOpen, setIsDetailsOpen] = useState(false)
 
-  // Create processing service with current settings - memoize with isInitialized
+  // Create processing service with current settings
   const processingService = useMemo(
     () => new ProcessingService({
       ocr: settings.ocr,
       processing: settings.processing,
       upload: settings.upload
     }),
-    [settings.ocr, settings.processing, settings.upload, isInitialized]
+    [settings.ocr, settings.processing, settings.upload]
   )
 
   // Initialize PDF.js only after settings are loaded
@@ -158,7 +158,7 @@ export default function DashboardPage() {
           ? "Processing cancelled and document removed from queue"
           : "Document removed from queue",
       })
-    } catch (error) {
+    } catch {
       toast({
         title: "Error",
         description: "Failed to remove document from queue",
@@ -186,7 +186,7 @@ export default function DashboardPage() {
         title: "Processing Cancelled",
         description: "Document processing has been cancelled",
       })
-    } catch (error) {
+    } catch {
       toast({
         title: "Error",
         description: "Failed to cancel processing",

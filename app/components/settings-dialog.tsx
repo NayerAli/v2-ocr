@@ -32,7 +32,6 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const [validationError, setValidationError] = useState<string | null>(null)
   const [isValid, setIsValid] = useState<boolean | null>(null)
   const [activeTab, setActiveTab] = useState("ocr")
-  const [ setIsClearing] = useState(false)
 
   useEffect(() => {
     if (open) {
@@ -89,7 +88,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
         <DialogHeader className="space-y-2 px-0">
           <DialogTitle>⚙️ Settings</DialogTitle>
           <DialogDescription className="text-xs">
-            Customize how your text recognition app works. We'll help you understand each option! 
+            Customize how your text recognition app works. We&apos;ll help you understand each option! 
           </DialogDescription>
         </DialogHeader>
 
@@ -182,7 +181,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                   {settings.ocr.provider === "microsoft" && (
                     <div className="space-y-1.5">
                       <Label htmlFor="region" className="text-sm">🌍 Service Location</Label>
-                      <p className="text-xs text-muted-foreground">Pick the closest region for best speed (e.g., 'westeurope')</p>
+                      <p className="text-xs text-muted-foreground">Pick the closest region for best speed (e.g., &apos;westeurope&apos;)</p>
                       <Input
                         id="region"
                         value={settings.ocr.region}
@@ -199,7 +198,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
 
                   <div className="space-y-1.5">
                     <Label htmlFor="language" className="text-sm">🗣️ Document Language</Label>
-                    <p className="text-xs text-muted-foreground">Select your document's main language for better accuracy</p>
+                    <p className="text-xs text-muted-foreground">Select your document&apos;s main language for better accuracy</p>
                     <Select
                       value={settings.ocr.language}
                       onValueChange={(value) => settings.updateOCRSettings({ language: value })}
