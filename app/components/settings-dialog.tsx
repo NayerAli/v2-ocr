@@ -118,12 +118,11 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
 
         <div className="flex-1 overflow-y-auto -mr-6 pr-6 my-6">
           <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-            <TabsList className="grid w-full grid-cols-5 sticky top-0 bg-background z-10 mb-6">
+            <TabsList className="grid w-full grid-cols-4 sticky top-0 bg-background z-10 mb-6">
               <TabsTrigger value="ocr" className="text-sm px-1">OCR</TabsTrigger>
               <TabsTrigger value="processing" className="text-sm px-1">Processing</TabsTrigger>
               <TabsTrigger value="upload" className="text-sm px-1">Upload</TabsTrigger>
-              <TabsTrigger value="display" className="text-sm px-1">Display</TabsTrigger>
-              <TabsTrigger value="database" className="text-sm px-1">Storage</TabsTrigger>
+              <TabsTrigger value="stats" className="text-sm px-1">Overview</TabsTrigger>
             </TabsList>
 
             <div className="px-1">
@@ -376,184 +375,123 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                 </div>
               </TabsContent>
 
-              <TabsContent value="display" className="space-y-4 mt-0 mb-6">
-                <div className="space-y-3">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="theme" className="text-sm">🎨 App Look</Label>
-                    <p className="text-xs text-muted-foreground">Choose light, dark, or system theme</p>
-                    <Select
-                      value={settings.display.theme}
-                      onValueChange={(value: 'light' | 'dark' | 'system') => 
-                        settings.updateDisplaySettings({ theme: value })}
-                    >
-                      <SelectTrigger id="theme">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="light">Light</SelectItem>
-                        <SelectItem value="dark">Dark</SelectItem>
-                        <SelectItem value="system">System</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label htmlFor="font-size" className="text-sm">📝 Text Size</Label>
-                    <p className="text-xs text-muted-foreground">Adjust text size for comfortable reading</p>
-                    <Slider
-                      id="font-size"
-                      min={12}
-                      max={24}
-                      step={1}
-                      value={[settings.display.fontSize]}
-                      onValueChange={([value]) => settings.updateDisplaySettings({ fontSize: value })}
-                    />
-                  </div>
-
-                  <div className="flex items-center space-x-2">
-                    <input
-                      type="checkbox"
-                      id="show-confidence"
-                      checked={settings.display.showConfidenceScores}
-                      onChange={(e) => settings.updateDisplaySettings({ showConfidenceScores: e.target.checked })}
-                      className="h-4 w-4 rounded border-gray-300"
-                    />
-                    <Label htmlFor="show-confidence" className="text-sm">🎯 Show Accuracy</Label>
-                    <p className="text-xs text-muted-foreground ml-2">Display confidence level for each word</p>
-                  </div>
-
-                  <div className="flex items-center space-x-2">
-                    <input
-                      type="checkbox"
-                      id="highlight-uncertain"
-                      checked={settings.display.highlightUncertain}
-                      onChange={(e) => settings.updateDisplaySettings({ highlightUncertain: e.target.checked })}
-                      className="h-4 w-4 rounded border-gray-300"
-                    />
-                    <Label htmlFor="highlight-uncertain" className="text-sm">🔍 Mark Uncertain</Label>
-                    <p className="text-xs text-muted-foreground ml-2">Highlight less confident text</p>
-                  </div>
-                </div>
-              </TabsContent>
-
-              <TabsContent value="database" className="space-y-4 mt-0 mb-6">
+              <TabsContent value="stats" className="space-y-4 mt-0 mb-6">
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <Card>
                       <CardHeader className="p-4 pb-2">
-                        <CardTitle className="text-sm">📊 Storage Stats</CardTitle>
+                        <CardTitle className="text-sm">📊 Storage Overview</CardTitle>
                       </CardHeader>
                       <CardContent className="p-4 pt-2">
-                        <div className="flex justify-between">
-                          <span>Total Documents:</span>
-                          <span className="font-mono">{dbStats.totalDocuments}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Total Results:</span>
-                          <span className="font-mono">{dbStats.totalResults}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Storage Used:</span>
-                          <span className="font-mono">{dbStats.dbSize} MB</span>
-                        </div>
-                        {dbStats.lastCleared && (
+                        <div className="space-y-2">
                           <div className="flex justify-between">
-                            <span>Last Cleared:</span>
+                            <span>Total Documents:</span>
+                            <span className="font-mono">{dbStats?.totalDocuments ?? 0}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Total Results:</span>
+                            <span className="font-mono">{dbStats?.totalResults ?? 0}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Storage Used:</span>
+                            <span className="font-mono">{dbStats?.dbSize ?? 0} MB</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Average Size/Doc:</span>
                             <span className="font-mono">
-                              {new Date(dbStats.lastCleared).toLocaleDateString()}
+                              {dbStats?.totalDocuments ? 
+                                (dbStats.dbSize / dbStats.totalDocuments).toFixed(2) : 0} MB
                             </span>
                           </div>
-                        )}
+                        </div>
                       </CardContent>
                     </Card>
 
                     <Card>
                       <CardHeader className="p-4 pb-2">
-                        <CardTitle className="text-sm">🧹 Auto-Cleanup</CardTitle>
+                        <CardTitle className="text-sm">🔍 OCR Settings</CardTitle>
                       </CardHeader>
                       <CardContent className="p-4 pt-2">
-                        <div className="flex items-center space-x-2">
-                          <input
-                            type="checkbox"
-                            id="auto-cleanup"
-                            checked={settings.database.autoCleanup}
-                            onChange={(e) => settings.updateDatabaseSettings({ autoCleanup: e.target.checked })}
-                            className="h-4 w-4 rounded border-gray-300"
-                          />
-                          <Label htmlFor="auto-cleanup" className="text-sm">Auto Cleanup</Label>
-                          <p className="text-xs text-muted-foreground ml-2">Auto remove old files</p>
+                        <div className="space-y-2">
+                          <div className="flex justify-between">
+                            <span>Provider:</span>
+                            <span className="font-mono capitalize">{settings.ocr.provider}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Language:</span>
+                            <span className="font-mono uppercase">{settings.ocr.language}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Pages per Batch:</span>
+                            <span className="font-mono">{settings.processing.pagesPerChunk}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Max Jobs:</span>
+                            <span className="font-mono">{settings.processing.maxConcurrentJobs}</span>
+                          </div>
                         </div>
+                      </CardContent>
+                    </Card>
 
-                        <div className="space-y-1.5">
-                          <Label htmlFor="retention-period" className="text-sm">📅 Keep For</Label>
-                          <p className="text-xs text-muted-foreground">Days to keep files (e.g., 30)</p>
-                          <Input
-                            id="retention-period"
-                            type="number"
-                            min={1}
-                            max={365}
-                            value={settings.database.retentionPeriod}
-                            onChange={(e) => settings.updateDatabaseSettings({ 
-                              retentionPeriod: parseInt(e.target.value) 
-                            })}
-                            disabled={!settings.database.autoCleanup}
-                          />
+                    <Card>
+                      <CardHeader className="p-4 pb-2">
+                        <CardTitle className="text-sm">⚡ Processing</CardTitle>
+                      </CardHeader>
+                      <CardContent className="p-4 pt-2">
+                        <div className="space-y-2">
+                          <div className="flex justify-between">
+                            <span>Concurrent Chunks:</span>
+                            <span className="font-mono">{settings.processing.concurrentChunks}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Retry Attempts:</span>
+                            <span className="font-mono">{settings.processing.retryAttempts}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Retry Delay:</span>
+                            <span className="font-mono">{settings.processing.retryDelay} ms</span>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    <Card>
+                      <CardHeader className="p-4 pb-2">
+                        <CardTitle className="text-sm">📈 Upload Settings</CardTitle>
+                      </CardHeader>
+                      <CardContent className="p-4 pt-2">
+                        <div className="space-y-2">
+                          <div className="flex justify-between">
+                            <span>Max File Size:</span>
+                            <span className="font-mono">{settings.upload.maxFileSize} MB</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Max Parallel:</span>
+                            <span className="font-mono">{settings.upload.maxSimultaneousUploads}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>File Types:</span>
+                            <span className="font-mono text-right text-xs">
+                              {settings.upload.allowedFileTypes.join(", ")}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Storage Limit:</span>
+                            <span className="font-mono">{settings.database.maxStorageSize} MB</span>
+                          </div>
                         </div>
                       </CardContent>
                     </Card>
                   </div>
 
-                  <Card>
-                    <CardHeader className="p-4 pb-2">
-                      <CardTitle className="text-sm">Database Management</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-4">
-                        <div className="flex flex-wrap gap-2">
-                          <Button
-                            variant="outline"
-                            onClick={() => handleClearDatabase('queue')}
-                            disabled={isClearing}
-                          >
-                            Clear Queue
-                          </Button>
-                          <Button
-                            variant="outline"
-                            onClick={() => handleClearDatabase('results')}
-                            disabled={isClearing}
-                          >
-                            Clear Results
-                          </Button>
-                          <Button
-                            variant="destructive"
-                            onClick={() => handleClearDatabase('all')}
-                            disabled={isClearing}
-                            className="flex items-center gap-2"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                            Clear All Data
-                          </Button>
-                          <Button
-                            variant="outline"
-                            onClick={refreshStats}
-                            className="ml-auto"
-                          >
-                            <RefreshCw className="h-4 w-4 mr-2" />
-                            Refresh Stats
-                          </Button>
-                        </div>
-                        
-                        <Alert>
-                          <Database className="h-4 w-4" />
-                          <AlertTitle>Database Management</AlertTitle>
-                          <AlertDescription>
-                            Clearing data will permanently remove processed documents and their results.
-                            Make sure to export any important data before clearing.
-                          </AlertDescription>
-                        </Alert>
+                  {!dbStats && (
+                    <div className="flex items-center justify-center p-4">
+                      <div className="flex items-center space-x-2">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <p className="text-sm text-muted-foreground">Loading statistics...</p>
                       </div>
-                    </CardContent>
-                  </Card>
+                    </div>
+                  )}
                 </div>
               </TabsContent>
             </div>
