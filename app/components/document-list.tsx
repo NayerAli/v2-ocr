@@ -1,7 +1,7 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { FileText, MoreVertical, Download, Trash2, ImageIcon, Clock, Loader2, CheckCircle, AlertCircle, Pause } from "lucide-react"
+import { FileText, MoreVertical, Download, Trash2, ImageIcon, Clock, Loader2, CheckCircle, AlertCircle, Pause, X } from "lucide-react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
@@ -73,7 +73,7 @@ export function DocumentList({
       case "error":
         return <AlertCircle className="h-3 w-3" />
       case "cancelled":
-        return <AlertCircle className="h-3 w-3" />
+        return <X className="h-3 w-3" />
       default:
         return null
     }
@@ -90,7 +90,7 @@ export function DocumentList({
       return `Processing ${doc.currentPage}/${doc.totalPages}`
     }
     if (doc.status === "cancelled") {
-      return (doc.currentPage || 0) > 0 
+      return doc.currentPage && doc.currentPage > 0
         ? `Cancelled (${doc.currentPage} pages processed)`
         : "Cancelled"
     }

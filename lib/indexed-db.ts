@@ -7,19 +7,21 @@ interface OCRDatabase {
   results: OCRResult
   metadata: {
     key: string
-    value: any
+    value: unknown
   }
+}
+
+interface CacheData {
+  queue: ProcessingStatus[]
+  results: Map<string, OCRResult[]>
+  stats: DatabaseStats | null
 }
 
 class DatabaseService {
   private dbName = "ocr-dashboard"
   private version = 2
   private db: Promise<IDBPDatabase<OCRDatabase>> | null = null
-  private cache: {
-    queue: ProcessingStatus[]
-    results: Map<string, OCRResult[]>
-    stats: DatabaseStats | null
-  } = {
+  private cache: CacheData = {
     queue: [],
     results: new Map(),
     stats: null
@@ -36,7 +38,7 @@ class DatabaseService {
   private async initDB() {
     try {
       this.db = openDB<OCRDatabase>(this.dbName, this.version, {
-        upgrade(db, oldVersion, newVersion) {
+        upgrade(db, oldVersion) {
           if (oldVersion < 1) {
             db.createObjectStore("queue", { keyPath: 'id' })
             db.createObjectStore("results", { keyPath: 'id' })

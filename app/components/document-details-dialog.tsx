@@ -1,8 +1,8 @@
 "use client"
 
-import { FileText, Calendar, HardDrive, Clock, AlertCircle, CheckCircle2, XCircle, Loader2, Settings } from "lucide-react"
+import { FileText, Clock, AlertCircle, CheckCircle2, XCircle, Loader2, Settings } from "lucide-react"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -138,7 +138,7 @@ export function DocumentDetailsDialog({ document, open, onOpenChange }: Document
                 </div>
                 <div className="flex justify-between items-center py-1">
                   <span className="text-sm text-muted-foreground">Language</span>
-                  <span className="font-medium">{settings.ocr.language.toUpperCase()}</span>
+                  <span className="font-medium">{settings.ocr.language?.toUpperCase() ?? 'AUTO'}</span>
                 </div>
                 <div className="flex justify-between items-center py-1">
                   <span className="text-sm text-muted-foreground">Started At</span>

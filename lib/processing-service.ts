@@ -1,8 +1,8 @@
-import { CONFIG } from "@/config/constants"
 import type { ProcessingStatus, OCRResult } from "@/types"
 import type { OCRSettings, ProcessingSettings, UploadSettings } from "@/types/settings"
 import { db } from "./indexed-db"
 import { loadPDF, renderPageToBase64 } from "./pdf-utils"
+import type { PDFDocumentProxy } from "pdfjs-dist"
 
 class AzureRateLimiter {
   private isRateLimited: boolean = false;
@@ -139,11 +139,28 @@ export class ProcessingService {
       this.abortControllers.delete(id)
     }
 
-    // Update status
+    // Update status and cleanup
     status.status = "cancelled"
-    status.progress = 0
+    status.progress = Math.min(status.progress || 0, 100)
     status.endTime = Date.now()
+    status.error = "Processing cancelled by user"
+    
+    // Clear any rate limit info if present
+    if (status.rateLimitInfo) {
+      status.rateLimitInfo = undefined
+    }
+
+    // Save to queue and notify UI
+    this.queueMap.set(id, status)
     await db.saveToQueue(status)
+
+    // If this was the only processing item, reset processing state
+    const processingItems = Array.from(this.queueMap.values()).filter(
+      item => item.status === "processing"
+    )
+    if (processingItems.length === 0) {
+      this.isProcessing = false
+    }
   }
 
   private async processQueue() {
@@ -174,6 +191,13 @@ export class ProcessingService {
           // Clean up controller
           this.abortControllers.delete(item.id);
 
+          // Check if processing was cancelled after getting results
+          const updatedStatus = await this.getStatus(item.id);
+          if (updatedStatus?.status === "cancelled") {
+            console.log(`[Process] Processing cancelled for ${item.filename}`);
+            continue;
+          }
+
           // Save results
           await db.saveResults(item.id, results);
 
@@ -187,36 +211,47 @@ export class ProcessingService {
           console.error(`Error processing ${item.filename}:`, error);
           
           // Check if this was a cancellation
-          if (error instanceof Error && error.name === "AbortError") {
-            item.status = "cancelled";
-          } else {
-            item.status = "error";
-            item.error = error instanceof Error ? error.message : "Unknown error occurred";
+          if (error instanceof Error && (
+            error.name === "AbortError" || 
+            error.message === "Processing aborted"
+          )) {
+            console.log(`[Process] Processing aborted for ${item.filename}`);
+            // Status already updated in cancelProcessing
+            continue;
           }
           
+          item.status = "error";
+          item.error = error instanceof Error ? error.message : "Unknown error occurred";
+          item.endTime = Date.now();
           await db.saveToQueue(item);
           this.abortControllers.delete(item.id);
         }
       }
     } catch (error) {
       console.error("Queue processing error:", error);
-    } finally {
-      this.isProcessing = false;
+    }
 
-      // Check if there are more items to process
-      const remainingItems = Array.from(this.queueMap.values()).filter(
-        (item) => item.status === "queued"
-      );
-      if (remainingItems.length > 0 && !this.isPaused) {
-        // Use setTimeout to prevent stack overflow with recursive calls
-        setTimeout(() => this.processQueue(), 0);
-      }
+    this.isProcessing = false;
+
+    // Check if there are more items to process
+    const remainingItems = Array.from(this.queueMap.values()).filter(
+      (item) => item.status === "queued"
+    );
+    if (remainingItems.length > 0 && !this.isPaused) {
+      // Use setTimeout to prevent stack overflow with recursive calls
+      setTimeout(() => this.processQueue(), 0);
     }
   }
 
   private async processFile(status: ProcessingStatus, signal: AbortSignal): Promise<OCRResult[]> {
     if (!status.file) throw new Error("No file to process")
     console.log(`[Process] Starting ${status.filename}`);
+
+    // Check if already cancelled
+    if (signal.aborted) {
+      console.log(`[Process] Processing aborted for ${status.filename}`);
+      throw new Error("Processing aborted")
+    }
 
     // For images
     if (status.file.type.startsWith("image/")) {
@@ -225,6 +260,13 @@ export class ProcessingService {
         if (this.ocrSettings.provider === "microsoft") {
           await this.azureRateLimiter.waitIfLimited();
         }
+        
+        // Check if cancelled after rate limit wait
+        if (signal.aborted) {
+          console.log(`[Process] Processing aborted for ${status.filename}`);
+          throw new Error("Processing aborted")
+        }
+
         console.log(`[Process] Processing image: ${status.filename}`);
         const result = await this.callOCR(base64, signal)
         result.documentId = status.id
@@ -232,6 +274,7 @@ export class ProcessingService {
         console.log(`[Process] Completed image: ${status.filename}`);
         return [result]
       } catch (error) {
+        // Handle rate limit separately
         if (error instanceof Error && error.message.startsWith("RATE_LIMIT:")) {
           const retryAfter = parseInt(error.message.split(":")[1], 10)
           console.log(`[Process] Rate limit on ${status.filename} - Waiting ${retryAfter}s`);
@@ -247,6 +290,16 @@ export class ProcessingService {
           await db.saveToQueue(status)
           return this.processFile(status, signal)
         }
+        
+        // Check if this was a cancellation
+        if (error instanceof Error && (
+          error.name === "AbortError" || 
+          error.message === "Processing aborted"
+        )) {
+          console.log(`[Process] Processing aborted for ${status.filename}`);
+          throw error
+        }
+        
         throw error
       }
     }
@@ -269,12 +322,14 @@ export class ProcessingService {
 
         const results: OCRResult[] = []
         const processedPages = new Set<number>()
+        const chunkPromises: Promise<OCRResult>[] = []
 
         // Process pages in chunks
         for (let startPage = 1; startPage <= numPages; startPage += pagesPerChunk * concurrentChunks) {
-          if (signal.aborted) throw new Error("Processing aborted")
-
-          const chunkPromises: Promise<OCRResult>[] = []
+          if (signal.aborted) {
+            console.log(`[Process] Processing aborted for ${status.filename}`);
+            throw new Error("Processing aborted")
+          }
           
           // Create chunks for concurrent processing
           for (let chunk = 0; chunk < concurrentChunks && startPage + (chunk * pagesPerChunk) <= numPages; chunk++) {
@@ -287,12 +342,22 @@ export class ProcessingService {
               chunkPromises.push(
                 (async () => {
                   try {
+                    // Check for cancellation before processing each page
+                    if (signal.aborted) {
+                      throw new Error("Processing aborted")
+                    }
+
                     console.log(`[Process] Starting page ${pageNum}/${numPages}`);
                     const page = await pdf.getPage(pageNum)
                     const base64 = await renderPageToBase64(page)
 
                     if (this.ocrSettings.provider === "microsoft") {
                       await this.azureRateLimiter.waitIfLimited();
+                    }
+
+                    // Check for cancellation after rate limit wait
+                    if (signal.aborted) {
+                      throw new Error("Processing aborted")
                     }
 
                     const result = await this.callOCR(base64, signal)
@@ -324,26 +389,66 @@ export class ProcessingService {
                       // Retry this page
                       return this.processPage(pdf, pageNum, status, signal)
                     }
+
+                    // Check if this was a cancellation
+                    if (error instanceof Error && (
+                      error.name === "AbortError" || 
+                      error.message === "Processing aborted"
+                    )) {
+                      throw error
+                    }
+
                     throw error
                   }
                 })()
               )
             }
           }
-
-          // Process current batch of chunks
-          const chunkResults = await Promise.all(chunkPromises)
-          results.push(...chunkResults)
         }
+
+        // Process current batch of chunks
+        const chunkResults = await Promise.allSettled(chunkPromises)
+        
+        // Handle results, including potential cancellations
+        const validResults = chunkResults
+          .filter((result: PromiseSettledResult<OCRResult>): result is PromiseFulfilledResult<OCRResult> => 
+            result.status === "fulfilled"
+          )
+          .map((result: PromiseFulfilledResult<OCRResult>) => result.value)
+        
+        // Check if any chunk was cancelled
+        const cancelledResult = chunkResults.find(
+          (result: PromiseSettledResult<OCRResult>) => 
+            result.status === "rejected" && 
+            result.reason instanceof Error && (
+              result.reason.name === "AbortError" || 
+              result.reason.message === "Processing aborted"
+            )
+        )
+        
+        if (cancelledResult) {
+          throw new Error("Processing aborted")
+        }
+        
+        results.push(...validResults)
 
         status.progress = 100
         status.currentPage = numPages
         await db.saveToQueue(status)
         console.log(`[Process] Completed PDF: ${status.filename}`);
 
-        return results.sort((a, b) => a.pageNumber - b.pageNumber)
+        return results.sort((a, b) => (a.pageNumber || 0) - (b.pageNumber || 0))
       } catch (error) {
         console.error(`[Process] Error processing PDF ${status.filename}:`, error)
+        
+        // Check if this was a cancellation
+        if (error instanceof Error && (
+          error.name === "AbortError" || 
+          error.message === "Processing aborted"
+        )) {
+          throw error
+        }
+        
         throw error
       }
     }
@@ -351,20 +456,10 @@ export class ProcessingService {
     throw new Error(`Unsupported file type: ${status.file.type}`)
   }
 
-  // Helper method to process a single page (used for retries)
-  private async processPage(pdf: any, pageNum: number, status: ProcessingStatus, signal: AbortSignal): Promise<OCRResult> {
+  private async processPage(pdf: PDFDocumentProxy, pageNum: number, status: ProcessingStatus, signal: AbortSignal): Promise<OCRResult> {
     const page = await pdf.getPage(pageNum)
-    const base64 = await renderPageToBase64(page)
-
-    if (this.ocrSettings.provider === "microsoft") {
-      await this.azureRateLimiter.waitIfLimited();
-    }
-
-    const result = await this.callOCR(base64, signal)
-    result.documentId = status.id
-    result.pageNumber = pageNum
-    result.imageUrl = `data:image/png;base64,${base64}`
-    return result
+    const base64Data = await renderPageToBase64(page)
+    return this.callOCR(base64Data, signal)
   }
 
   private async fileToBase64(file: File): Promise<string> {

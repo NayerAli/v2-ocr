@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo, useCallback, useTransition } from "react"
+import { useState, useEffect, useMemo, useCallback } from "react"
 import Link from "next/link"
 import { Search, Filter, Upload } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -12,11 +12,9 @@ import { db } from "@/lib/indexed-db"
 import type { ProcessingStatus } from "@/types"
 import { cn } from "@/lib/utils"
 import { useSettingsInit } from "@/hooks/use-settings-init"
-import { Table, TableHeader, TableBody, TableCell, TableHead, TableRow } from "@/components/ui/table"
 
 export default function DocumentsPage() {
-  const { isInitialized, isConfigured, shouldShowSettings, setShouldShowSettings } = useSettingsInit()
-  const [isPending, startTransition] = useTransition()
+  const { isInitialized } = useSettingsInit()
   const [documents, setDocuments] = useState<ProcessingStatus[]>([])
   const [isLoadingData, setIsLoadingData] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
@@ -96,9 +94,7 @@ export default function DocumentsPage() {
   }, [documents, searchQuery, statusFilter, sortBy, sortOrder, getSortedDocuments])
 
   const debouncedSearch = useCallback((value: string) => {
-    startTransition(() => {
-      setSearchQuery(value)
-    })
+    setSearchQuery(value)
   }, [])
 
   const handleDelete = useCallback(async (id: string) => {

@@ -137,11 +137,26 @@ export default function DashboardPage() {
 
   const handleRemoveFromQueue = async (id: string) => {
     try {
-      await db.removeFromQueue(id)
-      setProcessingQueue((prev) => prev.filter((item) => item.id !== id))
+      const status = processingQueue.find(item => item.id === id)
+      if (!status) return
+
+      // If the file is processing, cancel it first
+      if (status.status === "processing") {
+        await processingService.cancelProcessing(id)
+      }
+
+      // Remove from active queue but keep in recent documents
+      setProcessingQueue(prev => prev.map(item => 
+        item.id === id 
+          ? { ...item, status: "cancelled" }
+          : item
+      ))
+
       toast({
         title: "File Removed",
-        description: "Document has been removed from the queue",
+        description: status.status === "processing" 
+          ? "Processing cancelled and document removed from queue"
+          : "Document removed from queue",
       })
     } catch (error) {
       toast({
@@ -159,6 +174,14 @@ export default function DashboardPage() {
   const handleCancel = async (id: string) => {
     try {
       await processingService.cancelProcessing(id)
+      
+      // Update the queue item status
+      setProcessingQueue(prev => prev.map(item => 
+        item.id === id 
+          ? { ...item, status: "cancelled" }
+          : item
+      ))
+
       toast({
         title: "Processing Cancelled",
         description: "Document processing has been cancelled",

@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react"
-import { ArrowLeft, Download, Copy, ChevronLeft, ChevronRight, Check, AlertCircle, Keyboard, Search, Minus, Plus, ZoomIn, Type, ScanLine, Upload, FileText, ImageIcon } from "lucide-react"
+import { ArrowLeft, Download, Copy, ChevronLeft, ChevronRight, Check, AlertCircle, Keyboard, Search, Minus, Plus, Type, ScanLine, Upload, FileText, ImageIcon } from "lucide-react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -26,19 +26,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { useRouter } from "next/navigation"
-import { Table, TableHead, TableCell, TableRow } from "@/components/ui/table"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
 
 const LOADING_TIMEOUT = 30000 // 30 seconds
 const OPERATION_TIMEOUT = 10000 // 10 seconds
-const IMAGE_RETRY_TIMEOUT = 3000 // 3 seconds
-const IMAGE_LOAD_DELAY = 800 // 0.8 seconds for better UX
 
 // Add LRU Cache for images
 class ImageCache {
@@ -118,10 +108,10 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
   const [zoomLevel, setZoomLevel] = useState(100)
   const [textSize, setTextSize] = useState(16) // Default size in pixels
   const [isDragging, setIsDragging] = useState(false)
-  const [dragPosition, setDragPosition] = useState({ x: 0, y: 0 })
+  const [ setDragPosition] = useState({ x: 0, y: 0 })
   const dragRef = useRef<{ startX: number; startY: number; scrollLeft: number; scrollTop: number } | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
-  const [fitMode, setFitMode] = useState<'width' | 'height' | 'auto'>('auto')
+  const [ setFitMode] = useState<'width' | 'height' | 'auto'>('auto')
   const imageRef = useRef<HTMLImageElement>(null)
   const [imageSize, setImageSize] = useState<{ width: number; height: number } | null>(null)
   const imageContainerRef = useRef<HTMLDivElement>(null)
@@ -1009,13 +999,6 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
                   Try Processing Again
                 </Button>
               </div>
-              {docStatus.error && (
-                <Alert variant="destructive" className="mt-8">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertTitle>Processing Error</AlertTitle>
-                  <AlertDescription>{docStatus.error}</AlertDescription>
-                </Alert>
-              )}
             </div>
           </div>
         </div>
@@ -1382,13 +1365,6 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
                       </Button>
                     </div>
                   </>
-                )}
-                {docStatus.error && (
-                  <Alert variant="destructive" className="mt-6">
-                    <AlertCircle className="h-4 w-4" />
-                    <AlertTitle>Processing Error</AlertTitle>
-                    <AlertDescription>{docStatus.error}</AlertDescription>
-                  </Alert>
                 )}
               </div>
             </div>

@@ -31,6 +31,8 @@ export interface ProcessingStatus {
   totalPages?: number
   startTime?: number
   endTime?: number
+  completionTime?: number
+  metadata?: Record<string, any>
   results?: OCRResult[]
   createdAt: Date
   updatedAt: Date

@@ -10,11 +10,12 @@ const MOCK_TEXTS = [
 const MOCK_LANGUAGES = ["en", "es", "fr", "de"]
 
 export async function mockOCRProcess(file: File): Promise<OCRResult[]> {
-  // Simulate processing time
+  // Simulate processing time based on file size
   const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+  //const processingTime = Math.min(file.size / 1024 / 1024 * 1000, 5000) // 1 second per MB, max 5 seconds
 
-  // Generate random number of pages (1-10)
-  const pageCount = Math.floor(Math.random() * 10) + 1
+  // Generate random number of pages based on file size (1 page per MB, min 1, max 10)
+  const pageCount = Math.min(Math.max(Math.floor(file.size / 1024 / 1024) + 1, 1), 10)
 
   const results: OCRResult[] = []
 

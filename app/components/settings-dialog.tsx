@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Loader2, AlertCircle, Eye, EyeOff, Trash2, Database, RefreshCw } from "lucide-react"
+import { Loader2, AlertCircle, Eye, EyeOff } from "lucide-react"
 import { useSettings } from "@/store/settings"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -13,7 +13,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { CONFIG } from "@/config/constants"
 import { validateGoogleApiKey, validateMicrosoftApiKey } from "@/lib/api-validation"
 import { useToast } from "@/hooks/use-toast"
-import { Slider } from "@/components/ui/slider"
 import { cn } from "@/lib/utils"
 import { db } from "@/lib/indexed-db"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
@@ -25,15 +24,15 @@ interface SettingsDialogProps {
 }
 
 export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
-  const settings = useSettings()
-  const { toast } = useToast()
   const [isValidating, setIsValidating] = useState(false)
+  const [showApiKey, setShowApiKey] = useState(false)
+  const [stats, setStats] = useState<DatabaseStats | null>(null)
+  const { toast } = useToast()
+  const settings = useSettings()
   const [validationError, setValidationError] = useState<string | null>(null)
   const [isValid, setIsValid] = useState<boolean | null>(null)
-  const [showApiKey, setShowApiKey] = useState(false)
   const [activeTab, setActiveTab] = useState("ocr")
-  const [dbStats, setDbStats] = useState<DatabaseStats>({ totalDocuments: 0, totalResults: 0, dbSize: 0 })
-  const [isClearing, setIsClearing] = useState(false)
+  const [ setIsClearing] = useState(false)
 
   useEffect(() => {
     if (open) {
@@ -81,29 +80,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
 
   const refreshStats = async () => {
     const stats = await db.getDatabaseStats()
-    setDbStats(stats)
-  }
-
-  const handleClearDatabase = async (type?: 'queue' | 'results' | 'all') => {
-    if (window.confirm(`Are you sure you want to clear ${type || 'all'} data? This action cannot be undone.`)) {
-      try {
-        setIsClearing(true)
-        await db.clearDatabase(type)
-        await refreshStats()
-        toast({
-          title: "Database Cleared",
-          description: `${type || 'All'} data has been cleared successfully.`,
-        })
-      } catch (error) {
-        toast({
-          variant: "destructive",
-          title: "Error",
-          description: "Failed to clear database. Please try again.",
-        })
-      } finally {
-        setIsClearing(false)
-      }
-    }
+    setStats(stats)
   }
 
   return (
@@ -386,21 +363,21 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                         <div className="space-y-2">
                           <div className="flex justify-between">
                             <span>Total Documents:</span>
-                            <span className="font-mono tabular-nums">{dbStats?.totalDocuments.toLocaleString() ?? '0'}</span>
+                            <span className="font-mono tabular-nums">{stats?.totalDocuments.toLocaleString() ?? '0'}</span>
                           </div>
                           <div className="flex justify-between">
                             <span>Total Results:</span>
-                            <span className="font-mono tabular-nums">{dbStats?.totalResults.toLocaleString() ?? '0'}</span>
+                            <span className="font-mono tabular-nums">{stats?.totalResults.toLocaleString() ?? '0'}</span>
                           </div>
                           <div className="flex justify-between">
                             <span>Storage Used:</span>
-                            <span className="font-mono tabular-nums">{dbStats?.dbSize.toLocaleString()} MB</span>
+                            <span className="font-mono tabular-nums">{stats?.dbSize.toLocaleString()} MB</span>
                           </div>
                           <div className="flex justify-between">
                             <span>Average Size/Doc:</span>
                             <span className="font-mono tabular-nums">
-                              {dbStats?.totalDocuments ? 
-                                (dbStats.dbSize / dbStats.totalDocuments).toFixed(2) : '0'} MB
+                              {stats?.totalDocuments ? 
+                                (stats.dbSize / stats.totalDocuments).toFixed(2) : '0'} MB
                             </span>
                           </div>
                         </div>
@@ -484,7 +461,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                     </Card>
                   </div>
 
-                  {!dbStats && (
+                  {!stats && (
                     <div className="flex items-center justify-center p-4">
                       <div className="flex items-center space-x-2">
                         <Loader2 className="h-4 w-4 animate-spin" />

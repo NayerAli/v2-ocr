@@ -2,13 +2,12 @@
 
 import { useCallback, useState, useEffect } from "react"
 import { useDropzone } from "react-dropzone"
-import { Upload, X, FileText, ImageIcon, Clock, Loader2, AlertCircle, ArrowDown, CheckCircle } from "lucide-react"
+import { Upload, X, FileText, ImageIcon, Clock, Loader2, AlertCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { formatFileSize } from "@/lib/file-utils"
 import { cn } from "@/lib/utils"
 import type { ProcessingStatus } from "@/types"
-import { Alert, AlertDescription } from "@/components/ui/alert"
 
 interface FileUploadProps {
   onFilesAccepted: (files: File[]) => void
@@ -41,7 +40,6 @@ export function FileUpload({
 }: FileUploadProps) {
   const [isUploading, setIsUploading] = useState(false)
   const [countdowns, setCountdowns] = useState<Record<string, number>>({})
-  const [lastCompletedId, setLastCompletedId] = useState<string | null>(null)
 
   // Update countdowns every second
   useEffect(() => {
@@ -142,7 +140,6 @@ export function FileUpload({
     if (!item.totalPages) return null
     
     const processed = item.currentPage || 0
-    const remaining = item.totalPages - processed
     const percent = Math.round((processed / item.totalPages) * 100)
 
     return (
@@ -321,15 +318,27 @@ export function FileUpload({
                       </p>
                     </div>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7"
-                    onClick={() => onRemove(item.id)}
-                  >
-                    <X className="h-3.5 w-3.5" />
-                    <span className="sr-only">Remove</span>
-                  </Button>
+                  {item.status === "processing" ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-red-600 dark:text-red-500 hover:text-red-700 dark:hover:text-red-400 px-2 text-xs gap-1.5"
+                      onClick={() => onCancel(item.id)}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                      Cancel
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={() => onRemove(item.id)}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                      <span className="sr-only">Remove</span>
+                    </Button>
+                  )}
                 </div>
 
                 <div className="space-y-1">
