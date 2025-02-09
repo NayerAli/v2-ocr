@@ -9,12 +9,18 @@ A modern, efficient system for processing large volumes of documents through OCR
 - 📊 Interactive dashboard with processing metrics
 - 🎯 Support for multiple OCR providers (Google Cloud Vision & Azure)
 - ⚙️ In-app OCR configuration with API key validation
-- 🖼️ Built-in file preview and thumbnail generation
+- 🖼️ Advanced document viewer with:
+  - 🔍 Smooth zoom controls with presets
+  - 🖱️ Pan/drag functionality for zoomed images
+  - 📐 Fit-to-screen and reset zoom options
+  - 🔄 Responsive loading states
+  - 📱 Touch-friendly controls
 - 🔍 Support for PDF, JPEG, PNG, TIFF, and WebP formats
 - ⚡ Optimized batch processing with configurable concurrency
-- 🌐 Multilingual support with RTL languages (Arabic, Persian)
+- 🌐 Enhanced multilingual support with RTL text processing
 - 🔐 Secure API key management with visibility toggle
 - 🎨 Dark mode support with system theme detection
+- 💾 Efficient caching for improved performance
 
 ## 🚀 Getting Started
 
@@ -59,6 +65,15 @@ Configure your OCR provider directly in the settings dialog:
 - Batch processing options
 - Concurrent processing limits
 
+### Document Viewer Settings
+
+Customize the document viewing experience:
+- Zoom presets (25% to 200%)
+- Pan sensitivity
+- Fit-to-screen options
+- RTL text display preferences
+- Loading state customization
+
 ### Processing Options
 
 Customize processing behavior with:
@@ -72,13 +87,41 @@ Customize processing behavior with:
 
 ```
 ├── app/
-│   ├── api/         # API routes
-│   ├── components/  # React components
-│   │   ├── ui/           # Shadcn UI components
-│   │   └── settings/     # Settings components
-│   └── lib/        # Utilities and services
-├── config/         # Configuration constants
-└── public/         # Static assets
+│   ├── components/                             # App-specific components
+│   │   ├── analytics-panel.tsx                 # Dashboard analytics component
+│   │   ├── document-list.tsx                   # Document grid/list view
+│   │   ├── document-details-dialog.tsx         # Document info modal
+│   │   ├── file-upload.tsx                     # Drag-n-drop upload component
+│   │   ├── header.tsx                          # Main navigation header
+│   │   ├── settings-dialog.tsx                 # OCR configuration modal
+│   │   └── settings-panel.tsx                  # Settings management panel
+│   ├── documents/                              # Document-related pages
+│   │   └── [id]/                               # Dynamic document view route
+│   ├── fonts/
+│   ├── globals.css
+│   ├── layout.tsx
+│   └── page.tsx                                # Homepage
+├── components/                                 # Shared components
+│   ├── ui/                                     # Shadcn UI components
+│   ├── theme-provider.tsx                      # Dark/light theme provider
+│   └── toast.tsx                               # Toast notification wrapper
+├── config/
+│   └── constants.ts                            # Global constants and settings
+├── hooks/                                      # Custom React hooks
+├── lib/
+│   ├── indexed-db.ts                           # IndexedDB storage operations
+│   ├── mock-ocr.ts
+│   └── processing-service.ts
+├── store/
+├── types/
+│   └── index.ts
+├── .env
+├── Dockerfile
+├── components.json
+├── next.config.mjs
+├── package.json
+├── tailwind.config.ts
+└── tsconfig.json
 ```
 
 ## 🔧 Technical Stack
@@ -90,7 +133,8 @@ Customize processing behavior with:
 - **Form Validation**: Zod
 - **State Management**: React Server Components + Zustand
 - **File Processing**: Built-in MIME type detection
-- **Internationalization**: Built-in RTL support
+- **Internationalization**: Enhanced RTL support
+- **Performance**: Client-side caching, optimized rendering
 
 ## 📝 License
 
