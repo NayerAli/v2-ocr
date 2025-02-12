@@ -17,10 +17,19 @@ import { cn } from "@/lib/utils"
 import { db } from "@/lib/indexed-db"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import type { DatabaseStats } from "@/types/settings"
+import { useLanguage } from "@/hooks/use-language"
+import { t, type Language } from "@/lib/i18n/translations"
 
 interface SettingsDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+}
+
+function toArabicNumerals(num: number | string, language: Language): string {
+  if (language !== 'ar' && language !== 'fa') return String(num)
+  
+  const arabicNumerals = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩']
+  return String(num).replace(/[0-9]/g, (d) => arabicNumerals[parseInt(d)])
 }
 
 export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
@@ -32,6 +41,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const [validationError, setValidationError] = useState<string | null>(null)
   const [isValid, setIsValid] = useState<boolean | null>(null)
   const [activeTab, setActiveTab] = useState("ocr")
+  const { language } = useLanguage()
 
   useEffect(() => {
     if (open) {
@@ -55,21 +65,21 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
         setValidationError(result.error)
         toast({
           variant: "destructive",
-          title: "API Validation Failed",
+          title: t('apiValidationFailed', language),
           description: result.error,
         })
       } else {
         toast({
-          title: "API Validation Successful",
-          description: "Your API configuration is valid.",
+          title: t('apiValidationSuccess', language),
+          description: t('apiConfigValid', language),
         })
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : "An unexpected error occurred"
+      const message = error instanceof Error ? error.message : t('unexpectedError', language)
       setValidationError(message)
       toast({
         variant: "destructive",
-        title: "API Validation Error",
+        title: t('validationError', language),
         description: message,
       })
     } finally {
@@ -86,27 +96,27 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[500px] md:max-w-[600px] lg:max-w-[700px] max-h-[85vh] flex flex-col p-6">
         <DialogHeader className="space-y-2 px-0">
-          <DialogTitle>⚙️ Settings</DialogTitle>
+          <DialogTitle>⚙️ {t('settingsTitle', language)}</DialogTitle>
           <DialogDescription className="text-xs">
-            Customize how your text recognition app works. We&apos;ll help you understand each option! 
+            {t('settingsDescription', language)}
           </DialogDescription>
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto -mr-6 pr-6 my-6">
           <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
             <TabsList className="grid w-full grid-cols-4 sticky top-0 bg-background z-10 mb-6">
-              <TabsTrigger value="ocr" className="text-sm px-1">OCR</TabsTrigger>
-              <TabsTrigger value="processing" className="text-sm px-1">Processing</TabsTrigger>
-              <TabsTrigger value="upload" className="text-sm px-1">Upload</TabsTrigger>
-              <TabsTrigger value="stats" className="text-sm px-1">Overview</TabsTrigger>
+              <TabsTrigger value="ocr" className="text-sm px-1">{t('ocrTab', language)}</TabsTrigger>
+              <TabsTrigger value="processing" className="text-sm px-1">{t('processingTab', language)}</TabsTrigger>
+              <TabsTrigger value="upload" className="text-sm px-1">{t('uploadTab', language)}</TabsTrigger>
+              <TabsTrigger value="stats" className="text-sm px-1">{t('statsTab', language)}</TabsTrigger>
             </TabsList>
 
             <div className="px-1">
               <TabsContent value="ocr" className="space-y-4 mt-0 mb-6">
                 <div className="space-y-3">
                   <div className="space-y-1.5">
-                    <Label htmlFor="provider" className="text-sm">🤖 Text Recognition Service</Label>
-                    <p className="text-xs text-muted-foreground">Pick which AI service will read your documents. Both Google and Microsoft are great at this!</p>
+                    <Label htmlFor="provider" className="text-sm">🤖 {t('textRecognitionService', language)}</Label>
+                    <p className="text-xs text-muted-foreground">{t('textRecognitionDescription', language)}</p>
                     <Select
                       value={settings.ocr.provider}
                       onValueChange={(value: (typeof CONFIG.SUPPORTED_APIS)[number]) => {
@@ -130,8 +140,8 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="api-key" className="text-sm">🔑 Access Key</Label>
-                    <p className="text-xs text-muted-foreground">Think of this as your VIP pass to use the service. Keep it secret!</p>
+                    <Label htmlFor="api-key" className="text-sm">🔑 {t('accessKey', language)}</Label>
+                    <p className="text-xs text-muted-foreground">{t('accessKeyDescription', language)}</p>
                     <div className="flex flex-col sm:flex-row gap-2">
                       <div className="relative flex-1">
                         <Input
@@ -143,7 +153,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                             setIsValid(null)
                             setValidationError(null)
                           }}
-                          placeholder={`Enter your ${settings.ocr.provider === "google" ? "Google" : "Azure"} API key`}
+                          placeholder={t('enterApiKey', language)}
                           className="pr-10 font-mono text-sm"
                         />
                         <Button
@@ -154,7 +164,9 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                           onClick={() => setShowApiKey(!showApiKey)}
                         >
                           {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                          <span className="sr-only">{showApiKey ? "Hide API key" : "Show API key"}</span>
+                          <span className="sr-only">
+                            {showApiKey ? t('hideApiKey', language) : t('showApiKey', language)}
+                          </span>
                         </Button>
                       </div>
                       <Button
@@ -168,7 +180,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                       >
                         {isValidating ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                         {isValid === true ? <span className="text-green-500 mr-2">✓</span> : null}
-                        Test API
+                        {t('testApi', language)}
                       </Button>
                     </div>
                     {settings.ocr.provider === "google" && (
@@ -180,8 +192,8 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
 
                   {settings.ocr.provider === "microsoft" && (
                     <div className="space-y-1.5">
-                      <Label htmlFor="region" className="text-sm">🌍 Service Location</Label>
-                      <p className="text-xs text-muted-foreground">Pick the closest region for best speed (e.g., &apos;westeurope&apos;)</p>
+                      <Label htmlFor="region" className="text-sm">🌍 {t('serviceLocation', language)}</Label>
+                      <p className="text-xs text-muted-foreground">{t('serviceLocationDescription', language)}</p>
                       <Input
                         id="region"
                         value={settings.ocr.region}
@@ -197,8 +209,8 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                   )}
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="language" className="text-sm">🗣️ Document Language</Label>
-                    <p className="text-xs text-muted-foreground">Select your document&apos;s main language for better accuracy</p>
+                    <Label htmlFor="language" className="text-sm">🗣️ {t('documentLanguage', language)}</Label>
+                    <p className="text-xs text-muted-foreground">{t('documentLanguageDescription', language)}</p>
                     <Select
                       value={settings.ocr.language}
                       onValueChange={(value) => settings.updateOCRSettings({ language: value })}
@@ -231,7 +243,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                   {validationError && (
                     <Alert variant="destructive">
                       <AlertCircle className="h-4 w-4" />
-                      <AlertTitle>Validation Error</AlertTitle>
+                      <AlertTitle>{t('validationError', language)}</AlertTitle>
                       <AlertDescription>{validationError}</AlertDescription>
                     </Alert>
                   )}
@@ -241,8 +253,8 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
               <TabsContent value="processing" className="space-y-4 mt-0 mb-6">
                 <div className="space-y-3">
                   <div className="space-y-1.5">
-                    <Label htmlFor="max-concurrent-jobs" className="text-sm">📚 Parallel Processing</Label>
-                    <p className="text-xs text-muted-foreground">Process multiple documents at once (e.g., setting 3 means processing book1.pdf, book2.pdf, and book3.pdf simultaneously)</p>
+                    <Label htmlFor="max-concurrent-jobs" className="text-sm">📚 {t('parallelProcessing', language)}</Label>
+                    <p className="text-xs text-muted-foreground">{t('parallelProcessingDescription', language)}</p>
                     <Input
                       id="max-concurrent-jobs"
                       type="number"
@@ -254,8 +266,8 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="pages-per-chunk" className="text-sm">📄 Pages Per Batch</Label>
-                    <p className="text-xs text-muted-foreground">How many pages to group together (e.g., setting 3 means processing pages 1-3, then 4-6, then 7-9 of a document)</p>
+                    <Label htmlFor="pages-per-chunk" className="text-sm">📄 {t('pagesPerBatch', language)}</Label>
+                    <p className="text-xs text-muted-foreground">{t('pagesPerBatchDescription', language)}</p>
                     <Input
                       id="pages-per-chunk"
                       type="number"
@@ -267,8 +279,8 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="concurrent-chunks" className="text-sm">🚀 Processing Speed</Label>
-                    <p className="text-xs text-muted-foreground">How many page groups to process at once (e.g., setting 2 means processing pages 1-3 and 4-6 simultaneously)</p>
+                    <Label htmlFor="concurrent-chunks" className="text-sm">🚀 {t('processingSpeed', language)}</Label>
+                    <p className="text-xs text-muted-foreground">{t('processingSpeedDescription', language)}</p>
                     <Input
                       id="concurrent-chunks"
                       type="number"
@@ -280,8 +292,8 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="retry-attempts" className="text-sm">🔄 Auto-Retry</Label>
-                    <p className="text-xs text-muted-foreground">Number of retry attempts if processing fails</p>
+                    <Label htmlFor="retry-attempts" className="text-sm">🔄 {t('autoRetry', language)}</Label>
+                    <p className="text-xs text-muted-foreground">{t('autoRetryDescription', language)}</p>
                     <Input
                       id="retry-attempts"
                       type="number"
@@ -293,8 +305,8 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="retry-delay" className="text-sm">⏲️ Retry Timing</Label>
-                    <p className="text-xs text-muted-foreground">Wait time between retries (in milliseconds)</p>
+                    <Label htmlFor="retry-delay" className="text-sm">⏲️ {t('retryTiming', language)}</Label>
+                    <p className="text-xs text-muted-foreground">{t('retryTimingDescription', language)}</p>
                     <Input
                       id="retry-delay"
                       type="number"
@@ -311,8 +323,8 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
               <TabsContent value="upload" className="space-y-4 mt-0 mb-6">
                 <div className="space-y-3">
                   <div className="space-y-1.5">
-                    <Label htmlFor="max-file-size" className="text-sm">📦 Maximum File Size</Label>
-                    <p className="text-xs text-muted-foreground">Largest allowed file size (MB). Typical 20-page PDF: 2-3 MB</p>
+                    <Label htmlFor="max-file-size" className="text-sm">📦 {t('maxFileSize', language)}</Label>
+                    <p className="text-xs text-muted-foreground">{t('maxFileSizeDescription', language)}</p>
                     <Input
                       id="max-file-size"
                       type="number"
@@ -321,12 +333,14 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                       value={settings.upload.maxFileSize}
                       onChange={(e) => settings.updateUploadSettings({ maxFileSize: parseInt(e.target.value) })}
                     />
-                    <p className="text-xs text-muted-foreground">Current: {settings.upload.maxFileSize}.0 MB</p>
+                    <p className="text-xs text-muted-foreground">
+                      {t('current', language)}: {settings.upload.maxFileSize}.0 MB
+                    </p>
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="allowed-file-types" className="text-sm">📎 Accepted Files</Label>
-                    <p className="text-xs text-muted-foreground">File types allowed (e.g., pdf, png, jpg)</p>
+                    <Label htmlFor="allowed-file-types" className="text-sm">📎 {t('acceptedFiles', language)}</Label>
+                    <p className="text-xs text-muted-foreground">{t('acceptedFilesDescription', language)}</p>
                     <Input
                       id="allowed-file-types"
                       value={settings.upload.allowedFileTypes.join(", ")}
@@ -337,8 +351,8 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="max-simultaneous-uploads" className="text-sm">⬆️ Upload Speed</Label>
-                    <p className="text-xs text-muted-foreground">Number of files to upload at once</p>
+                    <Label htmlFor="max-simultaneous-uploads" className="text-sm">⬆️ {t('uploadSpeed', language)}</Label>
+                    <p className="text-xs text-muted-foreground">{t('uploadSpeedDescription', language)}</p>
                     <Input
                       id="max-simultaneous-uploads"
                       type="number"
@@ -356,27 +370,27 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <Card>
                       <CardHeader className="p-4 pb-2">
-                        <CardTitle className="text-sm">📊 Storage Overview</CardTitle>
+                        <CardTitle className="text-sm">📊 {t('storageOverview', language)}</CardTitle>
                       </CardHeader>
                       <CardContent className="p-4 pt-2">
                         <div className="space-y-2">
                           <div className="flex justify-between">
-                            <span>Total Documents:</span>
-                            <span className="font-mono tabular-nums">{stats?.totalDocuments.toLocaleString() ?? '0'}</span>
+                            <span>{t('totalDocuments', language)}:</span>
+                            <span className="font-mono tabular-nums">{toArabicNumerals(stats?.totalDocuments || 0, language)}</span>
                           </div>
                           <div className="flex justify-between">
-                            <span>Total Results:</span>
-                            <span className="font-mono tabular-nums">{stats?.totalResults.toLocaleString() ?? '0'}</span>
+                            <span>{t('totalResults', language)}:</span>
+                            <span className="font-mono tabular-nums">{toArabicNumerals(stats?.totalResults || 0, language)}</span>
                           </div>
                           <div className="flex justify-between">
-                            <span>Storage Used:</span>
-                            <span className="font-mono tabular-nums">{stats?.dbSize.toLocaleString()} MB</span>
+                            <span>{t('storageUsed', language)}:</span>
+                            <span className="font-mono tabular-nums">{toArabicNumerals(stats?.dbSize || 0, language)} MB</span>
                           </div>
                           <div className="flex justify-between">
-                            <span>Average Size/Doc:</span>
+                            <span>{t('averageSizePerDoc', language)}:</span>
                             <span className="font-mono tabular-nums">
                               {stats?.totalDocuments ? 
-                                (stats.dbSize / stats.totalDocuments).toFixed(2) : '0'} MB
+                                toArabicNumerals((stats.dbSize / stats.totalDocuments).toFixed(2), language) : '٠'} MB
                             </span>
                           </div>
                         </div>
@@ -385,47 +399,25 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
 
                     <Card>
                       <CardHeader className="p-4 pb-2">
-                        <CardTitle className="text-sm">🔍 OCR Settings</CardTitle>
+                        <CardTitle className="text-sm">🔍 {t('ocrSettings', language)}</CardTitle>
                       </CardHeader>
                       <CardContent className="p-4 pt-2">
                         <div className="space-y-2">
                           <div className="flex justify-between">
-                            <span>Provider:</span>
+                            <span>{t('provider', language)}:</span>
                             <span className="font-mono capitalize">{settings.ocr.provider}</span>
                           </div>
                           <div className="flex justify-between">
-                            <span>Language:</span>
+                            <span>{t('language', language)}:</span>
                             <span className="font-mono uppercase">{settings.ocr.language}</span>
                           </div>
                           <div className="flex justify-between">
-                            <span>Pages per Batch:</span>
-                            <span className="font-mono">{settings.processing.pagesPerChunk}</span>
+                            <span>{t('pagesPerBatch', language)}:</span>
+                            <span className="font-mono">{toArabicNumerals(settings.processing.pagesPerChunk, language)}</span>
                           </div>
                           <div className="flex justify-between">
-                            <span>Max Jobs:</span>
-                            <span className="font-mono">{settings.processing.maxConcurrentJobs}</span>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-
-                    <Card>
-                      <CardHeader className="p-4 pb-2">
-                        <CardTitle className="text-sm">⚡ Processing</CardTitle>
-                      </CardHeader>
-                      <CardContent className="p-4 pt-2">
-                        <div className="space-y-2">
-                          <div className="flex justify-between">
-                            <span>Concurrent Chunks:</span>
-                            <span className="font-mono">{settings.processing.concurrentChunks}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>Retry Attempts:</span>
-                            <span className="font-mono">{settings.processing.retryAttempts}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>Retry Delay:</span>
-                            <span className="font-mono">{settings.processing.retryDelay} ms</span>
+                            <span>{t('maxJobs', language)}:</span>
+                            <span className="font-mono">{toArabicNumerals(settings.processing.maxConcurrentJobs, language)}</span>
                           </div>
                         </div>
                       </CardContent>
@@ -433,27 +425,49 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
 
                     <Card>
                       <CardHeader className="p-4 pb-2">
-                        <CardTitle className="text-sm">📈 Upload Settings</CardTitle>
+                        <CardTitle className="text-sm">⚡ {t('processingTab', language)}</CardTitle>
                       </CardHeader>
                       <CardContent className="p-4 pt-2">
                         <div className="space-y-2">
                           <div className="flex justify-between">
-                            <span>Max File Size:</span>
-                            <span className="font-mono">{settings.upload.maxFileSize} MB</span>
+                            <span>{t('concurrentChunks', language)}:</span>
+                            <span className="font-mono">{toArabicNumerals(settings.processing.concurrentChunks, language)}</span>
                           </div>
                           <div className="flex justify-between">
-                            <span>Max Parallel:</span>
-                            <span className="font-mono">{settings.upload.maxSimultaneousUploads}</span>
+                            <span>{t('retryAttempts', language)}:</span>
+                            <span className="font-mono">{toArabicNumerals(settings.processing.retryAttempts, language)}</span>
                           </div>
                           <div className="flex justify-between">
-                            <span>File Types:</span>
+                            <span>{t('retryDelay', language)}:</span>
+                            <span className="font-mono">{toArabicNumerals(settings.processing.retryDelay, language)} ms</span>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    <Card>
+                      <CardHeader className="p-4 pb-2">
+                        <CardTitle className="text-sm">📈 {t('uploadSettings', language)}</CardTitle>
+                      </CardHeader>
+                      <CardContent className="p-4 pt-2">
+                        <div className="space-y-2">
+                          <div className="flex justify-between">
+                            <span>{t('maxFileSize', language)}:</span>
+                            <span className="font-mono">{toArabicNumerals(settings.upload.maxFileSize, language)} MB</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>{t('maxParallel', language)}:</span>
+                            <span className="font-mono">{toArabicNumerals(settings.upload.maxSimultaneousUploads, language)}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>{t('fileTypes', language)}:</span>
                             <span className="font-mono text-right text-xs">
                               {settings.upload.allowedFileTypes.join(", ")}
                             </span>
                           </div>
                           <div className="flex justify-between">
-                            <span>Storage Limit:</span>
-                            <span className="font-mono">{settings.database.maxStorageSize} MB</span>
+                            <span>{t('storageLimit', language)}:</span>
+                            <span className="font-mono">{toArabicNumerals(settings.database.maxStorageSize, language)} MB</span>
                           </div>
                         </div>
                       </CardContent>
@@ -464,7 +478,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                     <div className="flex items-center justify-center p-4">
                       <div className="flex items-center space-x-2">
                         <Loader2 className="h-4 w-4 animate-spin" />
-                        <p className="text-sm text-muted-foreground">Loading statistics...</p>
+                        <p className="text-sm text-muted-foreground">{t('loadingStatistics', language)}</p>
                       </div>
                     </div>
                   )}
@@ -476,7 +490,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
 
         <div className="flex items-center justify-end border-t pt-6 px-0">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Close
+            {t('close', language)}
           </Button>
         </div>
       </DialogContent>

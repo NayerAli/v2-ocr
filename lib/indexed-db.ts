@@ -40,11 +40,11 @@ class DatabaseService {
       this.db = openDB<OCRDatabase>(this.dbName, this.version, {
         upgrade(db, oldVersion) {
           if (oldVersion < 1) {
-            db.createObjectStore("queue", { keyPath: 'id' })
-            db.createObjectStore("results", { keyPath: 'id' })
+            db.createObjectStore("queue", { keyPath: 'id', autoIncrement: false })
+            db.createObjectStore("results", { keyPath: 'id', autoIncrement: false })
           }
           if (oldVersion < 2 && !db.objectStoreNames.contains("metadata")) {
-            db.createObjectStore("metadata", { keyPath: 'key' })
+            db.createObjectStore("metadata", { keyPath: 'key', autoIncrement: false })
           }
         },
         blocked() {
@@ -149,32 +149,63 @@ class DatabaseService {
 
   async getQueue(): Promise<ProcessingStatus[]> {
     const now = Date.now()
-    if (this.cache.queue.length && now - this.lastUpdate < this.CACHE_TTL) {
+    
+    // Return cached results if within TTL
+    if (this.cache.queue.length > 0 && now - this.lastUpdate < this.CACHE_TTL) {
       return this.cache.queue
     }
 
-    if (!this.db) return []
     const db = await this.db
+    if (!db) {
+      console.error('Database not initialized')
+      return []
+    }
+
     const queue = await db.getAll("queue")
-    const sorted = queue.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+    
+    // Ensure all items have valid dates and sort
+    const sorted = queue
+      .map(item => ({
+        ...item,
+        createdAt: item.createdAt instanceof Date ? item.createdAt : new Date(item.createdAt || Date.now()),
+        updatedAt: item.updatedAt instanceof Date ? item.updatedAt : new Date(item.updatedAt || Date.now())
+      }))
+      .sort((a, b) => {
+        const bTime = b.createdAt instanceof Date ? b.createdAt.getTime() : new Date(b.createdAt).getTime()
+        const aTime = a.createdAt instanceof Date ? a.createdAt.getTime() : new Date(a.createdAt).getTime()
+        return bTime - aTime
+      })
     
     this.cache.queue = sorted
     this.lastUpdate = now
     return sorted
   }
 
-  async saveToQueue(item: ProcessingStatus) {
-    if (!this.db) return
+  async saveToQueue(status: ProcessingStatus): Promise<void> {
     const db = await this.db
-    await db.put("queue", {
-      ...item,
-      updatedAt: new Date()
-    })
+    if (!db) {
+      console.error('Database not initialized')
+      return
+    }
     
-    // Invalidate cache
-    this.lastUpdate = 0
-    this.cache.queue = []
-    this.cache.stats = null
+    // Ensure dates are properly set
+    const updatedStatus = {
+      ...status,
+      createdAt: status.createdAt instanceof Date ? status.createdAt : new Date(status.createdAt || Date.now()),
+      updatedAt: new Date()
+    }
+    
+    await db.put("queue", updatedStatus)
+    
+    // Update cache
+    this.cache.queue = this.cache.queue
+      .filter(item => item.id !== status.id)
+      .concat([updatedStatus])
+      .sort((a, b) => {
+        const bTime = b.createdAt instanceof Date ? b.createdAt.getTime() : new Date(b.createdAt).getTime()
+        const aTime = a.createdAt instanceof Date ? a.createdAt.getTime() : new Date(a.createdAt).getTime()
+        return bTime - aTime
+      })
   }
 
   async removeFromQueue(id: string) {

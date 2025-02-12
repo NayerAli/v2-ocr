@@ -24,7 +24,7 @@ export default function RootLayout({
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
           <div className="relative flex min-h-screen flex-col">
             <Header />
-            <div className="flex-1">
+            <div className="flex-1 pt-14">
               <main className="relative py-8">
                 <div className="container max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                   {children}

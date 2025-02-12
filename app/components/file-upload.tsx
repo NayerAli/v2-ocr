@@ -8,6 +8,7 @@ import { Progress } from "@/components/ui/progress"
 import { formatFileSize } from "@/lib/file-utils"
 import { cn } from "@/lib/utils"
 import type { ProcessingStatus } from "@/types"
+import { Language, t } from "@/lib/i18n/translations"
 
 interface FileUploadProps {
   onFilesAccepted: (files: File[]) => void
@@ -22,6 +23,7 @@ interface FileUploadProps {
   allowedFileTypes: string[]
   isPageDragging?: boolean
   onDragStateChange?: (isDragging: boolean) => void
+  language: Language
 }
 
 export function FileUpload({
@@ -36,7 +38,8 @@ export function FileUpload({
   maxSimultaneousUploads,
   allowedFileTypes,
   isPageDragging,
-  onDragStateChange
+  onDragStateChange,
+  language
 }: FileUploadProps) {
   const [isUploading, setIsUploading] = useState(false)
   const [countdowns, setCountdowns] = useState<Record<string, number>>({})
@@ -219,26 +222,26 @@ export function FileUpload({
               isDragActive ? "text-primary" : "text-foreground"
             )}>
               {isDragActive
-                ? "Drop files here to start processing"
+                ? t('dropFiles', language)
                 : disabled
-                  ? "Configure API settings to upload files"
-                  : "Drag and drop your files here"}
+                  ? t('configureToUpload', language)
+                  : t('dragAndDrop', language)}
             </p>
             <p className="text-sm text-muted-foreground">
               {!disabled && (
                 <>
-                  or <span className="text-primary font-medium underline decoration-dashed underline-offset-4 hover:decoration-solid cursor-pointer group-hover:decoration-solid">browse</span> to choose files
+                  {t('orBrowse', language)} <span className="text-primary font-medium underline decoration-dashed underline-offset-4 hover:decoration-solid cursor-pointer group-hover:decoration-solid">{t('browseFiles', language)}</span>
                 </>
               )}
             </p>
             <div className="pt-2 flex items-center justify-center gap-4 text-xs text-muted-foreground/80">
               <span className="flex items-center gap-1.5">
                 <FileText className="h-3.5 w-3.5" />
-                Supports: {allowedFileTypes.join(", ")}
+                {t('supports', language)}: {allowedFileTypes.join(", ")}
               </span>
               <span className="flex items-center gap-1.5">
                 <Upload className="h-3.5 w-3.5" />
-                Up to {maxSimultaneousUploads} files, {maxFileSize}MB each
+                {t('upTo', language)} {maxSimultaneousUploads} {t('filesEach', language)}, {maxFileSize}{t('mbEach', language)}
               </span>
             </div>
           </div>
@@ -254,7 +257,7 @@ export function FileUpload({
                   <Upload className="h-6 w-6 text-primary animate-bounce" />
                 </div>
               </div>
-              <p className="text-sm font-medium text-primary">Uploading files...</p>
+              <p className="text-sm font-medium text-primary">{t('uploadingFiles', language)}</p>
             </div>
           </div>
         )}
@@ -265,7 +268,7 @@ export function FileUpload({
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-medium flex items-center gap-2">
               <FileText className="h-4 w-4 text-muted-foreground" />
-              Processing Queue
+              {t('processingQueue', language)}
             </h3>
             <Button
               variant="outline"
@@ -277,12 +280,12 @@ export function FileUpload({
               {isProcessing ? (
                 <>
                   <AlertCircle className="h-3.5 w-3.5" />
-                  Pause
+                  {t('pause', language)}
                 </>
               ) : (
                 <>
                   <Upload className="h-3.5 w-3.5" />
-                  Resume
+                  {t('resume', language)}
                 </>
               )}
             </Button>
@@ -291,7 +294,7 @@ export function FileUpload({
           {isRateLimited && (
             <div className="flex items-center gap-2 p-2 rounded-md bg-purple-50 dark:bg-purple-950/50 text-purple-600 dark:text-purple-400 text-xs">
               <Clock className="h-3.5 w-3.5 animate-pulse" />
-              <span>Rate limit reached - Processing will resume automatically</span>
+              <span>{t('rateLimitMessage', language)}</span>
             </div>
           )}
 
@@ -314,7 +317,7 @@ export function FileUpload({
                     <div className="min-w-0">
                       <p className="text-sm font-medium truncate">{item.filename}</p>
                       <p className="text-xs text-muted-foreground">
-                        {formatFileSize(item.size ?? 0)}
+                        {formatFileSize(item.size ?? 0, language)}
                       </p>
                     </div>
                   </div>
@@ -326,7 +329,7 @@ export function FileUpload({
                       onClick={() => onCancel(item.id)}
                     >
                       <X className="h-3.5 w-3.5" />
-                      Cancel
+                      {t('cancel', language)}
                     </Button>
                   ) : (
                     <Button
@@ -364,9 +367,9 @@ export function FileUpload({
             <div className="p-3 rounded-full bg-primary/5 mb-3">
               <FileText className="h-6 w-6 text-muted-foreground" />
             </div>
-            <h3 className="text-sm font-medium">No Active Uploads</h3>
+            <h3 className="text-sm font-medium">{t('noActiveUploads', language)}</h3>
             <p className="text-xs text-muted-foreground mt-1 max-w-[240px]">
-              Drop your files above to start processing. Your queue will appear here.
+              {t('dropFilesAbove', language)}
             </p>
           </div>
         </div>

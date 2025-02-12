@@ -130,3 +130,7 @@ export function estimateProcessingTime(file: File): number {
   return baseTime + sizeMultiplier * 1000
 }
 
+export function formatTimestamp(timestamp: number): string {
+  return new Date(timestamp).toLocaleString()
+}
+

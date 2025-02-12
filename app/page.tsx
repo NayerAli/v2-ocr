@@ -19,6 +19,8 @@ import { formatFileSize } from "@/lib/file-utils"
 import { initializePDFJS } from "@/lib/pdf-init"
 import { DocumentDetailsDialog } from "./components/document-details-dialog"
 import { DocumentList } from "./components/document-list"
+import { useLanguage } from "@/hooks/use-language"
+import { t, tCount, translationKeys, type Language } from "@/lib/i18n/translations"
 
 interface DashboardStats {
   totalProcessed: number
@@ -27,10 +29,18 @@ interface DashboardStats {
   totalStorage: number
 }
 
+function toArabicNumerals(num: number | string, language: Language): string {
+  if (language !== 'ar' && language !== 'fa') return String(num)
+  
+  const arabicNumerals = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩']
+  return String(num).replace(/[0-9]/g, (d) => arabicNumerals[parseInt(d)])
+}
+
 export default function DashboardPage() {
   const router = useRouter()
   const settings = useSettings()
   const { toast } = useToast()
+  const { language } = useLanguage()
   const { isInitialized, isConfigured, shouldShowSettings, setShouldShowSettings } = useSettingsInit()
   const [processingQueue, setProcessingQueue] = useState<ProcessingStatus[]>([])
   const [isDraggingOverPage, setIsDraggingOverPage] = useState(false)
@@ -46,7 +56,7 @@ export default function DashboardPage() {
 
   // Create processing service with current settings
   const processingService = useMemo(
-    () => new ProcessingService({
+    () => ProcessingService.getInstance({
       ocr: settings.ocr,
       processing: settings.processing,
       upload: settings.upload
@@ -122,14 +132,18 @@ export default function DashboardPage() {
       const newItems = await Promise.all(ids.map((id) => processingService.getStatus(id)))
       setProcessingQueue((prev) => [...prev, ...newItems.filter((item): item is ProcessingStatus => !!item)])
 
+      const message = tCount('filesAddedDesc', files.length, language).replace(/\d+/g, num => 
+        toArabicNumerals(num, language)
+      )
+
       toast({
-        title: "Files Added",
-        description: `Added ${files.length} file(s) to processing queue`,
+        title: t('filesAdded', language),
+        description: message,
       })
     } catch (error) {
       toast({
-        title: "Upload Error",
-        description: error instanceof Error ? error.message : "Failed to process files",
+        title: t('uploadError', language),
+        description: error instanceof Error ? error.message : t(translationKeys.failedProcess, language),
         variant: "destructive",
       })
     }
@@ -214,25 +228,25 @@ export default function DashboardPage() {
   )
 
   return (
-    <>
+    <div className="min-h-screen">
       <div className="space-y-8">
         {/* Page Header */}
         <div>
-          <p className="text-sm font-medium text-muted-foreground">Welcome back</p>
-          <h1 className="mt-2 text-3xl font-bold tracking-tight">OCR Processing Dashboard</h1>
+          <p className="text-sm font-medium text-muted-foreground">{t('welcome', language)}</p>
+          <h1 className="mt-2 text-3xl font-bold tracking-tight">{t('dashboardTitle', language)}</h1>
           <p className="mt-2 text-muted-foreground max-w-2xl">
-            Process and extract text from your documents. Upload files in PDF, JPG, JPEG, or PNG format.
+            {t('dashboardDescription', language)}
           </p>
         </div>
 
         {!isConfigured && (
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
-            <AlertTitle>Action Required</AlertTitle>
+            <AlertTitle>{t('configureRequired', language)}</AlertTitle>
             <AlertDescription className="mt-2">
-              <p className="mb-2">Please configure your OCR API settings before uploading documents.</p>
+              <p className="mb-2">{t('configureMessage', language)}</p>
               <Button variant="secondary" size="sm" onClick={() => setShouldShowSettings(true)}>
-                Configure Settings
+                {t('configureSettings', language)}
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
             </AlertDescription>
@@ -251,10 +265,10 @@ export default function DashboardPage() {
                   "h-5 w-5 transition-colors duration-300",
                   isDraggingOverPage ? "text-primary" : "text-primary/80"
                 )} />
-                Upload Documents
+                {t('uploadDocuments', language)}
               </CardTitle>
               <CardDescription>
-                Process and extract text from your documents using our advanced OCR technology.
+                {t('uploadDescription', language)}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -264,15 +278,15 @@ export default function DashboardPage() {
                 onPause={async () => {
                   await processingService.pauseQueue()
                   toast({
-                    title: "Processing Paused",
-                    description: "Document processing has been paused",
+                    title: t('processingCancelled', language),
+                    description: t('processingCancelledDesc', language),
                   })
                 }}
                 onResume={async () => {
                   await processingService.resumeQueue()
                   toast({
-                    title: "Processing Resumed",
-                    description: "Document processing has been resumed",
+                    title: t('processingCancelled', language),
+                    description: t('processingCancelledDesc', language),
                   })
                 }}
                 onRemove={handleRemoveFromQueue}
@@ -283,6 +297,7 @@ export default function DashboardPage() {
                 allowedFileTypes={settings.upload.allowedFileTypes}
                 isPageDragging={isDraggingOverPage}
                 onDragStateChange={setIsDraggingOverPage}
+                language={language}
               />
             </CardContent>
           </Card>
@@ -291,23 +306,23 @@ export default function DashboardPage() {
         {/* Stats Grid */}
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
           {renderStatsCard(
-            "Total Documents",
+            t('totalDocuments', language),
             <FileText className="h-4 w-4 text-muted-foreground" />,
             <>
-              <div className="text-2xl font-bold">{processingQueue.length}</div>
+              <div className="text-2xl font-bold">{toArabicNumerals(processingQueue.length, language)}</div>
               <p className="text-xs text-muted-foreground mt-1">
-                {stats.totalProcessed} processed • {formatFileSize(stats.totalStorage * 1024 * 1024)} used
+                {toArabicNumerals(stats.totalProcessed, language)} {t('processed', language)} • {formatFileSize(stats.totalStorage * 1024 * 1024, language)} {t('used', language)}
               </p>
             </>
           )}
 
           {renderStatsCard(
-            "Processing Status",
+            t('processingStatus', language),
             <Upload className="h-4 w-4 text-muted-foreground" />,
             <>
               <div className="flex items-center gap-2">
                 <div className="text-2xl font-bold">
-                  {processingQueue.filter((item) => item.status === "processing").length}
+                  {toArabicNumerals(processingQueue.filter((item) => item.status === "processing").length, language)}
                 </div>
                 {processingQueue.some(doc => doc.rateLimitInfo?.isRateLimited) && (
                   <Clock className="h-5 w-5 text-purple-500 animate-pulse" />
@@ -315,11 +330,11 @@ export default function DashboardPage() {
               </div>
               <div className="flex flex-col gap-1 mt-1">
                 <p className="text-xs text-muted-foreground">
-                  {processingQueue.filter((item) => item.status === "queued").length} queued
+                  {toArabicNumerals(processingQueue.filter((item) => item.status === "queued").length, language)} {t('queued', language)}
                 </p>
                 {processingQueue.some(doc => doc.rateLimitInfo?.isRateLimited) && (
                   <p className="text-xs text-purple-600 dark:text-purple-400">
-                    Rate limited • Auto-resuming
+                    {t('rateLimited', language)} • {t('autoResuming', language)}
                   </p>
                 )}
               </div>
@@ -327,25 +342,25 @@ export default function DashboardPage() {
           )}
 
           {renderStatsCard(
-            "Success Rate",
+            t('successRate', language),
             <CheckCircle className="h-4 w-4 text-muted-foreground" />,
             <>
-              <div className="text-2xl font-bold">{stats.successRate.toFixed(1)}%</div>
+              <div className="text-2xl font-bold">{toArabicNumerals(stats.successRate.toFixed(1), language)}%</div>
               <p className="text-xs text-muted-foreground mt-1">
-                Avg. {Math.round(stats.avgProcessingTime / 1000)}s per file
+                {toArabicNumerals(Math.round(stats.avgProcessingTime / 1000), language)}s {t('processed', language)}
               </p>
             </>
           )}
 
           {renderStatsCard(
-            "Processing Speed",
+            t('processingSpeed', language),
             <AlertCircle className="h-4 w-4 text-muted-foreground" />,
             <>
               <div className="text-2xl font-bold">
-                {settings.processing.maxConcurrentJobs * settings.processing.pagesPerChunk}
+                {toArabicNumerals(settings.processing.maxConcurrentJobs * settings.processing.pagesPerChunk, language)}
               </div>
               <p className="text-xs text-muted-foreground mt-1">
-                Pages per batch • {settings.processing.concurrentChunks} chunks
+                {t('pagesPerBatch', language)} • {toArabicNumerals(settings.processing.concurrentChunks, language)} {t('chunks', language)}
               </p>
             </>
           )}
@@ -356,12 +371,12 @@ export default function DashboardPage() {
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle>Recent Documents</CardTitle>
-                <CardDescription>Recently processed documents and their status</CardDescription>
+                <CardTitle>{t('recentDocuments', language)}</CardTitle>
+                <CardDescription>{t('recentDescription', language)}</CardDescription>
               </div>
               {processingQueue.length > 5 && (
                 <Button variant="outline" size="sm" onClick={() => router.push('/documents')}>
-                  View All
+                  {t('viewAll', language)}
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
               )}
@@ -406,13 +421,12 @@ export default function DashboardPage() {
         open={shouldShowSettings} 
         onOpenChange={(open) => {
           setShouldShowSettings(open)
-          // If settings are configured and dialog is being closed, refresh the page
           if (!open && isConfigured) {
             router.refresh()
           }
         }}
       />
-    </>
+    </div>
   )
 }
 

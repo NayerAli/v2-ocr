@@ -26,6 +26,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { useRouter } from "next/navigation"
+import { useLanguage } from "@/hooks/use-language"
+import { Language, t, tCount } from "@/lib/i18n/translations"
 
 const LOADING_TIMEOUT = 30000 // 30 seconds
 const OPERATION_TIMEOUT = 10000 // 10 seconds
@@ -89,8 +91,53 @@ class ImageCache {
 
 const imageCache = new ImageCache(15) // Cache up to 15 pages
 
+// Add utility function for RTL text handling
+function isRTLText(text: string): boolean {
+  const rtlRegex = /[\u0591-\u07FF\uFB1D-\uFDFD\uFE70-\uFEFC]/
+  return rtlRegex.test(text)
+}
+
+function FileNameDisplay({ filename }: { filename: string }) {
+  const isRTL = isRTLText(filename)
+  return (
+    <div className="flex-1 min-w-0">
+      <span
+        className={cn(
+          "text-lg font-semibold inline-block",
+          isRTL && "text-right",
+          // Use responsive max-width classes
+          "max-w-[280px] sm:max-w-[400px] md:max-w-[500px] lg:max-w-[600px] xl:max-w-[800px]",
+          "truncate"
+        )}
+        style={{
+          direction: isRTL ? 'rtl' : 'ltr',
+          unicodeBidi: 'isolate',
+          // Add text overflow handling
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          // Ensure proper text wrapping for RTL
+          overflowWrap: 'break-word',
+          wordWrap: 'break-word'
+        }}
+        title={filename} // Add tooltip for full filename on hover
+      >
+        {filename}
+      </span>
+    </div>
+  )
+}
+
+function toArabicNumerals(num: number | string, language: Language): string {
+  if (language !== 'ar' && language !== 'fa') return String(num)
+  
+  const arabicNumerals = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩']
+  return String(num).replace(/[0-9]/g, (d) => arabicNumerals[parseInt(d)])
+}
+
 export default function DocumentPage({ params }: { params: { id: string } }) {
   const { toast } = useToast()
+  const { language } = useLanguage()
   const [docStatus, setDocStatus] = useState<ProcessingStatus | null>(null)
   const [results, setResults] = useState<OCRResult[]>([])
   const [currentPage, setCurrentPage] = useState(1)
@@ -125,16 +172,16 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     switch (status) {
       case "processing":
         return totalPages 
-          ? `Processing page ${currentPage} of ${totalPages}`
-          : "Processing..."
+          ? tCount('processingPage', currentPage || 0, language)
+          : t('processing', language)
       case "completed":
-        return "Completed"
+        return t('completed', language)
       case "queued":
-        return "Queued"
+        return t('queued', language)
       case "cancelled":
-        return "Processing Cancelled"
+        return t('cancelled', language)
       case "error":
-        return "Error"
+        return t('error', language)
       default:
         return status
     }
@@ -713,14 +760,14 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
           className="h-9"
         >
           <Type className="h-4 w-4 mr-2" />
-          <span>{textSize}px</span>
+          <span>{toArabicNumerals(textSize, language)}px</span>
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-80 p-4">
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <h4 className="font-medium">Text Size</h4>
-            <span className="text-sm text-muted-foreground">{textSize}px</span>
+            <h4 className="font-medium">{t('textSize', language)}</h4>
+            <span className="text-sm text-muted-foreground">{toArabicNumerals(textSize, language)}px</span>
           </div>
           <div className="flex items-center gap-4">
             <span className="text-sm text-muted-foreground">A</span>
@@ -743,7 +790,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
                 onClick={() => setTextSize(size)}
                 className="w-full"
               >
-                {size}px
+                {toArabicNumerals(size, language)}px
               </Button>
             ))}
           </div>
@@ -755,8 +802,8 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
   const renderToolbar = () => (
     <div className="h-14 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-full items-center justify-between gap-4">
-        <div className="flex items-center gap-2">
-          <Link href="/documents" className="mr-2">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <Link href="/documents" className="mr-2 flex-shrink-0">
             <Button variant="ghost" size="icon" className="h-8 w-8">
               <ArrowLeft className="h-4 w-4" />
             </Button>
@@ -764,18 +811,16 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
           {isLoading ? (
             <Skeleton className="h-8 w-48" />
           ) : (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 min-w-0 flex-1">
               {docStatus?.type?.startsWith('image/') ? (
-                <ImageIcon className="h-6 w-6 text-muted-foreground" />
+                <ImageIcon className="h-6 w-6 text-muted-foreground flex-shrink-0" />
               ) : (
-                <FileText className="h-6 w-6 text-muted-foreground" />
+                <FileText className="h-6 w-6 text-muted-foreground flex-shrink-0" />
               )}
-              <div className="flex flex-col">
-                <h1 className="text-lg font-semibold truncate max-w-[300px]">
-                  {docStatus?.filename}
-                </h1>
+              <div className="flex flex-col min-w-0 flex-1">
+                <FileNameDisplay filename={docStatus?.filename || ''} />
                 {docStatus && (
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-xs text-muted-foreground truncate">
                     {getStatusDisplay(docStatus.status, currentPage, results.length)}
                   </p>
                 )}
@@ -823,97 +868,94 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
 
   // Define KeyboardShortcuts component
   const KeyboardShortcuts = () => {
-    const shortcuts = [
+    const shortcuts = useMemo(() => [
       {
-        category: "Navigation",
+        category: t('navigation', language),
         items: [
-          { key: "←", description: "Previous page", action: () => setCurrentPage((p: number) => Math.max(1, p - 1)) },
-          { key: "→", description: "Next page", action: () => setCurrentPage((p: number) => Math.min(results.length, p + 1)) },
+          { key: "←", description: t('previousPage', language), action: () => setCurrentPage(p => Math.max(1, p - 1)) },
+          { key: "→", description: t('nextPage', language), action: () => setCurrentPage(p => Math.min(results.length, p + 1)) },
         ]
       },
       {
-        category: "Zoom",
+        category: t('zoom', language),
         items: [
-          { key: "Ctrl +", description: "Zoom in", action: handleZoomIn },
-          { key: "Ctrl -", description: "Zoom out", action: handleZoomOut },
-          { key: "Ctrl 0", description: "Reset zoom", action: () => { handleZoomChange(100); setPanPosition({ x: 0, y: 0 }); } },
+          { key: "Ctrl +", description: t('zoomIn', language), action: handleZoomIn },
+          { key: "Ctrl -", description: t('zoomOut', language), action: handleZoomOut },
+          { key: "Ctrl 0", description: t('resetZoom', language), action: () => { handleZoomChange(100); setPanPosition({ x: 0, y: 0 }); } },
         ]
       },
       {
-        category: "Document",
+        category: t('document', language),
         items: [
-          { key: "Ctrl C", description: "Copy text", action: handleCopyText },
-          { key: "/", description: "Focus search", action: () => {
+          { key: "Ctrl C", description: t('copyText', language), action: handleCopyText },
+          { key: "/", description: t('focusSearch', language), action: () => {
             const searchInput = document.querySelector('input[type="text"][placeholder*="Search"]') as HTMLInputElement
             searchInput?.focus()
           }},
         ]
       }
-    ]
+    ], []) // Empty dependency array since all values are from parent scope
 
     return (
-      <TooltipProvider delayDuration={0}>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button 
-              variant="ghost" 
-              size="sm" 
-              className="h-9 px-3 gap-2 font-normal"
-            >
-              <Keyboard className="h-4 w-4" />
-              <span className="text-sm hidden sm:inline-block">Shortcuts</span>
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent 
-            side="bottom" 
-            align="end" 
-            className="w-[280px] p-3 bg-popover/95 backdrop-blur supports-[backdrop-filter]:bg-popover/85"
-            sideOffset={8}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            className="h-9 px-3 gap-2 font-normal"
           >
-            <div className="space-y-4">
-              {shortcuts.map((category) => (
-                <div key={category.category} className="space-y-2">
-                  <h4 className="text-xs font-medium text-muted-foreground/70 px-1 uppercase tracking-wider">
-                    {category.category}
-                  </h4>
-                  <div className="space-y-1">
-                    {category.items.map((shortcut) => (
-                      <button
-                        key={shortcut.key}
-                        onClick={(e) => {
-                          e.preventDefault()
-                          shortcut.action()
-                        }}
-                        className="w-full flex items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                      >
-                        <span className="text-muted-foreground">{shortcut.description}</span>
-                        <div className="flex items-center gap-1">
-                          {shortcut.key.split(" ").map((key, keyIdx) => (
-                            <kbd 
-                              key={key}
-                              className={cn(
-                                "pointer-events-none inline-flex h-5 select-none items-center justify-center rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground",
-                                keyIdx > 0 && "ml-1"
-                              )}
-                            >
-                              {key}
-                            </kbd>
-                          ))}
-                        </div>
-                      </button>
-                    ))}
-                  </div>
+            <Keyboard className="h-4 w-4" />
+            <span className="text-sm hidden sm:inline-block">{t('shortcuts', language)}</span>
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent 
+          align="end" 
+          className="w-[280px] p-3"
+          sideOffset={8}
+        >
+          <div className="space-y-4">
+            {shortcuts.map((category) => (
+              <div key={category.category} className="space-y-2">
+                <h4 className="text-xs font-medium text-muted-foreground/70 px-1 uppercase tracking-wider">
+                  {category.category}
+                </h4>
+                <div className="space-y-1">
+                  {category.items.map((shortcut) => (
+                    <button
+                      key={shortcut.key}
+                      onClick={(e) => {
+                        e.preventDefault()
+                        shortcut.action()
+                      }}
+                      className="w-full flex items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    >
+                      <span className="text-muted-foreground">{shortcut.description}</span>
+                      <div className="flex items-center gap-1">
+                        {shortcut.key.split(" ").map((key, keyIdx) => (
+                          <kbd 
+                            key={key}
+                            className={cn(
+                              "pointer-events-none inline-flex h-5 select-none items-center justify-center rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground",
+                              keyIdx > 0 && "ml-1"
+                            )}
+                          >
+                            {key}
+                          </kbd>
+                        ))}
+                      </div>
+                    </button>
+                  ))}
                 </div>
-              ))}
-              <div className="pt-1 mt-4 border-t">
-                <p className="text-[10px] text-muted-foreground/60 text-center">
-                  Click any shortcut to trigger its action
-                </p>
               </div>
+            ))}
+            <div className="pt-1 mt-4 border-t">
+              <p className="text-[10px] text-muted-foreground/60 text-center">
+                Click any shortcut to trigger its action
+              </p>
             </div>
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
+          </div>
+        </DropdownMenuContent>
+      </DropdownMenu>
     )
   }
 
@@ -1022,7 +1064,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
                   }}
                   className="text-sm hover:bg-accent hover:text-accent-foreground px-2 py-1 rounded"
                 >
-                  {currentPage} / {docStatus?.currentPage || results.length}
+                  {toArabicNumerals(currentPage, language)} / {toArabicNumerals(docStatus?.currentPage || results.length, language)}
                 </button>
               )}
             </div>
@@ -1048,7 +1090,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
             </div>
             <Input
               type="text"
-              placeholder="Search in document..."
+              placeholder={t('searchInDocument', language)}
               value={searchQuery}
               onChange={(e) => handleSearch(e.target.value)}
               className="h-9 pl-9 pr-4 w-full bg-muted/40 border-0 focus-visible:ring-1 focus-visible:ring-ring"
@@ -1091,12 +1133,12 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
               {isCopying ? (
                 <>
                   <Check className="h-4 w-4 mr-2" />
-                  <span>Copied</span>
+                  <span>{t('copied', language)}</span>
                 </>
               ) : (
                 <>
                   <Copy className="h-4 w-4 mr-2" />
-                  <span>Copy</span>
+                  <span>{t('copyText', language)}</span>
                 </>
               )}
             </Button>
@@ -1114,7 +1156,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
               {isDownloading ? (
                 <>
                   <Check className="h-4 w-4 mr-2" />
-                  <span>Downloaded</span>
+                  <span>{t('downloaded', language)}</span>
                 </>
               ) : (
                 <TooltipProvider>
@@ -1122,12 +1164,12 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
                     <TooltipTrigger asChild>
                       <div className="flex items-center">
                         <Download className="h-4 w-4 mr-2" />
-                        <span>Download</span>
+                        <span>{t('download', language)}</span>
                       </div>
                     </TooltipTrigger>
                     {docStatus?.status === "cancelled" && (
                       <TooltipContent>
-                        <p>Download is not available for cancelled files</p>
+                        <p>{t('downloadNotAvailableForCancelledFiles', language)}</p>
                       </TooltipContent>
                     )}
                   </Tooltip>
@@ -1207,10 +1249,10 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
               }}
             >
               <ScanLine className="h-4 w-4" />
-              <span className="text-xs">Reset</span>
+              <span className="text-xs">{t('reset', language)}</span>
             </Button>
           </TooltipTrigger>
-          <TooltipContent>Reset to 100%</TooltipContent>
+          <TooltipContent>{t('resetTo100', language)}</TooltipContent>
         </Tooltip>
       </TooltipProvider>
 
@@ -1231,7 +1273,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
             size="sm"
             className="h-7 px-2 min-w-[80px] font-medium"
           >
-            {Math.round(zoomLevel)}%
+            {toArabicNumerals(Math.round(zoomLevel), language)}%
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="center" className="w-[180px]">
@@ -1247,9 +1289,9 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
                   if (zoom === 100) setPanPosition({ x: 0, y: 0 })
                 }}
               >
-                <span>{zoom}%</span>
+                <span>{toArabicNumerals(zoom, language)}%</span>
                 {zoom === 100 && (
-                  <span className="text-xs text-muted-foreground">(Original)</span>
+                  <span className="text-xs text-muted-foreground">({t('original', language)})</span>
                 )}
               </Button>
             ))}
@@ -1437,12 +1479,12 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
       {renderControls()}
       
       <div className="flex-1 overflow-hidden bg-muted/5">
-        <div className="container h-full py-6">
+        <div className="container h-full py-4">
           <div className="grid grid-cols-2 gap-6 h-full">
             {/* Source Document View */}
             <div className="bg-background rounded-lg shadow-sm overflow-hidden flex flex-col border">
               <div className="px-4 py-3 border-b bg-muted/20">
-                <h2 className="text-sm font-medium">Source Document</h2>
+                <h2 className="text-sm font-medium text-center">Source Document</h2>
               </div>
               <div className="flex-1 relative">
                 <div 
@@ -1460,7 +1502,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
             {/* Extracted Text View */}
             <div className="bg-background rounded-lg shadow-sm overflow-hidden flex flex-col border">
               <div className="px-4 py-3 border-b bg-muted/20">
-                <h2 className="text-sm font-medium">Extracted Text</h2>
+                <h2 className="text-sm font-medium text-center">Extracted Text</h2>
               </div>
               <ScrollArea className="flex-1">
                 <div className="p-6">
@@ -1526,7 +1568,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
                     // Update tooltip content and position
                     const pageSpan = tooltip.querySelector('[data-page]')
                     if (pageSpan) {
-                      pageSpan.textContent = newPage.toString()
+                      pageSpan.textContent = toArabicNumerals(newPage, language)
                     }
                     ;(tooltip as HTMLElement).style.transform = `translateX(${offset}px)`
                     tooltip.classList.remove('opacity-0')
@@ -1544,11 +1586,11 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
                 data-hover-tooltip
                 className="absolute -top-7 opacity-0 transition-all duration-100 bg-popover text-popover-foreground px-2 py-1 rounded shadow-md text-xs whitespace-nowrap pointer-events-none"
               >
-                Go to page <span data-page>1</span>
+                {t('goToPage', language)} <span data-page>1</span>
               </div>
             </div>
             <span className="text-xs text-muted-foreground whitespace-nowrap">
-              Page {currentPage} of {results.length}
+              {t('page', language)} {toArabicNumerals(currentPage, language)} {t('of', language)} {toArabicNumerals(results.length, language)}
             </span>
           </div>
         </div>

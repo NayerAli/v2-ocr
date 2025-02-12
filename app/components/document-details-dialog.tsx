@@ -6,9 +6,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import { formatFileSize, formatDuration } from "@/lib/file-utils"
+import { formatFileSize, formatDuration, formatTimestamp } from "@/lib/file-utils"
 import { useSettings } from "@/store/settings"
 import type { ProcessingStatus } from "@/types"
+import { useLanguage } from "@/hooks/use-language"
+import { t } from "@/lib/i18n/translations"
 
 interface DocumentDetailsDialogProps {
   document: ProcessingStatus | null
@@ -18,6 +20,8 @@ interface DocumentDetailsDialogProps {
 
 export function DocumentDetailsDialog({ document, open, onOpenChange }: DocumentDetailsDialogProps) {
   const settings = useSettings()
+  const { language } = useLanguage()
+
   if (!document) return null
 
   const getStatusColor = (status: string) => {
@@ -67,40 +71,40 @@ export function DocumentDetailsDialog({ document, open, onOpenChange }: Document
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileText className="h-5 w-5" />
-            Document Information
+            {t('documentDetails', language)}
           </DialogTitle>
           <DialogDescription>
-            Technical details and processing information about your document
+            {t('technicalDetails', language)}
           </DialogDescription>
         </DialogHeader>
 
         <Tabs defaultValue="info" className="mt-4">
           <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="info">File Information</TabsTrigger>
-            <TabsTrigger value="processing">Processing Details</TabsTrigger>
+            <TabsTrigger value="info">{t('fileInformation', language)}</TabsTrigger>
+            <TabsTrigger value="processing">{t('processingDetails', language)}</TabsTrigger>
           </TabsList>
 
           <TabsContent value="info" className="space-y-4 mt-4">
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-lg">Document Details</CardTitle>
+                <CardTitle className="text-lg">{t('basicInfo', language)}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
                 <div className="flex justify-between items-center py-1">
-                  <span className="text-sm text-muted-foreground">Filename</span>
+                  <span className="text-sm text-muted-foreground">{t('fileName', language)}</span>
                   <span className="font-medium">{document.filename}</span>
                 </div>
                 <div className="flex justify-between items-center py-1">
-                  <span className="text-sm text-muted-foreground">File Type</span>
-                  <span className="font-medium">{document.metadata?.type || document.filename.split('.').pop()?.toUpperCase() || 'Unknown'}</span>
+                  <span className="text-sm text-muted-foreground">{t('fileType', language)}</span>
+                  <span className="font-medium">{document.metadata?.type || document.filename.split('.').pop()?.toUpperCase() || t('unknown', language)}</span>
                 </div>
                 <div className="flex justify-between items-center py-1">
-                  <span className="text-sm text-muted-foreground">Size</span>
-                  <span className="font-medium">{formatFileSize(document.size ?? 0)}</span>
+                  <span className="text-sm text-muted-foreground">{t('fileSize', language)}</span>
+                  <span className="font-medium">{formatFileSize(document.size ?? 0, language)}</span>
                 </div>
                 <div className="flex justify-between items-center py-1">
-                  <span className="text-sm text-muted-foreground">Pages</span>
-                  <span className="font-medium">{document.totalPages || "Unknown"}</span>
+                  <span className="text-sm text-muted-foreground">{t('totalPages', language)}</span>
+                  <span className="font-medium">{document.totalPages || t('unknown', language)}</span>
                 </div>
                 {document.metadata && Object.entries(document.metadata)
                   .filter(([key]) => !['type', 'created', 'modified'].includes(key))
@@ -119,41 +123,43 @@ export function DocumentDetailsDialog({ document, open, onOpenChange }: Document
           <TabsContent value="processing" className="space-y-4 mt-4">
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-lg">Processing Status</CardTitle>
+                <CardTitle className="text-lg">{t('processingInfo', language)}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
                 <div className="flex justify-between items-center py-1">
-                  <span className="text-sm text-muted-foreground">Status</span>
+                  <span className="text-sm text-muted-foreground">{t('status', language)}</span>
                   <span className={`font-medium flex items-center gap-2 ${getStatusColor(document.status)}`}>
                     {getStatusIcon(document.status)}
                     {document.status.charAt(0).toUpperCase() + document.status.slice(1)}
                   </span>
                 </div>
                 <div className="flex justify-between items-center py-1">
-                  <span className="text-sm text-muted-foreground">Provider</span>
+                  <span className="text-sm text-muted-foreground">{t('provider', language)}</span>
                   <span className="font-medium flex items-center gap-2">
                     <Settings className="h-4 w-4" />
                     {getProviderName()}
                   </span>
                 </div>
                 <div className="flex justify-between items-center py-1">
-                  <span className="text-sm text-muted-foreground">Language</span>
+                  <span className="text-sm text-muted-foreground">{t('language', language)}</span>
                   <span className="font-medium">{settings.ocr.language?.toUpperCase() ?? 'AUTO'}</span>
                 </div>
                 <div className="flex justify-between items-center py-1">
-                  <span className="text-sm text-muted-foreground">Started At</span>
+                  <span className="text-sm text-muted-foreground">{t('startTime', language)}</span>
                   <span className="font-medium">
-                    {document.startTime ? new Date(document.startTime).toLocaleString() : "Not started"}
+                    {document.startTime ? formatTimestamp(document.startTime) : t('notStarted', language)}
                   </span>
                 </div>
                 {document.completionTime && (
                   <>
                     <div className="flex justify-between items-center py-1">
-                      <span className="text-sm text-muted-foreground">Completed At</span>
-                      <span className="font-medium">{new Date(document.completionTime).toLocaleString()}</span>
+                      <span className="text-sm text-muted-foreground">{t('endTime', language)}</span>
+                      <span className="font-medium">
+                        {document.endTime ? formatTimestamp(document.endTime) : t('notCompleted', language)}
+                      </span>
                     </div>
                     <div className="flex justify-between items-center py-1">
-                      <span className="text-sm text-muted-foreground">Total Duration</span>
+                      <span className="text-sm text-muted-foreground">{t('totalDuration', language)}</span>
                       <span className="font-medium">
                         {formatDuration(document.completionTime - (document.startTime || 0))}
                       </span>
@@ -163,7 +169,7 @@ export function DocumentDetailsDialog({ document, open, onOpenChange }: Document
                 {document.error && (
                   <Alert variant="destructive" className="mt-4">
                     <AlertCircle className="h-4 w-4" />
-                    <AlertTitle>Processing Error</AlertTitle>
+                    <AlertTitle>{t('errorDetails', language)}</AlertTitle>
                     <AlertDescription>{document.error}</AlertDescription>
                   </Alert>
                 )}
@@ -172,20 +178,20 @@ export function DocumentDetailsDialog({ document, open, onOpenChange }: Document
 
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-lg">Processing Configuration</CardTitle>
+                <CardTitle className="text-lg">{t('processingConfiguration', language)}</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-2">
                   <div className="flex justify-between items-center py-1">
-                    <span className="text-sm text-muted-foreground">Concurrent Jobs</span>
+                    <span className="text-sm text-muted-foreground">{t('concurrentJobs', language)}</span>
                     <span className="font-medium">{settings.processing.maxConcurrentJobs}</span>
                   </div>
                   <div className="flex justify-between items-center py-1">
-                    <span className="text-sm text-muted-foreground">Pages per Chunk</span>
+                    <span className="text-sm text-muted-foreground">{t('pagesPerChunk', language)}</span>
                     <span className="font-medium">{settings.processing.pagesPerChunk}</span>
                   </div>
                   <div className="flex justify-between items-center py-1">
-                    <span className="text-sm text-muted-foreground">Concurrent Chunks</span>
+                    <span className="text-sm text-muted-foreground">{t('concurrentChunks', language)}</span>
                     <span className="font-medium">{settings.processing.concurrentChunks}</span>
                   </div>
                   {document.progress && Object.entries(document.progress).map(([key, value]) => (
@@ -204,7 +210,7 @@ export function DocumentDetailsDialog({ document, open, onOpenChange }: Document
 
         <div className="mt-6 flex justify-end">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Close
+            {t('close', language)}
           </Button>
         </div>
       </DialogContent>

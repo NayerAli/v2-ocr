@@ -12,9 +12,12 @@ import { db } from "@/lib/indexed-db"
 import type { ProcessingStatus } from "@/types"
 import { cn } from "@/lib/utils"
 import { useSettingsInit } from "@/hooks/use-settings-init"
+import { useLanguage } from "@/hooks/use-language"
+import { t } from "@/lib/i18n/translations"
 
 export default function DocumentsPage() {
   const { isInitialized } = useSettingsInit()
+  const { language } = useLanguage()
   const [documents, setDocuments] = useState<ProcessingStatus[]>([])
   const [isLoadingData, setIsLoadingData] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
@@ -122,17 +125,17 @@ export default function DocumentsPage() {
     <div className="space-y-8">
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-sm font-medium text-muted-foreground">Documents Library</p>
-          <h1 className="mt-2 text-3xl font-bold tracking-tight">Processed Documents</h1>
+          <p className="text-sm font-medium text-muted-foreground">{t('documentsLibrary', language)}</p>
+          <h1 className="mt-2 text-3xl font-bold tracking-tight">{t('processedDocuments', language)}</h1>
           <p className="mt-2 text-muted-foreground max-w-2xl">
-            View and manage your processed documents. Filter, sort, and download extracted text.
+            {t('documentsDescription', language)}
           </p>
         </div>
         <div className="flex items-start pt-4">
           <Link href="/">
             <Button className="gap-2">
               <Upload className="h-4 w-4" />
-              Upload New
+              {t('uploadNew', language)}
             </Button>
           </Link>
         </div>
@@ -142,7 +145,7 @@ export default function DocumentsPage() {
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            placeholder="Search documents by name..."
+            placeholder={t('searchDocuments', language)}
             defaultValue={searchQuery}
             onChange={(e) => debouncedSearch(e.target.value)}
             className="pl-9 w-full"
@@ -152,25 +155,25 @@ export default function DocumentsPage() {
         <div className="flex items-center gap-4">
           <Select value={statusFilter} onValueChange={setStatusFilter} disabled={isLoadingData}>
             <SelectTrigger className="w-[160px]">
-              <SelectValue placeholder="Filter by status" />
+              <SelectValue placeholder={t('filterByStatus', language)} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All Status</SelectItem>
-              <SelectItem value="completed">Completed</SelectItem>
-              <SelectItem value="processing">Processing</SelectItem>
-              <SelectItem value="queued">Queued</SelectItem>
-              <SelectItem value="cancelled">Cancelled</SelectItem>
-              <SelectItem value="error">Error</SelectItem>
+              <SelectItem value="all">{t('allStatus', language)}</SelectItem>
+              <SelectItem value="completed">{t('completed', language)}</SelectItem>
+              <SelectItem value="processing">{t('processing', language)}</SelectItem>
+              <SelectItem value="queued">{t('queued', language)}</SelectItem>
+              <SelectItem value="cancelled">{t('cancelled', language)}</SelectItem>
+              <SelectItem value="error">{t('error', language)}</SelectItem>
             </SelectContent>
           </Select>
           <Select value={sortBy} onValueChange={setSortBy} disabled={isLoadingData}>
             <SelectTrigger className="w-[160px]">
-              <SelectValue placeholder="Sort by" />
+              <SelectValue placeholder={t('sortBy', language)} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="date">Sort by Date</SelectItem>
-              <SelectItem value="name">Sort by Name</SelectItem>
-              <SelectItem value="size">Sort by Size</SelectItem>
+              <SelectItem value="date">{t('sortByDate', language)}</SelectItem>
+              <SelectItem value="name">{t('sortByName', language)}</SelectItem>
+              <SelectItem value="size">{t('sortBySize', language)}</SelectItem>
             </SelectContent>
           </Select>
           <Button

@@ -1,7 +1,7 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { FileText, MoreVertical, Download, Trash2, ImageIcon, Clock, Loader2, CheckCircle, AlertCircle, Pause, X } from "lucide-react"
+import { FileText, MoreVertical, Download, Trash2, ImageIcon, Clock, Loader2, CheckCircle, AlertCircle, Pause, Eye } from "lucide-react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
@@ -14,6 +14,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { useLanguage } from "@/hooks/use-language"
+import { t, type Language } from "@/lib/i18n/translations"
 
 interface DocumentListProps {
   documents: ProcessingStatus[]
@@ -25,16 +27,91 @@ interface DocumentListProps {
   isLoading?: boolean
 }
 
+function formatDate(date: number | Date, language: Language): string {
+  const options = {
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  } as const
+  
+  const formatted = new Date(date).toLocaleString(
+    language === 'ar' ? 'ar-EG' : language === 'fa' ? 'fa-IR' : undefined,
+    options
+  )
+  
+  return language === 'ar' || language === 'fa' 
+    ? formatted.replace(/[0-9]/g, d => ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'][parseInt(d)])
+    : formatted
+}
+
+function isRTLText(text: string): boolean {
+  const rtlRegex = /[\u0591-\u07FF\uFB1D-\uFDFD\uFE70-\uFEFC]/
+  return rtlRegex.test(text)
+}
+
+function FileNameDisplay({ filename }: { filename: string }) {
+  const isRTL = isRTLText(filename)
+  return (
+    <span
+      className={cn(
+        "font-medium truncate",
+        isRTL && "text-right"
+      )}
+      style={{
+        direction: isRTL ? 'rtl' : 'ltr',
+        unicodeBidi: 'isolate'
+      }}
+    >
+      {filename}
+    </span>
+  )
+}
+
+
+function toArabicNumerals(num: number | string, language: Language): string {
+  if (language !== 'ar' && language !== 'fa') return String(num)
+  
+  const arabicNumerals = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩']
+  return String(num).replace(/[0-9]/g, (d) => arabicNumerals[parseInt(d)])
+}
+
+function TableColumnHeader({ children, className }: { children: React.ReactNode; className?: string }) {
+  return (
+    <TableHead className={cn("text-center", className)}>
+      {children}
+    </TableHead>
+  )
+}
+
+function getStatusIcon(status: string) {
+  switch (status) {
+    case "completed":
+      return <CheckCircle className="h-4 w-4" />
+    case "queued":
+      return <Clock className="h-4 w-4" />
+    case "processing":
+      return <Loader2 className="h-4 w-4 animate-spin" />
+    case "cancelled":
+      return <Pause className="h-4 w-4" />
+    case "error":
+      return <AlertCircle className="h-4 w-4" />
+    default:
+      return null
+  }
+}
+
 export function DocumentList({ 
   documents, 
   onShowDetails, 
   onDownload, 
   onDelete, 
   variant = "table",
-  showHeader = true,
   isLoading = false
 }: DocumentListProps) {
   const router = useRouter()
+  const { language } = useLanguage()
 
   const canViewDocument = (doc: ProcessingStatus) => {
     if (doc.status === "completed") return true
@@ -59,49 +136,30 @@ export function DocumentList({
     )
   }
 
-  const getStatusIcon = (doc: ProcessingStatus) => {
-    if (doc.rateLimitInfo?.isRateLimited) {
-      return <Clock className="h-3 w-3 animate-pulse" />
-    }
-    switch (doc.status) {
-      case "completed":
-        return <CheckCircle className="h-3 w-3" />
-      case "processing":
-        return <Loader2 className="h-3 w-3 animate-spin" />
-      case "queued":
-        return <Pause className="h-3 w-3" />
-      case "error":
-        return <AlertCircle className="h-3 w-3" />
-      case "cancelled":
-        return <X className="h-3 w-3" />
-      default:
-        return null
-    }
-  }
-
   const getStatusText = (doc: ProcessingStatus) => {
     if (doc.rateLimitInfo?.isRateLimited) {
       const remainingTime = Math.max(0, Math.ceil(
         (doc.rateLimitInfo.retryAfter * 1000 - (Date.now() - doc.rateLimitInfo.rateLimitStart)) / 1000
-      ));
-      return `Resuming in ${remainingTime}s`;
+      ))
+      return `${t('resumingIn', language)} ${toArabicNumerals(remainingTime, language)}s`
     }
+    
     if (doc.status === "processing") {
-      return `Processing ${doc.currentPage}/${doc.totalPages}`
+      return `${t('processing', language)} ${toArabicNumerals(doc.currentPage || 0, language)}/${toArabicNumerals(doc.totalPages || 0, language)}`
     }
-    if (doc.status === "cancelled") {
-      return doc.currentPage && doc.currentPage > 0
-        ? `Cancelled (${doc.currentPage} pages processed)`
-        : "Cancelled"
+    
+    if (doc.status === "cancelled" && doc.currentPage && doc.currentPage > 0) {
+      return `${t('cancelled', language)} (${toArabicNumerals(doc.currentPage, language)} ${t('processed', language)})`
     }
-    return doc.status.charAt(0).toUpperCase() + doc.status.slice(1)
+    
+    return t(doc.status, language)
   }
 
   const getProgressIndicator = (doc: ProcessingStatus) => {
     if (doc.status === "processing" || doc.rateLimitInfo?.isRateLimited) {
       return (
-        <div className="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
-          <div 
+        <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
+          <div
             className={cn(
               "h-full transition-all duration-500",
               doc.rateLimitInfo?.isRateLimited ? "bg-purple-500" : "bg-blue-500"
@@ -112,6 +170,62 @@ export function DocumentList({
       )
     }
     return null
+  }
+
+  if (isLoading) {
+    return (
+      <div className="rounded-md border bg-card">
+        <Table>
+          <TableHeader>
+            <TableRow className="hover:bg-transparent">
+              <TableHead>{t('fileName', language)}</TableHead>
+              <TableHead>{t('status', language)}</TableHead>
+              <TableHead>{t('date', language)}</TableHead>
+              <TableHead>{t('pages', language)}</TableHead>
+              <TableHead>{t('size', language)}</TableHead>
+              <TableHead className="w-[100px] text-center">{t('actions', language)}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {Array.from({ length: 3 }).map((_, i) => (
+              <TableRow key={i}>
+                <TableCell>
+                  <div className="flex items-center gap-4">
+                    <div className="h-4 w-4 rounded bg-muted animate-pulse" />
+                    <div className="h-4 w-48 bg-muted rounded animate-pulse" />
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div className="h-4 w-24 bg-muted rounded animate-pulse" />
+                </TableCell>
+                <TableCell>
+                  <div className="h-4 w-24 bg-muted rounded animate-pulse" />
+                </TableCell>
+                <TableCell>
+                  <div className="h-4 w-12 bg-muted rounded animate-pulse" />
+                </TableCell>
+                <TableCell>
+                  <div className="h-4 w-16 bg-muted rounded animate-pulse" />
+                </TableCell>
+                <TableCell>
+                  <div className="flex justify-center">
+                    <div className="h-8 w-8 rounded bg-muted animate-pulse" />
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    )
+  }
+
+  if (documents.length === 0) {
+    return (
+      <div className="text-center py-8">
+        <p className="text-muted-foreground">{t('noDocuments', language)}</p>
+      </div>
+    )
   }
 
   if (variant === "grid") {
@@ -132,23 +246,23 @@ export function DocumentList({
           >
             <div className="flex items-center gap-4 flex-1 min-w-0">
               <div className="flex-1 truncate">
-                <p className="text-sm font-medium truncate">
+                <p className="text-sm truncate">
                   <span className="inline-flex items-center gap-2">
                     {doc.type?.startsWith('image/') ? (
                       <ImageIcon className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                     ) : (
                       <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                     )}
-                    {doc.filename}
+                    <FileNameDisplay filename={doc.filename} />
                   </span>
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  {formatFileSize(doc.size ?? 0)} • {doc.type?.startsWith('image/') ? '1' : doc.totalPages || doc.currentPage || 1} page(s)
+                  {formatFileSize(doc.size ?? 0, language)} • {toArabicNumerals(doc.totalPages || 0, language)} {t('pages', language)}
                 </p>
               </div>
               <div className="flex items-center gap-2">
                 <span className={getStatusBadgeClass(doc)}>
-                  {getStatusIcon(doc)}
+                  {getStatusIcon(doc.status)}
                   {getStatusText(doc)}
                 </span>
                 <div onClick={(e) => e.stopPropagation()}>
@@ -161,8 +275,8 @@ export function DocumentList({
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem onClick={() => onShowDetails(doc)}>
-                        <FileText className="h-4 w-4 mr-2" />
-                        File Information
+                        <Eye className="mr-2 h-4 w-4" />
+                        {t('viewDetails', language)}
                       </DropdownMenuItem>
                       {canViewDocument(doc) && (
                         doc.status === "cancelled" ? (
@@ -176,19 +290,19 @@ export function DocumentList({
                                     className="opacity-50 cursor-not-allowed"
                                   >
                                     <Download className="h-4 w-4 mr-2" />
-                                    Download Text
+                                    {t('download', language)}
                                   </DropdownMenuItem>
                                 </div>
                               </TooltipTrigger>
                               <TooltipContent>
-                                <p>Download is not available for cancelled files</p>
+                                <p>{t('downloadNotAvailableForCancelledFiles', language)}</p>
                               </TooltipContent>
                             </Tooltip>
                           </TooltipProvider>
                         ) : (
                           <DropdownMenuItem onClick={() => onDownload(doc.id)}>
                             <Download className="h-4 w-4 mr-2" />
-                            Download Text
+                            {t('download', language)}
                           </DropdownMenuItem>
                         )
                       )}
@@ -197,7 +311,7 @@ export function DocumentList({
                         onClick={() => onDelete(doc.id)}
                       >
                         <Trash2 className="h-4 w-4 mr-2" />
-                        Delete
+                        {t('delete', language)}
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -211,77 +325,24 @@ export function DocumentList({
     )
   }
 
-  if (isLoading) {
-    return (
-      <div className="rounded-md border bg-card">
-        <Table>
-          <TableHeader>
-            <TableRow className="hover:bg-transparent">
-              <TableHead>Name</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Progress</TableHead>
-              <TableHead>Date</TableHead>
-              <TableHead>Pages</TableHead>
-              <TableHead>Size</TableHead>
-              <TableHead className="w-[100px]">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {Array.from({ length: 8 }).map((_, i) => (
-              <TableRow key={i}>
-                <TableCell>
-                  <div className="flex items-center gap-2">
-                    <div className="h-4 w-4 rounded bg-muted/60 animate-pulse flex-shrink-0" />
-                    <div className="h-4 w-[200px] bg-muted/60 rounded animate-pulse" />
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <div className="h-6 w-24 bg-muted/60 rounded-full animate-pulse" />
-                </TableCell>
-                <TableCell>
-                  <div className="h-4 w-20 bg-muted/60 rounded animate-pulse" />
-                </TableCell>
-                <TableCell>
-                  <div className="h-4 w-6 bg-muted/60 rounded animate-pulse" />
-                </TableCell>
-                <TableCell>
-                  <div className="h-4 w-16 bg-muted/60 rounded animate-pulse" />
-                </TableCell>
-                <TableCell>
-                  <div className="flex justify-end">
-                    <div className="h-8 w-8 rounded bg-muted/60 animate-pulse" />
-                  </div>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
-    )
-  }
-
   return (
     <div className="rounded-md border bg-card">
       <Table>
-        {showHeader && (
-          <TableHeader>
-            <TableRow className="hover:bg-transparent">
-              <TableHead>Name</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Progress</TableHead>
-              <TableHead>Date</TableHead>
-              <TableHead>Pages</TableHead>
-              <TableHead>Size</TableHead>
-              <TableHead className="w-[100px]">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-        )}
+        <TableHeader>
+          <TableRow className="hover:bg-transparent">
+            <TableColumnHeader>{t('fileName', language)}</TableColumnHeader>
+            <TableColumnHeader>{t('status', language)}</TableColumnHeader>
+            <TableColumnHeader>{t('date', language)}</TableColumnHeader>
+            <TableColumnHeader>{t('pages', language)}</TableColumnHeader>
+            <TableColumnHeader>{t('size', language)}</TableColumnHeader>
+            <TableColumnHeader className="w-[100px]">{t('actions', language)}</TableColumnHeader>
+          </TableRow>
+        </TableHeader>
         <TableBody>
           {documents.map((doc) => (
             <TableRow 
-              key={doc.id} 
+              key={doc.id}
               className={cn(
-                "transition-colors",
                 canViewDocument(doc) && "hover:bg-accent/5 cursor-pointer"
               )}
               onClick={() => {
@@ -291,91 +352,103 @@ export function DocumentList({
               }}
             >
               <TableCell>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 max-w-[300px] sm:max-w-[400px] md:max-w-[500px]">
                   {doc.type?.startsWith('image/') ? (
                     <ImageIcon className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                   ) : (
                     <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                   )}
-                  <span className="font-medium truncate max-w-[300px]">{doc.filename}</span>
+                  <FileNameDisplay filename={doc.filename} />
                 </div>
               </TableCell>
               <TableCell>
                 <span className={getStatusBadgeClass(doc)}>
-                  {getStatusIcon(doc)}
+                  {getStatusIcon(doc.status)}
                   {getStatusText(doc)}
                 </span>
               </TableCell>
+              <TableCell className="text-center">
+                <span className="text-sm">
+                  {formatDate(doc.startTime || Date.now(), language)}
+                </span>
+              </TableCell>
+              <TableCell className="text-center">
+                <span className="text-sm">
+                  {toArabicNumerals(doc.totalPages || 0, language)}
+                </span>
+              </TableCell>
+              <TableCell className="text-center">
+                <span className="text-sm">
+                  {formatFileSize(doc.size || 0, language)}
+                </span>
+              </TableCell>
               <TableCell>
-                {getProgressIndicator(doc)}
-              </TableCell>
-              <TableCell>{doc.startTime ? new Date(doc.startTime).toLocaleDateString() : "-"}</TableCell>
-              <TableCell>{doc.type?.startsWith('image/') ? '1' : doc.totalPages || doc.currentPage || '-'}</TableCell>
-              <TableCell>{formatFileSize(doc.size ?? 0)}</TableCell>
-              <TableCell onClick={(e) => e.stopPropagation()}>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon" className="h-8 w-8">
-                      <MoreVertical className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={() => onShowDetails(doc)}>
-                      <FileText className="h-4 w-4 mr-2" />
-                      File Information
-                    </DropdownMenuItem>
-                    {canViewDocument(doc) && (
-                      doc.status === "cancelled" ? (
-                        <TooltipProvider delayDuration={100}>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <div>
-                                <DropdownMenuItem 
-                                  onClick={() => onDownload(doc.id)}
-                                  disabled={true}
-                                  className="opacity-50 cursor-not-allowed"
-                                >
-                                  <Download className="h-4 w-4 mr-2" />
-                                  Download Text
-                                </DropdownMenuItem>
-                              </div>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <p>Download is not available for cancelled files</p>
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      ) : (
-                        <DropdownMenuItem onClick={() => onDownload(doc.id)}>
-                          <Download className="h-4 w-4 mr-2" />
-                          Download Text
-                        </DropdownMenuItem>
-                      )
-                    )}
-                    <DropdownMenuItem 
-                      className="text-destructive focus:text-destructive" 
-                      onClick={() => onDelete(doc.id)}
-                    >
-                      <Trash2 className="h-4 w-4 mr-2" />
-                      Delete
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </TableCell>
-            </TableRow>
-          ))}
-          {documents.length === 0 && (
-            <TableRow>
-              <TableCell colSpan={7}>
-                <div className="flex flex-col items-center justify-center py-8 text-center">
-                  <FileText className="h-8 w-8 text-muted-foreground mb-3" />
-                  <p className="text-sm text-muted-foreground">
-                    No documents found
-                  </p>
+                <div className="flex justify-center" onClick={(e) => e.stopPropagation()}>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon">
+                        <MoreVertical className="h-4 w-4" />
+                        <span className="sr-only">{t('openMenu', language)}</span>
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={(e) => {
+                        e.stopPropagation();
+                        onShowDetails(doc);
+                      }}>
+                        <Eye className="mr-2 h-4 w-4" />
+                        {t('viewDetails', language)}
+                      </DropdownMenuItem>
+                      {canViewDocument(doc) && (
+                        doc.status === "cancelled" ? (
+                          <TooltipProvider delayDuration={100}>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <div>
+                                  <DropdownMenuItem 
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      onDownload(doc.id);
+                                    }}
+                                    disabled={true}
+                                    className="opacity-50 cursor-not-allowed"
+                                  >
+                                    <Download className="h-4 w-4 mr-2" />
+                                    {t('download', language)}
+                                  </DropdownMenuItem>
+                                </div>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>{t('downloadNotAvailableForCancelledFiles', language)}</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        ) : (
+                          <DropdownMenuItem onClick={(e) => {
+                            e.stopPropagation();
+                            onDownload(doc.id);
+                          }}>
+                            <Download className="h-4 w-4 mr-2" />
+                            {t('download', language)}
+                          </DropdownMenuItem>
+                        )
+                      )}
+                      <DropdownMenuItem 
+                        className="text-destructive focus:text-destructive" 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDelete(doc.id);
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4 mr-2" />
+                        {t('delete', language)}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
               </TableCell>
             </TableRow>
-          )}
+          ))}
         </TableBody>
       </Table>
     </div>
