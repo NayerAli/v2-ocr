@@ -1,0 +1,60 @@
+name: CI/CD Docker Deploy 🚀
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    steps:
+      - name: 📦 Checkout Repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 1
+
+      - name: 🔍 Display Commit SHA
+        run: |
+          echo "Commit SHA: ${{ github.sha }}"
+
+      - name: 🏷️ Define Version (short SHA)
+        run: |
+          echo "Full commit SHA: ${{ github.sha }}"
+          VERSION=$(git rev-parse --short HEAD)
+          echo "Detected short version from Git: $VERSION"
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+          echo "Version set in environment variable: $VERSION"
+
+      - name: 🏗️ Build Docker Image
+        run: |
+          echo "Using version: ${{ env.VERSION }}"
+          echo "Building Docker image with tags: rehanalimahomed/inoor-ocr:${{ env.VERSION }} and latest"
+          docker build -t rehanalimahomed/inoor-ocr:${{ env.VERSION }} -t rehanalimahomed/inoor-ocr:latest .
+          echo "Docker image built successfully"
+          echo "  - Specific tag: rehanalimahomed/inoor-ocr:${{ env.VERSION }}"
+          echo "  - Latest tag: rehanalimahomed/inoor-ocr:latest"
+
+      - name: 📤 Push Docker Image to Docker Hub
+        run: |
+          echo "Pushing image with tag: rehanalimahomed/inoor-ocr:${{ env.VERSION }}"
+          docker push rehanalimahomed/inoor-ocr:${{ env.VERSION }}
+          echo "Pushing image with tag 'latest': rehanalimahomed/inoor-ocr:latest"
+          docker push rehanalimahomed/inoor-ocr:latest
+          echo "Docker images pushed successfully to Docker Hub"
+
+      - name: 🚀 Deploy New Container 
+        run: |
+          export CONTAINER_NAME="inoor-ocr"
+          echo "Deploying image: rehanalimahomed/inoor-ocr:latest"
+          echo "Container name: ${CONTAINER_NAME}"
+          echo "Exposing port: 3000"
+          EXISTING_CONTAINER=$(docker ps -aq -f name=${CONTAINER_NAME})
+          if [ "$EXISTING_CONTAINER" ]; then
+            echo "Existing container found (ID: ${EXISTING_CONTAINER}). Stopping and removing..."
+            docker stop ${CONTAINER_NAME} && docker rm ${CONTAINER_NAME}
+          else
+            echo "No existing container found for ${CONTAINER_NAME}"
+          fi
+          echo "Launching new container with restart always policy..."
+          docker run -d --restart always --name ${CONTAINER_NAME} -p 3000:3000 rehanalimahomed/inoor-ocr:latest
+          echo "New container deployed successfully using image rehanalimahomed/inoor-ocr:latest"

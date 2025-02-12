@@ -26,7 +26,7 @@ A modern, efficient system for processing large volumes of documents through OCR
 
 ### Prerequisites
 
-- Node.js 18.x or later
+- Node.js 20.x or later
 - NPM or pnpm
 
 ### Installation
