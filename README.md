@@ -25,9 +25,10 @@ A modern, efficient system for processing large volumes of documents through OCR
 ## App Demo Video
 
 Below is a demo of the OCR Web App in action:
+https://github.com/NayerAli/v2-ocr/blob/main/public/demo_ocr_app.mp4
 
 <video controls width="640">
-  <source src="/public/demo_ocr_app.mp4" type="video/mp4">
+  <source src="[/public/demo_ocr_app.mp4](https://github.com/NayerAli/v2-ocr/blob/main/public/demo_ocr_app.mp4)" type="video/mp4">
   Your browser does not support the video tag.
 </video>
 
