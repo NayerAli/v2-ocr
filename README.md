@@ -25,8 +25,6 @@ A modern, efficient system for processing large volumes of documents through OCR
 ## App Demo Video
 
 Below is a demo of the OCR Web App in action:
-![OCR Web App Demo](./public/demo_ocr_app.mp4)
-
 ![OCR Web App Demo](./public/demo_ocr_app.gif)
 
 
