@@ -26,10 +26,10 @@ A modern, efficient system for processing large volumes of documents through OCR
 
 Below is a demo of the OCR Web App in action:
 
-<video controls width="640">
-  <source src="/public/demo_ocr_app.mp4" type="video/mp4">
-  Your browser does not support the video tag.
-</video>
+![OCR Web App Demo](./public/demo_ocr_app.mp4)
+
+![OCR Web App Demo](./public/demo_ocr_app.gif)
+
 
 ## 🚀 Getting Started
 
