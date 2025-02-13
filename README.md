@@ -22,6 +22,12 @@ A modern, efficient system for processing large volumes of documents through OCR
 - 🎨 Dark mode support with system theme detection
 - 💾 Efficient caching for improved performance
 
+## App Demo Video
+
+Below is a demo of the OCR Web App in action:
+![OCR Web App Demo](./public/demo_ocr_app.gif)
+
+
 ## 🚀 Getting Started
 
 ### Prerequisites
