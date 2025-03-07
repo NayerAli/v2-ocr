@@ -11,7 +11,7 @@ export const CONFIG = {
     "image/tiff": [".tif", ".tiff"],
     "image/webp": [".webp"],
   },
-  SUPPORTED_APIS: ["google", "microsoft"] as const,
+  SUPPORTED_APIS: ["google", "microsoft", "mistral"] as const,
   SUPPORTED_LANGUAGES: [
     { code: "ar", name: "العربية", direction: "rtl" },
     { code: "fa", name: "فارسی", direction: "rtl" },
@@ -32,6 +32,11 @@ export const API_CONFIGS = {
     url: "https://api.cognitive.microsoft.com/vision/v3.2/read/analyze",
     features: ["printed", "handwritten"],
     testEndpoint: "https://api.cognitive.microsoft.com/vision/v3.2/operations",
+  },
+  mistral: {
+    url: "https://api.mistral.ai/v1/ocr",
+    features: ["ocr"],
+    testEndpoint: "https://api.mistral.ai/v1/ocr",
   },
 } as const
 

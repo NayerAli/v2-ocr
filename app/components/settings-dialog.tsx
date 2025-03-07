@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { CONFIG } from "@/config/constants"
-import { validateGoogleApiKey, validateMicrosoftApiKey } from "@/lib/api-validation"
+import { validateGoogleApiKey, validateMicrosoftApiKey, validateMistralApiKey } from "@/lib/api-validation"
 import { useToast } from "@/hooks/use-toast"
 import { cn } from "@/lib/utils"
 import { db } from "@/lib/indexed-db"
@@ -55,10 +55,19 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     setIsValid(null)
 
     try {
-      const result =
-        settings.ocr.provider === "google"
-          ? await validateGoogleApiKey(settings.ocr.apiKey)
-          : await validateMicrosoftApiKey(settings.ocr.apiKey, settings.ocr.region || "")
+      let result;
+      if (settings.ocr.provider === "google") {
+        result = await validateGoogleApiKey(settings.ocr.apiKey);
+      } else if (settings.ocr.provider === "microsoft") {
+        result = await validateMicrosoftApiKey(settings.ocr.apiKey, settings.ocr.region || "");
+      } else if (settings.ocr.provider === "mistral") {
+        result = await validateMistralApiKey(settings.ocr.apiKey);
+      }
+
+      if (!result) {
+        setValidationError("Validation failed with an unknown error")
+        return
+      }
 
       setIsValid(result.isValid)
       if (!result.isValid && result.error) {
@@ -135,6 +144,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                       <SelectContent>
                         <SelectItem value="google">Google Cloud Vision</SelectItem>
                         <SelectItem value="microsoft">Microsoft Azure Vision</SelectItem>
+                        <SelectItem value="mistral">Mistral OCR</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -186,6 +196,11 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                     {settings.ocr.provider === "google" && (
                       <p className="text-sm text-muted-foreground">
                         Enter your Google Cloud Vision API key. Make sure the API is enabled in your Google Cloud Console.
+                      </p>
+                    )}
+                    {settings.ocr.provider === "mistral" && (
+                      <p className="text-sm text-muted-foreground">
+                        Enter your Mistral API key. You can get it from the Mistral AI platform.
                       </p>
                     )}
                   </div>

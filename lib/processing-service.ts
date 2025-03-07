@@ -1,8 +1,9 @@
 import type { ProcessingStatus, OCRResult } from "@/types"
 import type { OCRSettings, ProcessingSettings, UploadSettings } from "@/types/settings"
 import { db } from "./indexed-db"
-import { loadPDF, renderPageToBase64 } from "./pdf-utils"
+import { renderPageToBase64 } from "./pdf-utils"
 import type { PDFDocumentProxy } from "pdfjs-dist"
+import { getDocument } from "pdfjs-dist"
 
 class AzureRateLimiter {
   private isRateLimited: boolean = false;
@@ -43,6 +44,27 @@ interface MicrosoftVisionRegion {
 interface MicrosoftVisionResponse {
   language?: string
   regions?: MicrosoftVisionRegion[]
+}
+
+// Add interface for Mistral OCR response
+interface MistralOCRPage {
+  markdown?: string;
+  text?: string;
+  index?: number;
+  images?: Array<{
+    data?: string;
+    type?: string;
+  }>;
+  dimensions?: {
+    dpi?: number;
+    height?: number;
+    width?: number;
+  };
+}
+
+interface MistralOCRResponse {
+  pages?: MistralOCRPage[];
+  text?: string;
 }
 
 export class ProcessingService {
@@ -299,167 +321,67 @@ export class ProcessingService {
         console.log(`[Process] Completed image: ${status.filename}`);
         return [result]
       } catch (error) {
-        // Handle rate limit separately
         if (error instanceof Error && error.message.startsWith("RATE_LIMIT:")) {
           const retryAfter = parseInt(error.message.split(":")[1], 10)
-          console.log(`[Process] Rate limit on ${status.filename} - Waiting ${retryAfter}s`);
-          this.azureRateLimiter.setRateLimit(retryAfter);
-          status.rateLimitInfo = {
-            isRateLimited: true,
-            retryAfter,
-            rateLimitStart: Date.now()
-          }
-          await db.saveToQueue(status)
-          await this.azureRateLimiter.waitIfLimited();
-          status.rateLimitInfo = undefined
-          await db.saveToQueue(status)
-          return this.processFile(status, signal)
+          this.azureRateLimiter.setRateLimit(retryAfter)
+          throw new Error(`Rate limited. Please try again in ${retryAfter} seconds.`)
         }
-        
-        // Check if this was a cancellation
-        if (error instanceof Error && (
-          error.name === "AbortError" || 
-          error.message === "Processing aborted"
-        )) {
-          console.log(`[Process] Processing aborted for ${status.filename}`);
-          throw error
-        }
-        
         throw error
       }
     }
 
-    // For PDFs
+    // For PDFs (all providers including Mistral)
     if (status.file.type === "application/pdf") {
       try {
-        const pdf = await loadPDF(status.file)
+        console.log(`[Process] Processing PDF: ${status.filename}`);
+        const arrayBuffer = await status.file.arrayBuffer()
+        const pdf = await getDocument({ data: arrayBuffer }).promise
         const numPages = pdf.numPages
-        const concurrentChunks = this.processingSettings.concurrentChunks
+
+        console.log(`[Process] PDF has ${numPages} pages`);
+        const results: OCRResult[] = []
+
+        // Process in chunks to avoid memory issues
         const pagesPerChunk = this.processingSettings.pagesPerChunk
-        const maxRetries = this.processingSettings.retryAttempts
-        
-        console.log(`[Process] Starting PDF: ${status.filename} (${numPages} pages)`);
-        console.log(`[Process] Using ${concurrentChunks} concurrent chunks, ${pagesPerChunk} pages per chunk`);
-        
-        status.totalPages = numPages
-        status.currentPage = 0
-        status.progress = 0
-        await db.saveToQueue(status)
+        const chunks = Math.ceil(numPages / pagesPerChunk)
 
-        const results: OCRResult[] = new Array(numPages)
-        const processedPages = new Set<number>()
-
-        // Process pages in chunks
-        for (let startPage = 1; startPage <= numPages; startPage += pagesPerChunk) {
-          if (signal.aborted) throw new Error("Processing aborted")
-
-          const endPage = Math.min(startPage + pagesPerChunk - 1, numPages)
-          console.log(`[Process] Creating chunk: pages ${startPage}-${endPage}`);
-          
-          // Process each page in the chunk with retries
-          const chunkPromises = Array.from(
-            { length: endPage - startPage + 1 },
-            (_, i) => startPage + i
-          ).map(async pageNum => {
-            let retryCount = 0
-            let lastError: Error | null = null
-
-            while (retryCount < maxRetries) {
-              try {
-                if (signal.aborted) throw new Error("Processing aborted")
-
-                console.log(`[Process] Processing page ${pageNum}/${numPages} (attempt ${retryCount + 1})`);
-                const page = await pdf.getPage(pageNum)
-                const base64 = await renderPageToBase64(page)
-
-                if (this.ocrSettings.provider === "microsoft") {
-                  await this.azureRateLimiter.waitIfLimited();
-                }
-
-                if (signal.aborted) throw new Error("Processing aborted")
-
-                const result = await this.callOCR(base64, signal)
-                result.documentId = status.id
-                result.pageNumber = pageNum
-                result.imageUrl = `data:image/png;base64,${base64}`
-
-                processedPages.add(pageNum)
-                status.currentPage = pageNum
-                status.progress = Math.round((processedPages.size / numPages) * 100)
-                await db.saveToQueue(status)
-                
-                results[pageNum - 1] = result
-                console.log(`[Process] Successfully processed page ${pageNum}/${numPages} (${status.progress}%)`);
-                return result
-              } catch (error) {
-                if (error instanceof Error) {
-                  if (error.message.startsWith("RATE_LIMIT:")) {
-                    const retryAfter = parseInt(error.message.split(":")[1], 10)
-                    console.log(`[Process] Rate limit on page ${pageNum} - Waiting ${retryAfter}s`);
-                    this.azureRateLimiter.setRateLimit(retryAfter);
-                    status.rateLimitInfo = {
-                      isRateLimited: true,
-                      retryAfter,
-                      rateLimitStart: Date.now()
-                    }
-                    await db.saveToQueue(status)
-                    await this.azureRateLimiter.waitIfLimited();
-                    status.rateLimitInfo = undefined
-                    await db.saveToQueue(status)
-                  } else if (
-                    error.name === "AbortError" || 
-                    error.message === "Processing aborted"
-                  ) {
-                    throw error
-                  }
-                  lastError = error
-                }
-                retryCount++
-                console.log(`[Process] Retry ${retryCount}/${maxRetries} for page ${pageNum}`);
-                await new Promise(resolve => setTimeout(resolve, this.processingSettings.retryDelay));
-              }
-            }
-            
-            throw lastError || new Error(`Failed to process page ${pageNum} after ${maxRetries} attempts`)
-          })
-
-          // Wait for all pages in chunk to complete
-          const chunkResults = await Promise.allSettled(chunkPromises)
-          
-          // Check for cancellation or errors
-          const errors = chunkResults
-            .filter((r): r is PromiseRejectedResult => r.status === "rejected")
-            .map(r => r.reason)
-          
-          const hasAbort = errors.some(e => 
-            e instanceof Error && (
-              e.name === "AbortError" || 
-              e.message === "Processing aborted"
-            )
-          )
-          
-          if (hasAbort) throw new Error("Processing aborted")
-          
-          if (errors.length > 0) {
-            console.error(`[Process] Failed to process some pages in chunk ${startPage}-${endPage}:`, errors)
+        for (let chunkIndex = 0; chunkIndex < chunks; chunkIndex++) {
+          if (signal.aborted) {
+            console.log(`[Process] Processing aborted for ${status.filename}`);
+            throw new Error("Processing aborted")
           }
+
+          const startPage = chunkIndex * pagesPerChunk + 1
+          const endPage = Math.min((chunkIndex + 1) * pagesPerChunk, numPages)
+          console.log(`[Process] Processing chunk ${chunkIndex + 1}/${chunks} (pages ${startPage}-${endPage})`);
+
+          const chunkPromises: Promise<OCRResult>[] = []
+          for (let pageNum = startPage; pageNum <= endPage; pageNum++) {
+            if (signal.aborted) {
+              console.log(`[Process] Processing aborted for ${status.filename}`);
+              throw new Error("Processing aborted")
+            }
+            chunkPromises.push(this.processPage(pdf, pageNum, status, signal))
+          }
+
+          // Process pages in parallel within the chunk
+          const maxConcurrentChunks = this.processingSettings.concurrentChunks
+          const chunkResults = await this.processInBatches(chunkPromises, maxConcurrentChunks)
+          
+          // Add document ID and page number to each result
+          for (let i = 0; i < chunkResults.length; i++) {
+            const pageNum = startPage + i
+            chunkResults[i].documentId = status.id
+            chunkResults[i].pageNumber = pageNum
+          }
+          
+          results.push(...chunkResults)
         }
 
-        // Filter out any undefined results (failed pages)
-        const validResults = results.filter((r): r is OCRResult => r !== undefined)
-        
-        if (validResults.length < numPages) {
-          console.warn(`[Process] Some pages failed to process: ${validResults.length}/${numPages} completed`)
-        }
-
-        status.progress = 100
-        status.currentPage = numPages
-        await db.saveToQueue(status)
         console.log(`[Process] Completed PDF: ${status.filename}`);
-
-        return validResults
+        return results
       } catch (error) {
-        console.error(`[Process] Error processing PDF ${status.filename}:`, error)
+        console.error(`[Process] Error processing PDF: ${error}`);
         throw error
       }
     }
@@ -470,7 +392,22 @@ export class ProcessingService {
   private async processPage(pdf: PDFDocumentProxy, pageNum: number, status: ProcessingStatus, signal: AbortSignal): Promise<OCRResult> {
     const page = await pdf.getPage(pageNum)
     const base64Data = await renderPageToBase64(page)
-    return this.callOCR(base64Data, signal)
+    
+    if (this.ocrSettings.provider === "microsoft") {
+      await this.azureRateLimiter.waitIfLimited();
+    }
+    
+    // Check if cancelled after rate limit wait
+    if (signal.aborted) {
+      console.log(`[Process] Processing aborted for page ${pageNum}`);
+      throw new Error("Processing aborted")
+    }
+    
+    console.log(`[Process] Processing page ${pageNum} with ${this.ocrSettings.provider} OCR`);
+    const result = await this.callOCR(base64Data, signal)
+    result.imageUrl = `data:image/png;base64,${base64Data}`
+    console.log(`[Process] Completed page ${pageNum} with ${this.ocrSettings.provider} OCR`);
+    return result
   }
 
   private async fileToBase64(file: File): Promise<string> {
@@ -488,8 +425,12 @@ export class ProcessingService {
   private async callOCR(base64Data: string, signal: AbortSignal): Promise<OCRResult> {
     if (this.ocrSettings.provider === "google") {
       return this.callGoogleVision(base64Data, signal)
-    } else {
+    } else if (this.ocrSettings.provider === "microsoft") {
       return this.callMicrosoftVision(base64Data, signal)
+    } else if (this.ocrSettings.provider === "mistral") {
+      return this.callMistralOCR(base64Data, signal)
+    } else {
+      throw new Error(`Unsupported OCR provider: ${this.ocrSettings.provider}`)
     }
   }
 
@@ -634,12 +575,88 @@ export class ProcessingService {
     }
   }
 
+  private async callMistralOCR(base64Data: string, signal: AbortSignal): Promise<OCRResult> {
+    const startTime = Date.now()
+
+    try {
+      const response = await fetch("https://api.mistral.ai/v1/ocr", {
+        method: "POST",
+        signal,
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${this.ocrSettings.apiKey}`,
+        },
+        body: JSON.stringify({
+          model: "mistral-ocr-latest",
+          document: {
+            type: "image_url",
+            image_url: `data:image/jpeg;base64,${base64Data}`
+          }
+        }),
+        // Don't include credentials for cross-origin requests
+        credentials: "omit"
+      })
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ error: { message: `HTTP error! status: ${response.status}` } }))
+        throw new Error(error.error?.message || `Mistral OCR API error: ${response.status}`)
+      }
+
+      const data = await response.json() as MistralOCRResponse
+      
+      // Extract text from Mistral OCR response
+      let extractedText = ""
+      
+      if (data && data.text) {
+        extractedText = data.text
+      } else if (data && data.pages && data.pages.length > 0) {
+        // Process each page in the response
+        extractedText = data.pages.map((page: MistralOCRPage) => {
+          if (page.markdown) {
+            // Remove image references like ![img-0.jpeg](img-0.jpeg)
+            const cleanedText = page.markdown
+              .replace(/!\[.*?\]\(.*?\)/g, "") // Remove image references
+              .replace(/\$\$([\s\S]*?)\$\$/g, "$1") // Keep math content but remove $$ delimiters
+              .replace(/\\begin\{aligned\}([\s\S]*?)\\end\{aligned\}/g, "$1") // Keep aligned content but remove delimiters
+              .trim();
+            return cleanedText;
+          }
+          return page.text || "";
+        }).join("\n\n");
+      }
+
+      return {
+        id: crypto.randomUUID(),
+        documentId: "",
+        text: extractedText,
+        confidence: 1, // Mistral doesn't provide confidence scores, so we use 1
+        language: this.ocrSettings.language || "unknown",
+        processingTime: Date.now() - startTime,
+        pageNumber: 1,
+      }
+    } catch (error) {
+      throw new Error(`Mistral OCR API error: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+
   async getStatus(id: string): Promise<ProcessingStatus | undefined> {
     return this.queueMap.get(id) || db.getQueue().then((queue) => queue.find((item) => item.id === id))
   }
 
   async getAllStatus(): Promise<ProcessingStatus[]> {
     return Array.from(this.queueMap.values())
+  }
+
+  private async processInBatches<T>(promises: Promise<T>[], batchSize: number): Promise<T[]> {
+    const results: T[] = []
+    
+    for (let i = 0; i < promises.length; i += batchSize) {
+      const batch = promises.slice(i, i + batchSize)
+      const batchResults = await Promise.all(batch)
+      results.push(...batchResults)
+    }
+    
+    return results
   }
 }
 

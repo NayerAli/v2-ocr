@@ -1,4 +1,4 @@
-type ValidationResult = {
+export interface ValidationResult {
   isValid: boolean
   error?: string
 }
@@ -153,6 +153,60 @@ export async function validateMicrosoftApiKey(apiKey: string, region: string): P
     return {
       isValid: false,
       error: error instanceof Error ? error.message : "Failed to validate API key. Please check your internet connection.",
+    }
+  }
+}
+
+export async function validateMistralApiKey(apiKey: string): Promise<ValidationResult> {
+  if (!apiKey) {
+    return {
+      isValid: false,
+      error: "API key is required",
+    }
+  }
+
+  try {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 10000)
+
+    // Use a simpler validation approach - just check if the API key is valid
+    // by making a request to the models endpoint which is lightweight
+    const response = await fetch("https://api.mistral.ai/v1/models", {
+      method: "GET",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      signal: controller.signal,
+      // Don't include credentials for cross-origin requests
+      credentials: "omit"
+    })
+
+    clearTimeout(timeoutId)
+
+    if (response.ok) {
+      return { isValid: true }
+    }
+
+    // Handle error cases
+    if (response.status === 401) {
+      return {
+        isValid: false,
+        error: "Invalid API key. Please check your credentials.",
+      }
+    }
+
+    const data = await response.json().catch(() => ({ error: { message: `HTTP error! status: ${response.status}` } }))
+    const errorMessage = data.error?.message || `Failed to validate API key: ${response.status}`
+
+    return {
+      isValid: false,
+      error: errorMessage,
+    }
+  } catch (error) {
+    return {
+      isValid: false,
+      error: error instanceof Error ? error.message : "An unknown error occurred",
     }
   }
 }

@@ -45,7 +45,7 @@ export interface ProcessingStatus {
 
 export interface OCRSettings {
   apiKey: string
-  provider: 'google' | 'microsoft'
+  provider: 'google' | 'microsoft' | 'mistral'
   region?: string
   language?: string
 }

@@ -1,6 +1,6 @@
 export interface OCRSettings {
   // OCR Tab
-  provider: 'google' | 'microsoft'
+  provider: 'google' | 'microsoft' | 'mistral'
   apiKey: string
   region?: string
   language?: string
