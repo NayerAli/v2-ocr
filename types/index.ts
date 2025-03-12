@@ -13,9 +13,15 @@ export interface OCRResult {
   language: string
   processingTime: number
   pageNumber: number
+  totalPages?: number
   imageUrl?: string
   boundingBox?: BoundingBox
   error?: string
+  rateLimitInfo?: {
+    isRateLimited: boolean
+    retryAfter: number
+    retryAt: string
+  }
 }
 
 export interface ProcessingStatus {

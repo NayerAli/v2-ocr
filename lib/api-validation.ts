@@ -169,8 +169,7 @@ export async function validateMistralApiKey(apiKey: string): Promise<ValidationR
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 10000)
 
-    // Use a simpler validation approach - just check if the API key is valid
-    // by making a request to the models endpoint which is lightweight
+    // Use the models endpoint which is more reliable for validation
     const response = await fetch("https://api.mistral.ai/v1/models", {
       method: "GET",
       headers: {
@@ -188,7 +187,40 @@ export async function validateMistralApiKey(apiKey: string): Promise<ValidationR
       return { isValid: true }
     }
 
-    // Handle error cases
+    // If the models endpoint fails, try the OCR endpoint as a fallback
+    if (response.status === 401 || response.status === 403) {
+      const ocrResponse = await fetch("https://api.mistral.ai/v1/ocr", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "mistral-ocr-latest",
+          document: {
+            type: "document_url",
+            document_url: "https://example.com/dummy.pdf"
+          }
+        }),
+        signal: controller.signal,
+        credentials: "omit"
+      })
+      
+      // A 400 error means the API key is valid but the document URL is invalid
+      if (ocrResponse.status === 400) {
+        return { isValid: true }
+      }
+      
+      // Handle error cases
+      if (ocrResponse.status === 401) {
+        return {
+          isValid: false,
+          error: "Invalid API key. Please check your credentials.",
+        }
+      }
+    }
+
+    // Handle error cases from the original request
     if (response.status === 401) {
       return {
         isValid: false,

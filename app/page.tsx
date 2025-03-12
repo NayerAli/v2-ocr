@@ -14,7 +14,7 @@ import { useSettingsInit } from "@/hooks/use-settings-init"
 import { useToast } from "@/hooks/use-toast"
 import { cn } from "@/lib/utils"
 import { db } from "@/lib/indexed-db"
-import { ProcessingService } from "@/lib/processing-service"
+import { getProcessingService } from "@/lib/processing-service"
 import { formatFileSize } from "@/lib/file-utils"
 import { initializePDFJS } from "@/lib/pdf-init"
 import { DocumentDetailsDialog } from "./components/document-details-dialog"
@@ -56,7 +56,7 @@ export default function DashboardPage() {
 
   // Create processing service with current settings
   const processingService = useMemo(
-    () => ProcessingService.getInstance({
+    () => getProcessingService({
       ocr: settings.ocr,
       processing: settings.processing,
       upload: settings.upload
