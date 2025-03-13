@@ -15,6 +15,7 @@ export interface OCRResult {
   pageNumber: number
   totalPages?: number
   imageUrl?: string
+  fileUrl?: string
   boundingBox?: BoundingBox
   error?: string
   rateLimitInfo?: {

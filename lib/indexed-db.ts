@@ -260,6 +260,27 @@ class DatabaseService {
     this.cache.results.set(documentId, results)
     this.cache.stats = null
   }
+
+  async syncWithServer(status: ProcessingStatus): Promise<void> {
+    await this.saveToQueue(status);
+    
+    if (status.status === 'completed' && status.results) {
+      await this.saveResults(status.id, status.results);
+    }
+  }
+
+  async getStatus(id: string): Promise<ProcessingStatus | undefined> {
+    if (!this.db) return undefined;
+    const db = await this.db;
+    
+    try {
+      const status = await db.get("queue", id);
+      return status;
+    } catch (error) {
+      console.error(`Error getting status for ${id}:`, error);
+      return undefined;
+    }
+  }
 }
 
 export const db = new DatabaseService()

@@ -28,6 +28,7 @@ export function useSettingsInit(): UseSettingsInitResult {
     // Check if settings are valid
     const hasValidSettings = settings.ocr.apiKey && 
       (settings.ocr.provider !== "microsoft" || settings.ocr.region)
+    
     // Update initialization state
     setIsInitialized(Boolean(hasValidSettings))
     setHasCheckedSettings(true)

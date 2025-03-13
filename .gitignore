@@ -17,6 +17,9 @@
 # production
 /build
 
+# database
+/.db/
+
 # misc
 .DS_Store
 *.pem
@@ -215,4 +218,3 @@ dist
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
->>>>>>> e1f866a38f3951949ce3e25d845b468b3ea13abc
