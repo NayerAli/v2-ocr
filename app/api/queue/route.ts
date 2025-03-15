@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/server/database';
-import { getAllProcessingStatuses } from '@/lib/server/processing-service';
 
 /**
  * GET /api/queue
@@ -8,13 +7,52 @@ import { getAllProcessingStatuses } from '@/lib/server/processing-service';
  */
 export async function GET() {
   try {
-    const queue = await getAllProcessingStatuses();
-    return NextResponse.json(queue);
+    // Check database initialization
+    const isInitialized = await db.isInitialized();
+    const status = db.getInitializationStatus();
+    
+    if (!isInitialized) {
+      return NextResponse.json(
+        { 
+          error: 'Database not initialized',
+          isInitializing: true,
+          retryAfter: 2,
+          details: {
+            attempts: status.attempts,
+            error: status.error
+          }
+        },
+        { 
+          status: 503,
+          headers: {
+            'Retry-After': '2',
+            'Cache-Control': 'no-cache, no-store, must-revalidate'
+          }
+        }
+      );
+    }
+    
+    const queue = await db.getQueue();
+    return NextResponse.json(queue, {
+      headers: {
+        'Cache-Control': 'private, max-age=5'
+      }
+    });
   } catch (error) {
     console.error('Error getting queue:', error);
     return NextResponse.json(
-      { error: 'Failed to get queue' },
-      { status: 500 }
+      { 
+        error: error instanceof Error ? error.message : 'Failed to get queue',
+        details: {
+          type: error instanceof Error ? error.constructor.name : 'Unknown'
+        }
+      },
+      { 
+        status: 500,
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate'
+        }
+      }
     );
   }
 }
@@ -25,13 +63,55 @@ export async function GET() {
  */
 export async function DELETE() {
   try {
+    // Check database initialization
+    const isInitialized = await db.isInitialized();
+    const status = db.getInitializationStatus();
+    
+    if (!isInitialized) {
+      return NextResponse.json(
+        { 
+          error: 'Database not initialized',
+          isInitializing: true,
+          retryAfter: 2,
+          details: {
+            attempts: status.attempts,
+            error: status.error
+          }
+        },
+        { 
+          status: 503,
+          headers: {
+            'Retry-After': '2',
+            'Cache-Control': 'no-cache, no-store, must-revalidate'
+          }
+        }
+      );
+    }
+    
     await db.clearDatabase('queue');
-    return NextResponse.json({ success: true });
+    return NextResponse.json(
+      { success: true },
+      {
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate'
+        }
+      }
+    );
   } catch (error) {
     console.error('Error clearing queue:', error);
     return NextResponse.json(
-      { error: 'Failed to clear queue' },
-      { status: 500 }
+      { 
+        error: error instanceof Error ? error.message : 'Failed to clear queue',
+        details: {
+          type: error instanceof Error ? error.constructor.name : 'Unknown'
+        }
+      },
+      { 
+        status: 500,
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate'
+        }
+      }
     );
   }
-} 
+}

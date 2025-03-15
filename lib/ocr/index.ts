@@ -1,9 +1,7 @@
-// Core OCR functionality
-export * from "./processing-service";
-export * from "./file-processor";
-export * from "./queue-manager";
-export * from "./rate-limiter";
-export * from "./settings-manager";
+// Export server-side file processor
+export * from '../server/file-processor';
 
-// OCR providers
-export * from "./providers"; 
+// Export OCR providers and utilities
+export * from './providers';
+export * from './rate-limiter'; 
+export * from './queue-manager';

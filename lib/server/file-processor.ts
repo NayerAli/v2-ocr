@@ -1,10 +1,9 @@
 import type { OCRResult, ProcessingStatus } from "@/types";
 import type { ProcessingSettings } from "@/types/settings";
-import { renderPageToBase64 } from "../pdf-utils";
-import type { PDFDocumentProxy } from "pdfjs-dist";
-import { getDocument } from "pdfjs-dist";
-import type { OCRProvider } from "./providers/types";
-import { MistralOCRProvider } from "./providers/mistral";
+import { renderPageToBase64, loadPDFFromBuffer } from "./pdf-utils";
+import type { OCRProvider } from "../ocr/providers/types";
+import { MistralOCRProvider } from "../ocr/providers/mistral";
+import { PDFDocumentProxy } from "pdfjs-dist/types/src/display/api";
 
 export class FileProcessor {
   private processingSettings: ProcessingSettings;
@@ -15,33 +14,38 @@ export class FileProcessor {
     this.ocrProvider = ocrProvider;
   }
 
-  async processFile(status: ProcessingStatus, signal: AbortSignal): Promise<OCRResult[]> {
-    if (!status.file) throw new Error("No file to process");
-    console.log(`[Process] Starting ${status.filename}`);
+  async processFile(
+    buffer: Buffer,
+    filename: string,
+    mimeType: string,
+    documentId: string,
+    signal: AbortSignal
+  ): Promise<OCRResult[]> {
+    console.log(`[Process] Starting ${filename}`);
 
     // For images
-    if (status.file.type.startsWith("image/")) {
-      const base64 = await this.fileToBase64(status.file);
+    if (mimeType.startsWith("image/")) {
+      const base64 = buffer.toString('base64');
       
       // Check if cancelled
       if (signal.aborted) {
-        console.log(`[Process] Processing aborted for ${status.filename}`);
+        console.log(`[Process] Processing aborted for ${filename}`);
         throw new Error("Processing aborted");
       }
 
-      console.log(`[Process] Processing image: ${status.filename}`);
+      console.log(`[Process] Processing image: ${filename}`);
       const result = await this.ocrProvider.processImage(base64, signal);
-      result.documentId = status.id;
-      result.imageUrl = `data:${status.file.type};base64,${base64}`;
-      console.log(`[Process] Completed image: ${status.filename}`);
+      result.documentId = documentId;
+      result.imageUrl = `data:${mimeType};base64,${base64}`;
+      console.log(`[Process] Completed image: ${filename}`);
       return [result];
     }
 
     // For PDFs
-    if (status.file.type === "application/pdf") {
+    if (mimeType === "application/pdf") {
       try {
-        console.log(`[Process] Processing PDF: ${status.filename}`);
-        const fileSize = status.file.size;
+        console.log(`[Process] Processing PDF: ${filename}`);
+        const fileSize = buffer.length;
         const fileSizeMB = fileSize / (1024 * 1024);
         console.log(`[Process] PDF file size: ${Math.round(fileSizeMB * 100) / 100}MB`);
         
@@ -50,11 +54,9 @@ export class FileProcessor {
           throw new Error("PDF file is empty");
         }
         
-        // Get array buffer and load PDF to get page count
-        const arrayBuffer = await status.file.arrayBuffer();
-        const pdf = await getDocument({ data: arrayBuffer }).promise;
+        // Load PDF document
+        const pdf = await loadPDFFromBuffer(buffer);
         const numPages = pdf.numPages;
-        status.totalPages = numPages;
         console.log(`[Process] Successfully loaded PDF with ${numPages} pages`);
         
         // Only attempt direct PDF processing with Mistral provider
@@ -64,38 +66,28 @@ export class FileProcessor {
             console.log(`[Process] PDF is within Mistral limits (${numPages} pages, ${Math.round(fileSizeMB)}MB). Processing directly.`);
             
             try {
-              // Convert PDF to base64
-              const base64Data = await this.fileToBase64(status.file);
-              console.log(`[Process] Successfully converted PDF to base64`);
-              
-              // Check if cancelled
-              if (signal.aborted) {
-                console.log(`[Process] Processing aborted for ${status.filename}`);
-                throw new Error("Processing aborted");
-              }
-              
               // Process PDF directly
               console.log(`[Process] Sending PDF to Mistral OCR API`);
-              const result = await this.ocrProvider.processPdfDirectly(base64Data, signal);
-              result.documentId = status.id;
+              const result = await this.ocrProvider.processPdfDirectly(buffer.toString('base64'), signal);
+              result.documentId = documentId;
               result.totalPages = numPages;
               
-              console.log(`[Process] Completed PDF direct processing: ${status.filename}`);
+              console.log(`[Process] Completed PDF direct processing: ${filename}`);
               return [result];
             } catch (error) {
               // If direct processing fails, fall back to page-by-page processing
               console.error(`[Process] Error in direct PDF processing:`, error);
               console.log(`[Process] Falling back to page-by-page processing`);
-              return this.processPageByPage(pdf, status, signal);
+              return this.processPageByPage(pdf, documentId, numPages, filename, signal);
             }
           } else {
             console.log(`[Process] PDF exceeds Mistral limits. Processing page by page.`);
-            return this.processPageByPage(pdf, status, signal);
+            return this.processPageByPage(pdf, documentId, numPages, filename, signal);
           }
         } else {
           // For non-Mistral providers, always process page by page
           console.log(`[Process] Using non-Mistral provider. Processing PDF page by page.`);
-          return this.processPageByPage(pdf, status, signal);
+          return this.processPageByPage(pdf, documentId, numPages, filename, signal);
         }
       } catch (error) {
         console.error(`[Process] Error processing PDF: ${error}`);
@@ -103,73 +95,71 @@ export class FileProcessor {
       }
     }
 
-    throw new Error(`Unsupported file type: ${status.file.type}`);
+    throw new Error(`Unsupported file type: ${mimeType}`);
   }
   
-  private async processPageByPage(pdf: PDFDocumentProxy, status: ProcessingStatus, signal: AbortSignal): Promise<OCRResult[]> {
-    const numPages = pdf.numPages;
-    console.log(`[Process] PDF has ${numPages} pages`);
+  private async processPageByPage(
+    pdf: PDFDocumentProxy,
+    documentId: string,
+    totalPages: number,
+    filename: string,
+    signal: AbortSignal
+  ): Promise<OCRResult[]> {
+    console.log(`[Process] PDF has ${totalPages} pages`);
     const results: OCRResult[] = [];
 
     // Process in chunks to avoid memory issues
     const pagesPerChunk = this.processingSettings.pagesPerChunk;
-    const chunks = Math.ceil(numPages / pagesPerChunk);
+    const chunks = Math.ceil(totalPages / pagesPerChunk);
 
     for (let chunkIndex = 0; chunkIndex < chunks; chunkIndex++) {
       if (signal.aborted) {
-        console.log(`[Process] Processing aborted for ${status.filename}`);
+        console.log(`[Process] Processing aborted for ${filename}`);
         throw new Error("Processing aborted");
       }
 
       const startPage = chunkIndex * pagesPerChunk + 1;
-      const endPage = Math.min((chunkIndex + 1) * pagesPerChunk, numPages);
+      const endPage = Math.min((chunkIndex + 1) * pagesPerChunk, totalPages);
       console.log(`[Process] Processing chunk ${chunkIndex + 1}/${chunks} (pages ${startPage}-${endPage})`);
 
       const chunkPromises: Promise<OCRResult>[] = [];
       for (let pageNum = startPage; pageNum <= endPage; pageNum++) {
         if (signal.aborted) {
-          console.log(`[Process] Processing aborted for ${status.filename}`);
+          console.log(`[Process] Processing aborted for ${filename}`);
           throw new Error("Processing aborted");
         }
-        chunkPromises.push(this.processPage(pdf, pageNum, status, signal));
+        chunkPromises.push(this.processPage(pdf, pageNum, documentId, totalPages, filename, signal));
       }
 
       // Process pages in parallel within the chunk
       const maxConcurrentChunks = this.processingSettings.concurrentChunks;
       const chunkResults = await this.processInBatches(chunkPromises, maxConcurrentChunks);
-      
-      // Add document ID and page number to each result
-      for (let i = 0; i < chunkResults.length; i++) {
-        const pageNum = startPage + i;
-        chunkResults[i].documentId = status.id;
-        chunkResults[i].pageNumber = pageNum;
-        chunkResults[i].totalPages = numPages;
-      }
-      
       results.push(...chunkResults);
-      
-      // Update progress after each chunk
-      status.progress = Math.floor((endPage / numPages) * 100);
-      console.log(`[Process] Progress: ${status.progress}% (${endPage}/${numPages} pages)`);
     }
 
-    console.log(`[Process] Completed PDF: ${status.filename}`);
+    console.log(`[Process] Completed PDF: ${filename}`);
     return results;
   }
 
-  private async processPage(pdf: PDFDocumentProxy, pageNum: number, status: ProcessingStatus, signal: AbortSignal): Promise<OCRResult> {
+  private async processPage(
+    pdf: PDFDocumentProxy,
+    pageNum: number,
+    documentId: string,
+    totalPages: number,
+    filename: string,
+    signal: AbortSignal
+  ): Promise<OCRResult> {
     try {
       const page = await pdf.getPage(pageNum);
-      const base64Data = await renderPageToBase64(page);
+      const base64Data = await renderPageToBase64(pdf, pageNum);
       
       // Check if cancelled
       if (signal.aborted) {
-        console.log(`[Process] Processing aborted for page ${pageNum} of ${status.filename}`);
+        console.log(`[Process] Processing aborted for page ${pageNum} of ${filename}`);
         throw new Error("Processing aborted");
       }
       
-      console.log(`[Process] Processing page ${pageNum} of ${status.filename}`);
-      status.currentPage = pageNum;
+      console.log(`[Process] Processing page ${pageNum} of ${filename}`);
       
       // Pass the page number and total pages to the OCR provider
       const result = await this.ocrProvider.processImage(
@@ -177,31 +167,34 @@ export class FileProcessor {
         signal, 
         undefined, // fileType
         pageNum,   // pageNumber
-        status.totalPages // totalPages
+        totalPages // totalPages
       );
       
       result.imageUrl = `data:image/png;base64,${base64Data}`;
+      result.documentId = documentId;
+      result.pageNumber = pageNum;
+      result.totalPages = totalPages;
       
       // Check if we got a rate limit response
       if (result.rateLimitInfo?.isRateLimited) {
-        console.log(`[Process] Rate limited on page ${pageNum} of ${status.filename}. Retry after ${result.rateLimitInfo.retryAfter}s`);
+        console.log(`[Process] Rate limited on page ${pageNum} of ${filename}. Retry after ${result.rateLimitInfo.retryAfter}s`);
       }
       
       console.log(`[Process] Completed page ${pageNum}`);
       return result;
     } catch (error) {
-      console.error(`[Process] Error processing page ${pageNum} of ${status.filename}:`, error);
+      console.error(`[Process] Error processing page ${pageNum} of ${filename}:`, error);
       
       // Create an error result
       const errorResult: OCRResult = {
         id: crypto.randomUUID(),
-        documentId: status.id,
+        documentId,
         text: `Error processing page ${pageNum}: ${error instanceof Error ? error.message : String(error)}`,
         confidence: 0,
         language: "unknown",
         processingTime: 0,
         pageNumber: pageNum,
-        totalPages: status.totalPages,
+        totalPages,
         error: error instanceof Error ? error.message : String(error)
       };
       
@@ -223,21 +216,6 @@ export class FileProcessor {
       
       return errorResult;
     }
-  }
-
-  private async fileToBase64(file: File): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const base64 = reader.result as string;
-        resolve(base64.split(",")[1]);
-      };
-      reader.onerror = (error) => {
-        console.error(`[Process] Error reading file:`, error);
-        reject(new Error(`Failed to read file: ${error instanceof Error ? error.message : String(error)}`));
-      };
-      reader.readAsDataURL(file);
-    });
   }
 
   private async processInBatches<T>(promises: Promise<T>[], batchSize: number): Promise<T[]> {

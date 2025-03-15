@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import type { ProcessingStatus, OCRResult } from '@/types';
 import * as apiService from '@/lib/client/api-service';
+import { serverStorage } from '@/lib/client/server-storage-service';
 
 interface UseFileProcessingOptions {
   onComplete?: (results: OCRResult[]) => void;
@@ -43,68 +44,66 @@ export function useFileProcessing(options: UseFileProcessingOptions = {}): UseFi
       setStatus(initialStatus);
       
       // Start polling for status updates
-      apiService.pollProcessingStatus(
+      const finalStatus = await apiService.pollProcessingStatus(
         id,
         (updatedStatus) => {
           setStatus(updatedStatus);
           setProgress(updatedStatus.progress || 0);
-          
-          // If processing is complete, get the results
-          if (updatedStatus.status === 'completed') {
-            apiService.getResults(id)
-              .then((results) => {
-                setResults(results);
-                setIsProcessing(false);
-                onComplete?.(results);
-              })
-              .catch((error) => {
-                setError(error);
-                setIsProcessing(false);
-                onError?.(error);
-              });
-          } else if (updatedStatus.status === 'error' || updatedStatus.status === 'cancelled' || updatedStatus.status === 'failed') {
-            setIsProcessing(false);
-            if ((updatedStatus.status === 'error' || updatedStatus.status === 'failed') && updatedStatus.error) {
-              const error = new Error(updatedStatus.error);
-              setError(error);
-              onError?.(error);
-            }
-          }
         },
         pollInterval
-      ).catch((error) => {
-        setError(error);
-        setIsProcessing(false);
-        onError?.(error);
-      });
-    } catch (error: any) {
-      setError(error);
+      );
+      
+      // If processing completed successfully, get the results
+      if (finalStatus.status === 'completed') {
+        const results = await serverStorage.getResults(id);
+        setResults(results);
+        
+        if (onComplete) {
+          onComplete(results);
+        }
+      } else if (finalStatus.status === 'error' || finalStatus.status === 'failed') {
+        throw new Error(finalStatus.error || 'Processing failed');
+      }
+    } catch (error) {
+      console.error('Error processing file:', error);
+      setError(error instanceof Error ? error : new Error('Unknown error'));
+      
+      if (onError) {
+        onError(error instanceof Error ? error : new Error('Unknown error'));
+      }
+    } finally {
       setIsProcessing(false);
-      onError?.(error);
     }
   }, [onComplete, onError, pollInterval]);
   
   // Cancel processing
   const cancelProcessing = useCallback(async () => {
-    if (documentId && isProcessing) {
-      try {
-        await apiService.cancelProcessing(documentId);
-        setIsProcessing(false);
-      } catch (error: any) {
-        setError(error);
-        onError?.(error);
+    if (!documentId) return;
+    
+    try {
+      await apiService.cancelProcessing(documentId);
+      
+      // Update status
+      const updatedStatus = await serverStorage.getStatus(documentId);
+      if (updatedStatus) {
+        setStatus(updatedStatus);
+      }
+    } catch (error) {
+      console.error('Error cancelling processing:', error);
+      setError(error instanceof Error ? error : new Error('Failed to cancel processing'));
+      
+      if (onError) {
+        onError(error instanceof Error ? error : new Error('Failed to cancel processing'));
       }
     }
-  }, [documentId, isProcessing, onError]);
+  }, [documentId, onError]);
   
   // Clean up on unmount
   useEffect(() => {
     return () => {
-      if (documentId && isProcessing) {
-        apiService.cancelProcessing(documentId).catch(console.error);
-      }
+      // No cleanup needed for server-based processing
     };
-  }, [documentId, isProcessing]);
+  }, []);
   
   return {
     uploadFile,
@@ -113,6 +112,6 @@ export function useFileProcessing(options: UseFileProcessingOptions = {}): UseFi
     results,
     isProcessing,
     error,
-    progress,
+    progress
   };
 } 

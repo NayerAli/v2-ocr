@@ -1,61 +1,78 @@
-import * as pdfjsLib from "pdfjs-dist"
-import { initializePDFJS } from "./pdf-init"
-import type { PDFPageProxy } from "pdfjs-dist"
+import { PDFDocument } from 'pdf-lib';
+import * as pdfjsLib from 'pdfjs-dist';
 
-// Initialize PDF.js worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`
+// Configure pdf.js
+if (typeof window === 'undefined') {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = '';
+}
 
-export async function loadPDF(file: File) {
+/**
+ * Load a PDF from a buffer or URL
+ */
+export async function loadPDF(source: Buffer | string) {
+  return await pdfjsLib.getDocument({
+    data: source instanceof Buffer ? source : undefined,
+    url: typeof source === 'string' ? source : undefined,
+    disableAutoFetch: true,
+    disableStream: false,
+  }).promise;
+}
+
+/**
+ * Render a PDF page to base64
+ */
+export async function renderPageToBase64(page: any): Promise<string> {
+  const viewport = page.getViewport({ scale: 1.5 });
+  const canvas = document.createElement('canvas');
+  const context = canvas.getContext('2d');
+  
+  canvas.width = viewport.width;
+  canvas.height = viewport.height;
+  
+  if (!context) throw new Error('Could not get canvas context');
+  
+  await page.render({
+    canvasContext: context,
+    viewport: viewport,
+  }).promise;
+  
+  return canvas.toDataURL('image/jpeg', 0.8);
+}
+
+/**
+ * Get the number of pages in a PDF buffer
+ */
+export async function getPDFPageCount(pdfBuffer: Buffer): Promise<number> {
+  const pdfDoc = await PDFDocument.load(pdfBuffer);
+  return pdfDoc.getPageCount();
+}
+
+/**
+ * Check if a buffer is a valid PDF
+ */
+export async function isValidPDF(buffer: Buffer): Promise<boolean> {
   try {
-    await initializePDFJS()
-    const arrayBuffer = await file.arrayBuffer()
-    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
-    
-    if (pdf.numPages === 0) {
-      throw new Error("PDF file contains no pages")
-    }
-    
-    return pdf
+    await PDFDocument.load(buffer);
+    return true;
   } catch (error) {
-    console.error("Error loading PDF:", error)
-    throw error instanceof Error 
-      ? new Error(`Failed to load PDF: ${error.message}`)
-      : new Error("Failed to load PDF file")
+    return false;
   }
 }
 
-export async function renderPageToBase64(page: PDFPageProxy): Promise<string> {
-  const canvas = document.createElement("canvas")
-  const context = canvas.getContext("2d", { 
-    alpha: true,
-    willReadFrequently: true
-  })
-  if (!context) throw new Error("Could not get canvas context")
-
-  try {
-    // Calculate optimal scale for OCR (minimum 300 DPI)
-    const OPTIMAL_DPI = 300
-    const scale = OPTIMAL_DPI / 72 // Convert from PDF points to pixels
-    const scaledViewport = page.getViewport({ scale })
-    
-    canvas.width = Math.floor(scaledViewport.width)
-    canvas.height = Math.floor(scaledViewport.height)
-
-    // Clear canvas with white background
-    context.fillStyle = "white"
-    context.fillRect(0, 0, canvas.width, canvas.height)
-
-    await page.render({
-      canvasContext: context,
-      viewport: scaledViewport,
-    }).promise
-
-    return canvas.toDataURL("image/png", 1.0).split(",")[1]
-  } catch (error) {
-    console.error("Error rendering PDF page:", error)
-    throw new Error("Failed to render PDF page")
-  } finally {
-    canvas.width = 0
-    canvas.height = 0
-  }
-} 
+/**
+ * Get PDF metadata
+ */
+export async function getPDFMetadata(pdfBuffer: Buffer) {
+  const pdfDoc = await PDFDocument.load(pdfBuffer);
+  return {
+    pageCount: pdfDoc.getPageCount(),
+    title: pdfDoc.getTitle() || undefined,
+    author: pdfDoc.getAuthor() || undefined,
+    subject: pdfDoc.getSubject() || undefined,
+    keywords: pdfDoc.getKeywords() || undefined,
+    creator: pdfDoc.getCreator() || undefined,
+    producer: pdfDoc.getProducer() || undefined,
+    creationDate: pdfDoc.getCreationDate() || undefined,
+    modificationDate: pdfDoc.getModificationDate() || undefined
+  };
+}

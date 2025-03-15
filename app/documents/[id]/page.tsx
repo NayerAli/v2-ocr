@@ -8,7 +8,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useToast } from "@/hooks/use-toast"
-import { db } from "@/lib/indexed-db"
+import { serverStorage } from "@/lib/client/server-storage-service"
 import type { ProcessingStatus, OCRResult } from "@/types"
 import { cn } from "@/lib/utils"
 import {
@@ -231,72 +231,66 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     handleZoomChange(Math.max(zoomLevel - 25, 25))
   }, [handleZoomChange, zoomLevel])
 
-  useEffect(() => {
-    const loadDocument = async () => {
-      try {
-        setIsLoading(true)
-        setError(null)
-        setImageLoaded(false)
-        setImageError(false)
+  const loadDocument = async () => {
+    try {
+      setIsLoading(true)
+      setError(null)
+      setImageLoaded(false)
+      setImageError(false)
 
-        const timeoutId = setTimeout(() => {
-          setError("Loading timeout. Please try refreshing the page.")
-          setIsLoading(false)
-          toast({
-            variant: "destructive",
-            title: "Loading Error",
-            description: "The document is taking too long to load. Please try again.",
-          })
-        }, LOADING_TIMEOUT)
-
-        const queue = await db.getQueue()
-        const doc = queue.find((item) => item.id === params.id)
-        if (!doc) {
-          setError("Document not found in the processing queue")
-          toast({
-            variant: "destructive",
-            title: "Document Not Found",
-            description: "The requested document could not be found in the processing queue.",
-          })
-          return
-        }
-        setDocStatus(doc)
-
-        if (doc.status === "cancelled") {
-          clearTimeout(timeoutId)
-          setIsLoading(false)
-          return
-        }
-
-        const docResults = await db.getResults(params.id)
-        if (!docResults || docResults.length === 0) {
-          setError("No OCR results found for this document")
-          toast({
-            variant: "destructive",
-            title: "No Results",
-            description: "No OCR results were found for this document. The processing may have failed.",
-          })
-          return
-        }
-        setResults(docResults.sort((a, b) => a.pageNumber - b.pageNumber))
-
-        clearTimeout(timeoutId)
-      } catch (err) {
-        const errorMessage = "Failed to load document. Please try again later."
-        setError(errorMessage)
-        console.error("Document loading error:", err)
+      const timeoutId = setTimeout(() => {
+        setError("Loading timeout. Please try refreshing the page.")
+        setIsLoading(false)
         toast({
           variant: "destructive",
-          title: "Error",
-          description: errorMessage,
+          title: "Loading Error",
+          description: "The document is taking too long to load. Please try again.",
         })
-      } finally {
-        setIsLoading(false)
-      }
-    }
+      }, LOADING_TIMEOUT)
 
+      const queue = await serverStorage.getQueue()
+      const doc = queue.find((item) => item.id === params.id)
+      if (!doc) {
+        setError("Document not found in the processing queue")
+        toast({
+          variant: "destructive",
+          title: "Document Not Found",
+          description: "The requested document could not be found in the processing queue.",
+        })
+        clearTimeout(timeoutId)
+        setIsLoading(false)
+        return
+      }
+
+      setDocStatus(doc)
+
+      // If the document is completed, load the results
+      if (doc.status === "completed") {
+        const results = await serverStorage.getResults(params.id)
+        if (results && results.length > 0) {
+          setResults(results)
+          setCurrentPage(1)
+        }
+      }
+
+      clearTimeout(timeoutId)
+      setIsLoading(false)
+    } catch (error) {
+      console.error("Error loading document:", error)
+      setError("Failed to load document. Please try again.")
+      setIsLoading(false)
+      toast({
+        variant: "destructive",
+        title: "Loading Error",
+        description: "Failed to load the document. Please try again.",
+      })
+    }
+  }
+
+  // Load document when component mounts
+  useEffect(() => {
     loadDocument()
-  }, [params.id, toast])
+  }, [params.id])
 
   // Reset states when component mounts or refreshes
   useEffect(() => {

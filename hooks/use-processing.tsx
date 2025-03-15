@@ -2,8 +2,9 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react';
 import type { ProcessingStatus, OCRResult } from '@/types';
-import { useServerApi } from './use-server-api';
 import { useToast } from './use-toast';
+import { serverStorage } from '@/lib/client/server-storage-service';
+import * as apiService from '@/lib/client/api-service';
 
 interface UseProcessingOptions {
   pollingInterval?: number;
@@ -21,264 +22,175 @@ export function useProcessing(options?: UseProcessingOptions) {
   const [error, setError] = useState<Error | null>(null);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const isInitialLoadDone = useRef(false);
-  
-  const {
-    getQueue,
-    clearQueue,
-    getQueueItem,
-    removeQueueItem,
-    cancelProcessing,
-    getResults,
-    processFile,
-  } = useServerApi({
-    onError: (error) => {
-      setError(error);
-      if (options?.onError) {
-        options.onError(error);
+
+  // Load the queue from the server
+  const loadQueue = useCallback(async (showLoading = true) => {
+    try {
+      if (showLoading) {
+        setIsLoading(true);
       }
-      toast({
-        title: 'Processing Error',
-        description: error.message,
-        variant: 'destructive',
-      });
-    },
-    debounceMs: 500 // Add debounce to API calls
-  });
-  
-  // Clean up polling interval on unmount
-  useEffect(() => {
-    return () => {
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
-      }
-    };
-  }, []);
-  
-  // Load queue on mount, but only once
-  useEffect(() => {
-    if (isInitialLoadDone.current) return;
-    
-    const loadQueue = async () => {
-      setIsLoading(true);
-      try {
-        const queue = await getQueue();
-        setActiveJobs(queue);
-        
-        // Check for processing jobs
-        const processingJobs = queue.filter(job => job.status === 'processing');
-        setIsProcessing(processingJobs.length > 0);
-        isInitialLoadDone.current = true;
-      } catch (error) {
-        console.error('Failed to load queue:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    
-    loadQueue();
-  }, [getQueue]);
-  
-  // Poll for updates on active jobs
-  useEffect(() => {
-    // Clear any existing polling interval
-    if (pollingIntervalRef.current) {
-      clearInterval(pollingIntervalRef.current);
-      pollingIntervalRef.current = null;
-    }
-    
-    if (activeJobs.length === 0) return;
-    
-    const pollingInterval = options?.pollingInterval || 2000; // Default to 2 seconds
-    const processingJobs = activeJobs.filter(job => job.status === 'processing');
-    
-    if (processingJobs.length === 0) return;
-    
-    // Set up new polling interval
-    pollingIntervalRef.current = setInterval(async () => {
-      let stillProcessing = false;
       
-      for (const job of processingJobs) {
-        try {
-          const updatedJob = await getQueueItem(job.id);
-          
-          // Update job in active jobs
-          setActiveJobs(prev => 
-            prev.map(j => j.id === updatedJob.id ? updatedJob : j)
-          );
-          
-          // Notify of status change
-          if (options?.onStatusChange) {
-            options.onStatusChange(updatedJob);
-          }
-          
-          // If job is completed, load results
-          if (updatedJob.status === 'completed' && !results.has(updatedJob.id)) {
-            try {
-              const jobResults = await getResults(updatedJob.id);
-              
-              // Update results
-              setResults(prev => {
-                const newResults = new Map(prev);
-                newResults.set(updatedJob.id, jobResults);
-                return newResults;
-              });
-              
-              // Notify of completion
-              if (options?.onComplete) {
-                options.onComplete(jobResults);
-              }
-            } catch (error) {
-              console.error(`Failed to load results for job ${updatedJob.id}:`, error);
+      // Get the queue from the server
+      const queue = await serverStorage.getQueue();
+      
+      // Update active jobs
+      setActiveJobs(queue);
+      
+      // Load results for completed jobs
+      const completedJobs = queue.filter(job => job.status === 'completed');
+      
+      // Load results for each completed job that we don't already have
+      for (const job of completedJobs) {
+        if (!results.has(job.id)) {
+          try {
+            const jobResults = await serverStorage.getResults(job.id);
+            setResults(prev => new Map(prev).set(job.id, jobResults));
+            
+            if (options?.onComplete) {
+              options.onComplete(jobResults);
             }
+          } catch (err) {
+            console.error(`Error loading results for job ${job.id}:`, err);
           }
-          
-          // Check if this job is still processing
-          if (updatedJob.status === 'processing') {
-            stillProcessing = true;
-          }
-        } catch (error) {
-          console.error(`Failed to update job ${job.id}:`, error);
         }
       }
       
       // Update processing state
-      setIsProcessing(stillProcessing);
+      setIsProcessing(queue.some(job => job.status === 'processing' || job.status === 'queued'));
       
-      // If no jobs are still processing, clear the interval
-      if (!stillProcessing && pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
-        pollingIntervalRef.current = null;
+      // Call onStatusChange for each job
+      if (options?.onStatusChange) {
+        queue.forEach(job => options.onStatusChange?.(job));
       }
+      
+      isInitialLoadDone.current = true;
+    } catch (err) {
+      console.error('Error loading queue:', err);
+      setError(err instanceof Error ? err : new Error('Failed to load queue'));
+      
+      if (options?.onError) {
+        options.onError(err instanceof Error ? err : new Error('Failed to load queue'));
+      }
+    } finally {
+      if (showLoading) {
+        setIsLoading(false);
+      }
+    }
+  }, [options, results]);
+
+  // Start polling for updates
+  useEffect(() => {
+    // Initial load
+    loadQueue(true);
+    
+    // Setup polling
+    const pollingInterval = options?.pollingInterval || 3000;
+    pollingIntervalRef.current = setInterval(() => {
+      loadQueue(false);
     }, pollingInterval);
     
     return () => {
       if (pollingIntervalRef.current) {
         clearInterval(pollingIntervalRef.current);
-        pollingIntervalRef.current = null;
       }
     };
-  }, [activeJobs, getQueueItem, getResults, options, results]);
-  
-  // Process files
-  const processFiles = useCallback(async (files: File[]) => {
-    setIsLoading(true);
-    setError(null);
-    
+  }, [loadQueue, options?.pollingInterval]);
+
+  // Process a file
+  const handleProcessFile = useCallback(async (file: File) => {
     try {
-      const newJobs: ProcessingStatus[] = [];
-      
-      for (const file of files) {
-        const { status } = await processFile(file);
-        newJobs.push(status);
-      }
-      
-      // Update active jobs
-      setActiveJobs(prev => [...newJobs, ...prev]);
       setIsProcessing(true);
       
-      return newJobs.map(job => job.id);
-    } catch (error: any) {
-      setError(error instanceof Error ? error : new Error(error?.message || 'Unknown error'));
-      throw error;
-    } finally {
-      setIsLoading(false);
-    }
-  }, [processFile]);
-  
-  // Cancel processing
-  const cancelJob = useCallback(async (id: string) => {
-    try {
-      await cancelProcessing(id);
+      // Process the file
+      const { id, status } = await apiService.uploadFile(file);
       
-      // Update job in active jobs
-      setActiveJobs(prev => 
-        prev.map(job => 
-          job.id === id 
-            ? { ...job, status: 'cancelled' } 
-            : job
-        )
-      );
+      // Add to active jobs
+      setActiveJobs(prev => [...prev, status]);
+      
+      // Start polling for updates
+      loadQueue(false);
+      
+      return id;
+    } catch (err) {
+      console.error('Error processing file:', err);
+      setError(err instanceof Error ? err : new Error('Failed to process file'));
+      
+      if (options?.onError) {
+        options.onError(err instanceof Error ? err : new Error('Failed to process file'));
+      }
+      
+      throw err;
+    }
+  }, [loadQueue, options]);
+
+  // Cancel processing for a job
+  const handleCancelProcessing = useCallback(async (id: string) => {
+    try {
+      // Cancel the job
+      await apiService.cancelProcessing(id);
+      
+      // Update the job status
+      const updatedJob = await serverStorage.getStatus(id);
+      
+      if (updatedJob) {
+        setActiveJobs(prev => 
+          prev.map(job => job.id === id ? updatedJob : job)
+        );
+        
+        if (options?.onStatusChange) {
+          options.onStatusChange(updatedJob);
+        }
+      }
       
       return true;
-    } catch (error) {
-      console.error(`Failed to cancel job ${id}:`, error);
+    } catch (err) {
+      console.error('Error cancelling job:', err);
+      setError(err instanceof Error ? err : new Error('Failed to cancel job'));
+      
+      if (options?.onError) {
+        options.onError(err instanceof Error ? err : new Error('Failed to cancel job'));
+      }
+      
       return false;
     }
-  }, [cancelProcessing]);
-  
-  // Remove job
-  const removeJob = useCallback(async (id: string) => {
-    try {
-      await removeQueueItem(id);
-      
-      // Remove job from active jobs
-      setActiveJobs(prev => prev.filter(job => job.id !== id));
-      
-      // Remove results
-      setResults(prev => {
-        const newResults = new Map(prev);
-        newResults.delete(id);
-        return newResults;
-      });
-      
-      return true;
-    } catch (error) {
-      console.error(`Failed to remove job ${id}:`, error);
-      return false;
-    }
-  }, [removeQueueItem]);
-  
-  // Clear all jobs
-  const clearJobs = useCallback(async () => {
-    try {
-      await clearQueue();
-      
-      // Clear active jobs and results
-      setActiveJobs([]);
-      setResults(new Map());
-      setIsProcessing(false);
-      
-      return true;
-    } catch (error) {
-      console.error('Failed to clear jobs:', error);
-      return false;
-    }
-  }, [clearQueue]);
-  
+  }, [options]);
+
   // Get results for a job
-  const getJobResults = useCallback(async (id: string) => {
-    // Check if we already have results
-    if (results.has(id)) {
-      return results.get(id) || [];
-    }
-    
+  const handleGetResults = useCallback(async (id: string) => {
     try {
-      const jobResults = await getResults(id);
+      // Check if we already have the results
+      if (results.has(id)) {
+        return results.get(id)!;
+      }
       
-      // Update results
-      setResults(prev => {
-        const newResults = new Map(prev);
-        newResults.set(id, jobResults);
-        return newResults;
-      });
+      // Get the results from the server
+      const jobResults = await serverStorage.getResults(id);
+      
+      // Update the results
+      setResults(prev => new Map(prev).set(id, jobResults));
       
       return jobResults;
-    } catch (error) {
-      console.error(`Failed to get results for job ${id}:`, error);
-      return [];
+    } catch (err) {
+      console.error('Error getting results:', err);
+      setError(err instanceof Error ? err : new Error('Failed to get results'));
+      
+      if (options?.onError) {
+        options.onError(err instanceof Error ? err : new Error('Failed to get results'));
+      }
+      
+      throw err;
     }
-  }, [getResults, results]);
-  
+  }, [options, results]);
+
   return {
     activeJobs,
     results,
     isProcessing,
     isLoading,
     error,
-    processFiles,
-    cancelJob,
-    removeJob,
-    clearJobs,
-    getJobResults,
+    processFile: handleProcessFile,
+    cancelProcessing: handleCancelProcessing,
+    getResults: handleGetResults,
+    refreshQueue: loadQueue,
   };
 } 

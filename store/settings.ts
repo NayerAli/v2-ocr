@@ -122,7 +122,26 @@ export const useSettings = create<SettingsState>()(
         // Update local state immediately
         set((state) => ({ ocr: { ...state.ocr, ...settings } }));
         
-        // Only sync with server if there's no pending sync
+        // If updating API key, sync with server immediately
+        if (settings.apiKey !== undefined) {
+          const serverSettings = await updateServerSettings({ 
+            ...get(),
+            updateOCRSettings: undefined,
+            updateProcessingSettings: undefined,
+            updateUploadSettings: undefined,
+            updateDisplaySettings: undefined,
+            updateDatabaseSettings: undefined,
+            updateExportSettings: undefined,
+            resetSettings: undefined
+          });
+          
+          if (serverSettings) {
+            set(serverSettings);
+          }
+          return;
+        }
+        
+        // For other settings, use debounced sync
         if (!pendingSync) {
           // Sync with server
           const serverSettings = await updateServerSettings({ 

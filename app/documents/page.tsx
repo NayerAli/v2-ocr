@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { DocumentDetailsDialog } from "../components/document-details-dialog"
 import { DocumentList } from "../components/document-list"
-import { db } from "@/lib/indexed-db"
+import { serverStorage } from "@/lib/client/server-storage-service"
 import type { ProcessingStatus } from "@/types"
 import { cn } from "@/lib/utils"
 import { useSettingsInit } from "@/hooks/use-settings-init"
@@ -43,7 +43,7 @@ export default function DocumentsPage() {
           setIsLoadingData(true)
         }
         
-        const queue = await db.getQueue()
+        const queue = await serverStorage.getQueue()
         if (isSubscribed) {
           setDocuments(queue)
         }
@@ -60,7 +60,7 @@ export default function DocumentsPage() {
     loadDocuments(true)
     
     // Setup polling without loading state
-    const interval = setInterval(() => loadDocuments(false), 3000)
+    const interval = setInterval(() => loadDocuments(false), 5000)
     
     return () => {
       isSubscribed = false
@@ -101,12 +101,12 @@ export default function DocumentsPage() {
   }, [])
 
   const handleDelete = useCallback(async (id: string) => {
-    await db.removeFromQueue(id)
+    await serverStorage.removeFromQueue(id)
     setDocuments((prev) => prev.filter((doc) => doc.id !== id))
   }, [])
 
   const handleDownload = useCallback(async (id: string) => {
-    const results = await db.getResults(id)
+    const results = await serverStorage.getResults(id)
     if (!results) return
 
     const text = results.map((r) => r.text).join("\n\n")

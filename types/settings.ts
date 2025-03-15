@@ -47,17 +47,27 @@ export interface ExportSettings {
 }
 
 export interface SettingsState {
+  // Settings data
   ocr: OCRSettings
   processing: ProcessingSettings
   upload: UploadSettings
   display: DisplaySettings
   database: DatabaseSettings
   export: ExportSettings
-  updateOCRSettings: (settings: Partial<OCRSettings>) => void
-  updateProcessingSettings: (settings: Partial<ProcessingSettings>) => void
-  updateUploadSettings: (settings: Partial<UploadSettings>) => void
-  updateDisplaySettings: (settings: Partial<DisplaySettings>) => void
-  updateDatabaseSettings: (settings: Partial<DatabaseSettings>) => void
-  updateExportSettings: (settings: Partial<ExportSettings>) => void
-  resetSettings: () => void
-} 
+
+  // Loading and error states
+  isLoading: boolean
+  error: Error | null
+
+  // Update functions
+  updateOCRSettings: (settings: Partial<OCRSettings>) => Promise<void>
+  updateProcessingSettings: (settings: Partial<ProcessingSettings>) => Promise<void>
+  updateUploadSettings: (settings: Partial<UploadSettings>) => Promise<void>
+  updateDisplaySettings: (settings: Partial<DisplaySettings>) => Promise<void>
+  updateDatabaseSettings: (settings: Partial<DatabaseSettings>) => Promise<void>
+  updateExportSettings: (settings: Partial<ExportSettings>) => Promise<void>
+  resetSettings: () => Promise<void>
+
+  // Initialization
+  initialize: () => Promise<void>
+}

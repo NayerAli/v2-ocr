@@ -9,14 +9,12 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { FileUpload } from "./components/file-upload"
 import { SettingsDialog } from "./components/settings-dialog"
 import type { ProcessingStatus } from "@/types"
-import { useSettings } from "@/store/settings"
+import { useSettings } from "@/hooks/use-settings"
 import { useSettingsInit } from "@/hooks/use-settings-init"
 import { useToast } from "@/hooks/use-toast"
 import { cn } from "@/lib/utils"
-import { db } from "@/lib/indexed-db"
 import { getProcessingService } from "@/lib/processing-service"
 import { formatFileSize } from "@/lib/file-utils"
-import { initializePDFJS } from "@/lib/pdf-init"
 import { DocumentDetailsDialog } from "./components/document-details-dialog"
 import { DocumentList } from "./components/document-list"
 import { useLanguage } from "@/hooks/use-language"
@@ -49,88 +47,125 @@ export default function DashboardPage() {
     totalProcessed: 0,
     avgProcessingTime: 0,
     successRate: 0,
-    totalStorage: 0,
+    totalStorage: 0
   })
   const [selectedDocument, setSelectedDocument] = useState<ProcessingStatus | null>(null)
   const [isDetailsOpen, setIsDetailsOpen] = useState(false)
 
-  // Create processing service with current settings
-  const processingService = useMemo(
-    () => getProcessingService({
-      ocr: settings.ocr,
-      processing: settings.processing,
-      upload: settings.upload
-    }),
-    [settings.ocr, settings.processing, settings.upload]
-  )
-
-  // Initialize PDF.js only after settings are loaded
-  useEffect(() => {
-    if (isInitialized) {
-      initializePDFJS()
+  // Ensure settings values are never undefined
+  const safeSettings = {
+    ocr: {
+      provider: settings.ocr?.provider || "google",
+      apiKey: settings.ocr?.apiKey || "",
+      region: settings.ocr?.region || "",
+      language: settings.ocr?.language || "en",
+    },
+    processing: {
+      maxConcurrentJobs: settings.processing?.maxConcurrentJobs || 1,
+      pagesPerChunk: settings.processing?.pagesPerChunk || 2,
+      concurrentChunks: settings.processing?.concurrentChunks || 1,
+      retryAttempts: settings.processing?.retryAttempts || 2,
+      retryDelay: settings.processing?.retryDelay || 1000,
+    },
+    upload: {
+      maxFileSize: settings.upload?.maxFileSize || 500,
+      allowedFileTypes: settings.upload?.allowedFileTypes || ['.pdf', '.jpg', '.jpeg', '.png'],
+      maxSimultaneousUploads: settings.upload?.maxSimultaneousUploads || 5,
     }
-  }, [isInitialized])
+  }
 
-  // Load queue and update stats
+  // Initialize processing service
+  const processingService = useMemo(() => {
+    if (!isInitialized || settings.isLoading) return null
+    return getProcessingService({
+      ocr: safeSettings.ocr,
+      processing: safeSettings.processing,
+      upload: safeSettings.upload
+    })
+  }, [isInitialized, settings.isLoading, settings.ocr, settings.processing, settings.upload])
+
+  // Load queue from server
+  const loadQueue = async (withLoadingState = true) => {
+    if (!processingService) return
+
+    try {
+      if (withLoadingState) setIsLoadingData(true)
+      
+      // Get queue from server
+      const queue = await processingService.getAllStatus()
+      
+      // Update state
+      setProcessingQueue(queue)
+      
+      // Update stats
+      const completed = queue.filter(item => item.status === "completed")
+      const failed = queue.filter(item => item.status === "error" || item.status === "failed")
+      const totalProcessed = completed.length + failed.length
+      
+      // Calculate average processing time
+      const avgTime = completed.reduce((sum, item) => {
+        const processingTime = item.endTime && item.startTime 
+          ? (item.endTime - item.startTime) / 1000 
+          : 0
+        return sum + processingTime
+      }, 0) / (completed.length || 1)
+      
+      // Calculate success rate
+      const successRate = totalProcessed > 0 
+        ? (completed.length / totalProcessed) * 100 
+        : 0
+      
+      // Calculate total storage
+      const totalStorage = queue.reduce((sum, item) => sum + (item.size || 0), 0)
+      
+      setStats({
+        totalProcessed,
+        avgProcessingTime: avgTime,
+        successRate,
+        totalStorage
+      })
+    } catch (error) {
+      console.error("Error loading queue:", error)
+      toast({
+        title: t('uploadError', language),
+        description: error instanceof Error ? error.message : t(translationKeys.failedProcess, language),
+        variant: "destructive",
+      })
+    } finally {
+      if (withLoadingState) setIsLoadingData(false)
+    }
+  }
+
+  // Setup polling
   useEffect(() => {
     let isMounted = true
-
-    const loadQueue = async (isInitialLoad = false) => {
-      if (!isInitialized) return
-
-      try {
-        if (isInitialLoad) {
-          setIsLoadingData(true)
-        }
-
-        // Load queue first and update UI immediately
-        const queue = await db.getQueue()
-        if (!isMounted) return
-        setProcessingQueue(queue)
-
-        // Then load stats in the background
-        const dbStats = await db.getDatabaseStats()
-        if (!isMounted) return
-
-        // Update stats after both are loaded
-        const completed = queue.filter((item) => item.status === "completed")
-        const totalProcessed = completed.length
-        const avgTime = completed.reduce((acc, item) => {
-          return acc + ((item.endTime || 0) - (item.startTime || 0))
-        }, 0) / (totalProcessed || 1)
-
-        setStats({
-          totalProcessed,
-          avgProcessingTime: avgTime,
-          successRate: queue.length ? (totalProcessed / queue.length) * 100 : 0,
-          totalStorage: dbStats.dbSize
-        })
-      } catch (error) {
-        console.error("Error loading queue:", error)
-      } finally {
-        if (isMounted && isInitialLoad) {
-          setIsLoadingData(false)
-        }
-      }
-    }
-
+    
     // Initial load with loading state
-    loadQueue(true)
+    if (processingService) {
+      loadQueue(true)
+    }
     
     // Setup polling without loading state
-    const interval = setInterval(() => loadQueue(false), 3000)
-
+    const interval = setInterval(() => {
+      if (processingService && isMounted) {
+        loadQueue(false)
+      }
+    }, 3000)
+    
     return () => {
       isMounted = false
       clearInterval(interval)
     }
-  }, [isInitialized])
+  }, [processingService])
 
   const handleFilesAccepted = async (files: File[]) => {
+    if (!processingService) return
+    
     try {
       const ids = await processingService.addToQueue(files)
-      const newItems = await Promise.all(ids.map((id) => processingService.getStatus(id)))
-      setProcessingQueue((prev) => [...prev, ...newItems.filter((item): item is ProcessingStatus => !!item)])
+      
+      // Load the updated queue
+      await loadQueue(false)
 
       const message = tCount('filesAddedDesc', files.length, language).replace(/\d+/g, num => 
         toArabicNumerals(num, language)
@@ -150,6 +185,8 @@ export default function DashboardPage() {
   }
 
   const handleRemoveFromQueue = async (id: string) => {
+    if (!processingService) return
+    
     try {
       const status = processingQueue.find(item => item.id === id)
       if (!status) return
@@ -168,45 +205,41 @@ export default function DashboardPage() {
 
       toast({
         title: "File Removed",
-        description: status.status === "processing" 
-          ? "Processing cancelled and document removed from queue"
-          : "Document removed from queue",
+        description: `${status.filename} has been removed from the queue.`,
       })
-    } catch {
+    } catch (error) {
       toast({
         title: "Error",
-        description: "Failed to remove document from queue",
+        description: error instanceof Error ? error.message : "Failed to remove file",
         variant: "destructive",
       })
     }
   }
 
   const handleViewResults = async (id: string) => {
-    router.push(`/documents/${id}`)
-  }
-
-  const handleCancel = async (id: string) => {
+    if (!processingService) return
+    
     try {
-      await processingService.cancelProcessing(id)
-      
-      // Update the queue item status
-      setProcessingQueue(prev => prev.map(item => 
-        item.id === id 
-          ? { ...item, status: "cancelled" }
-          : item
-      ))
-
-      toast({
-        title: "Processing Cancelled",
-        description: "Document processing has been cancelled",
-      })
-    } catch {
+      const results = await processingService.getResults(id)
+      console.log("Results:", results)
+      // Handle viewing results
+    } catch (error) {
       toast({
         title: "Error",
-        description: "Failed to cancel processing",
+        description: error instanceof Error ? error.message : "Failed to load results",
         variant: "destructive",
       })
     }
+  }
+
+  const handleViewDetails = (document: ProcessingStatus) => {
+    setSelectedDocument(document)
+    setIsDetailsOpen(true)
+  }
+
+  const handleCloseDetails = () => {
+    setIsDetailsOpen(false)
+    setSelectedDocument(null)
   }
 
   // Add loading skeletons for stats cards
@@ -276,21 +309,25 @@ export default function DashboardPage() {
                 onFilesAccepted={handleFilesAccepted}
                 processingQueue={processingQueue}
                 onPause={async () => {
-                  await processingService.pauseQueue()
-                  toast({
-                    title: t('processingCancelled', language),
-                    description: t('processingCancelledDesc', language),
-                  })
+                  if (processingService) {
+                    await processingService.pauseQueue()
+                    toast({
+                      title: t('processingCancelled', language),
+                      description: t('processingCancelledDesc', language),
+                    })
+                  }
                 }}
                 onResume={async () => {
-                  await processingService.resumeQueue()
-                  toast({
-                    title: t('processingCancelled', language),
-                    description: t('processingCancelledDesc', language),
-                  })
+                  if (processingService) {
+                    await processingService.resumeQueue()
+                    toast({
+                      title: t('processingCancelled', language),
+                      description: t('processingCancelledDesc', language),
+                    })
+                  }
                 }}
                 onRemove={handleRemoveFromQueue}
-                onCancel={handleCancel}
+                onCancel={handleRemoveFromQueue}
                 disabled={!isConfigured || !isInitialized}
                 maxFileSize={settings.upload.maxFileSize}
                 maxSimultaneousUploads={settings.upload.maxSimultaneousUploads}
@@ -398,10 +435,7 @@ export default function DashboardPage() {
             ) : (
               <DocumentList
                 documents={processingQueue.slice(0, 5)}
-                onShowDetails={(doc) => {
-                  setSelectedDocument(doc)
-                  setIsDetailsOpen(true)
-                }}
+                onShowDetails={handleViewDetails}
                 onDownload={handleViewResults}
                 onDelete={handleRemoveFromQueue}
                 variant="grid"
@@ -415,7 +449,7 @@ export default function DashboardPage() {
       <DocumentDetailsDialog
         document={selectedDocument}
         open={isDetailsOpen}
-        onOpenChange={setIsDetailsOpen}
+        onOpenChange={handleCloseDetails}
       />
       <SettingsDialog 
         open={shouldShowSettings} 

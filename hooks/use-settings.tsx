@@ -1,20 +1,16 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
-import type { 
-  SettingsState, 
-  OCRSettings, 
-  ProcessingSettings, 
-  UploadSettings, 
-  DisplaySettings, 
-  DatabaseSettings,
-  ExportSettings
-} from '@/types/settings';
-import { useServerApi } from './use-server-api';
-import { useToast } from './use-toast';
+import { create } from 'zustand'
+import type { SettingsState } from '@/types/settings'
 
-// Default settings (same as server-side)
-const defaultSettings: Omit<SettingsState, 'updateOCRSettings' | 'updateProcessingSettings' | 'updateUploadSettings' | 'updateDisplaySettings' | 'updateDatabaseSettings' | 'updateExportSettings' | 'resetSettings'> = {
+interface SettingsStore extends SettingsState {
+  isLoading: boolean
+  error: Error | null
+  initialize: () => Promise<void>
+}
+
+export const useSettings = create<SettingsStore>((set, get) => ({
+  // Initial state
   ocr: {
     provider: "google" as const,
     apiKey: "",
@@ -41,174 +37,257 @@ const defaultSettings: Omit<SettingsState, 'updateOCRSettings' | 'updateProcessi
   },
   database: {
     autoCleanup: false,
-    cleanupThreshold: 90, // 90 days
-    retentionPeriod: 30, // 30 days
-    maxStorageSize: 1000 // 1GB
+    cleanupThreshold: 90,
+    retentionPeriod: 30,
+    maxStorageSize: 1000
   },
   export: {
     format: 'txt' as const,
     naming: '{filename}-{timestamp}'
-  }
-};
+  },
+  isLoading: true,
+  error: null,
 
-// Create context
-const SettingsContext = createContext<SettingsState | null>(null);
-
-// Global settings state to prevent multiple instances from fetching settings
-let globalSettingsLoaded = false;
-let globalSettings: any = null;
-
-export function SettingsProvider({ children }: { children: React.ReactNode }) {
-  const { toast } = useToast();
-  const { getSettings, updateSettings: updateServerSettings, resetSettings: resetServerSettings } = useServerApi({
-    onError: (error) => {
-      toast({
-        title: 'Settings Error',
-        description: error.message,
-        variant: 'destructive',
-      });
-    },
-    debounceMs: 1000 // Increase debounce to 1 second
-  });
-  
-  const [settings, setSettings] = useState<Omit<SettingsState, 'updateOCRSettings' | 'updateProcessingSettings' | 'updateUploadSettings' | 'updateDisplaySettings' | 'updateDatabaseSettings' | 'updateExportSettings' | 'resetSettings'>>(
-    globalSettings || defaultSettings
-  );
-  const [isLoading, setIsLoading] = useState(!globalSettingsLoaded);
-  const settingsLoaded = useRef(globalSettingsLoaded);
-  const isMounted = useRef(true);
-  
-  // Set up cleanup on unmount
-  useEffect(() => {
-    return () => {
-      isMounted.current = false;
-    };
-  }, []);
-  
-  // Load settings from server only once on mount
-  useEffect(() => {
-    // Skip if settings are already loaded
-    if (settingsLoaded.current) return;
-    
-    const loadSettings = async () => {
-      try {
-        setIsLoading(true);
-        const serverSettings = await getSettings();
-        
-        if (isMounted.current) {
-          setSettings(serverSettings);
-          settingsLoaded.current = true;
-          globalSettingsLoaded = true;
-          globalSettings = serverSettings;
-        }
-      } catch (error) {
-        console.error('Failed to load settings:', error);
-      } finally {
-        if (isMounted.current) {
-          setIsLoading(false);
-        }
+  // Initialize settings from server
+  initialize: async () => {
+    try {
+      set({ isLoading: true, error: null })
+      const response = await fetch('/api/settings')
+      if (!response.ok) {
+        throw new Error('Failed to fetch settings')
       }
-    };
-    
-    loadSettings();
-  }, [getSettings]);
-  
-  // Update settings handlers with debounce
-  const updateOCRSettings = useCallback(async (ocrSettings: Partial<OCRSettings>) => {
-    try {
-      const updatedSettings = await updateServerSettings({ ocr: ocrSettings });
-      setSettings(updatedSettings);
-      globalSettings = updatedSettings;
+      const serverSettings = await response.json()
+      
+      // Get current state to preserve functions
+      const currentState = get()
+      
+      // Update state with server settings while preserving functions
+      set({ 
+        ...currentState,
+        ocr: serverSettings.ocr || currentState.ocr,
+        processing: serverSettings.processing || currentState.processing,
+        upload: serverSettings.upload || currentState.upload,
+        display: serverSettings.display || currentState.display,
+        database: serverSettings.database || currentState.database,
+        export: serverSettings.export || currentState.export,
+        isLoading: false 
+      })
     } catch (error) {
-      console.error('Failed to update OCR settings:', error);
+      set({ 
+        error: error instanceof Error ? error : new Error('Failed to load settings'),
+        isLoading: false 
+      })
     }
-  }, [updateServerSettings]);
-  
-  const updateProcessingSettings = useCallback(async (processingSettings: Partial<ProcessingSettings>) => {
-    try {
-      const updatedSettings = await updateServerSettings({ processing: processingSettings });
-      setSettings(updatedSettings);
-      globalSettings = updatedSettings;
-    } catch (error) {
-      console.error('Failed to update processing settings:', error);
-    }
-  }, [updateServerSettings]);
-  
-  const updateUploadSettings = useCallback(async (uploadSettings: Partial<UploadSettings>) => {
-    try {
-      const updatedSettings = await updateServerSettings({ upload: uploadSettings });
-      setSettings(updatedSettings);
-      globalSettings = updatedSettings;
-    } catch (error) {
-      console.error('Failed to update upload settings:', error);
-    }
-  }, [updateServerSettings]);
-  
-  const updateDisplaySettings = useCallback(async (displaySettings: Partial<DisplaySettings>) => {
-    try {
-      const updatedSettings = await updateServerSettings({ display: displaySettings });
-      setSettings(updatedSettings);
-      globalSettings = updatedSettings;
-    } catch (error) {
-      console.error('Failed to update display settings:', error);
-    }
-  }, [updateServerSettings]);
-  
-  const updateDatabaseSettings = useCallback(async (databaseSettings: Partial<DatabaseSettings>) => {
-    try {
-      const updatedSettings = await updateServerSettings({ database: databaseSettings });
-      setSettings(updatedSettings);
-      globalSettings = updatedSettings;
-    } catch (error) {
-      console.error('Failed to update database settings:', error);
-    }
-  }, [updateServerSettings]);
-  
-  const updateExportSettings = useCallback(async (exportSettings: Partial<ExportSettings>) => {
-    try {
-      const updatedSettings = await updateServerSettings({ export: exportSettings });
-      setSettings(updatedSettings);
-      globalSettings = updatedSettings;
-    } catch (error) {
-      console.error('Failed to update export settings:', error);
-    }
-  }, [updateServerSettings]);
-  
-  const resetSettings = useCallback(async () => {
-    try {
-      const defaultSettings = await resetServerSettings();
-      setSettings(defaultSettings);
-      globalSettings = defaultSettings;
-    } catch (error) {
-      console.error('Failed to reset settings:', error);
-    }
-  }, [resetServerSettings]);
-  
-  // Combine settings with update functions
-  const settingsWithFunctions: SettingsState = {
-    ...settings,
-    updateOCRSettings,
-    updateProcessingSettings,
-    updateUploadSettings,
-    updateDisplaySettings,
-    updateDatabaseSettings,
-    updateExportSettings,
-    resetSettings,
-  };
-  
-  return (
-    <SettingsContext.Provider value={settingsWithFunctions}>
-      {children}
-    </SettingsContext.Provider>
-  );
-}
+  },
 
-export function useSettings() {
-  const context = useContext(SettingsContext);
-  
-  if (!context) {
-    throw new Error('useSettings must be used within a SettingsProvider');
+  // Update settings
+  updateOCRSettings: async (settings) => {
+    try {
+      // If updating API key, send request immediately
+      const method = settings.apiKey !== undefined ? 'PATCH' : 'POST'
+      const response = await fetch('/api/settings', {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ocr: settings })
+      })
+      if (!response.ok) {
+        throw new Error('Failed to update OCR settings')
+      }
+      const serverSettings = await response.json()
+      
+      // Get current state to preserve functions
+      const currentState = get()
+      
+      // Update state with server settings while preserving functions
+      set({ 
+        ...currentState,
+        ocr: serverSettings.ocr || currentState.ocr,
+        processing: serverSettings.processing || currentState.processing,
+        upload: serverSettings.upload || currentState.upload,
+        display: serverSettings.display || currentState.display,
+        database: serverSettings.database || currentState.database,
+        export: serverSettings.export || currentState.export
+      })
+    } catch (error) {
+      set({ error: error instanceof Error ? error : new Error('Failed to update OCR settings') })
+    }
+  },
+
+  updateProcessingSettings: async (settings) => {
+    try {
+      const response = await fetch('/api/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ processing: settings })
+      })
+      if (!response.ok) {
+        throw new Error('Failed to update processing settings')
+      }
+      const serverSettings = await response.json()
+      
+      // Get current state to preserve functions
+      const currentState = get()
+      
+      // Update state with server settings while preserving functions
+      set({ 
+        ...currentState,
+        ocr: serverSettings.ocr || currentState.ocr,
+        processing: serverSettings.processing || currentState.processing,
+        upload: serverSettings.upload || currentState.upload,
+        display: serverSettings.display || currentState.display,
+        database: serverSettings.database || currentState.database,
+        export: serverSettings.export || currentState.export
+      })
+    } catch (error) {
+      set({ error: error instanceof Error ? error : new Error('Failed to update processing settings') })
+    }
+  },
+
+  updateUploadSettings: async (settings) => {
+    try {
+      const response = await fetch('/api/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ upload: settings })
+      })
+      if (!response.ok) {
+        throw new Error('Failed to update upload settings')
+      }
+      const serverSettings = await response.json()
+      
+      // Get current state to preserve functions
+      const currentState = get()
+      
+      // Update state with server settings while preserving functions
+      set({ 
+        ...currentState,
+        ocr: serverSettings.ocr || currentState.ocr,
+        processing: serverSettings.processing || currentState.processing,
+        upload: serverSettings.upload || currentState.upload,
+        display: serverSettings.display || currentState.display,
+        database: serverSettings.database || currentState.database,
+        export: serverSettings.export || currentState.export
+      })
+    } catch (error) {
+      set({ error: error instanceof Error ? error : new Error('Failed to update upload settings') })
+    }
+  },
+
+  updateDisplaySettings: async (settings) => {
+    try {
+      const response = await fetch('/api/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ display: settings })
+      })
+      if (!response.ok) {
+        throw new Error('Failed to update display settings')
+      }
+      const serverSettings = await response.json()
+      
+      // Get current state to preserve functions
+      const currentState = get()
+      
+      // Update state with server settings while preserving functions
+      set({ 
+        ...currentState,
+        ocr: serverSettings.ocr || currentState.ocr,
+        processing: serverSettings.processing || currentState.processing,
+        upload: serverSettings.upload || currentState.upload,
+        display: serverSettings.display || currentState.display,
+        database: serverSettings.database || currentState.database,
+        export: serverSettings.export || currentState.export
+      })
+    } catch (error) {
+      set({ error: error instanceof Error ? error : new Error('Failed to update display settings') })
+    }
+  },
+
+  updateDatabaseSettings: async (settings) => {
+    try {
+      const response = await fetch('/api/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ database: settings })
+      })
+      if (!response.ok) {
+        throw new Error('Failed to update database settings')
+      }
+      const serverSettings = await response.json()
+      
+      // Get current state to preserve functions
+      const currentState = get()
+      
+      // Update state with server settings while preserving functions
+      set({ 
+        ...currentState,
+        ocr: serverSettings.ocr || currentState.ocr,
+        processing: serverSettings.processing || currentState.processing,
+        upload: serverSettings.upload || currentState.upload,
+        display: serverSettings.display || currentState.display,
+        database: serverSettings.database || currentState.database,
+        export: serverSettings.export || currentState.export
+      })
+    } catch (error) {
+      set({ error: error instanceof Error ? error : new Error('Failed to update database settings') })
+    }
+  },
+
+  updateExportSettings: async (settings) => {
+    try {
+      const response = await fetch('/api/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ export: settings })
+      })
+      if (!response.ok) {
+        throw new Error('Failed to update export settings')
+      }
+      const serverSettings = await response.json()
+      
+      // Get current state to preserve functions
+      const currentState = get()
+      
+      // Update state with server settings while preserving functions
+      set({ 
+        ...currentState,
+        ocr: serverSettings.ocr || currentState.ocr,
+        processing: serverSettings.processing || currentState.processing,
+        upload: serverSettings.upload || currentState.upload,
+        display: serverSettings.display || currentState.display,
+        database: serverSettings.database || currentState.database,
+        export: serverSettings.export || currentState.export
+      })
+    } catch (error) {
+      set({ error: error instanceof Error ? error : new Error('Failed to update export settings') })
+    }
+  },
+
+  resetSettings: async () => {
+    try {
+      const response = await fetch('/api/settings/reset', {
+        method: 'POST'
+      })
+      if (!response.ok) {
+        throw new Error('Failed to reset settings')
+      }
+      const serverSettings = await response.json()
+      
+      // Get current state to preserve functions
+      const currentState = get()
+      
+      // Update state with server settings while preserving functions
+      set({ 
+        ...currentState,
+        ocr: serverSettings.ocr || currentState.ocr,
+        processing: serverSettings.processing || currentState.processing,
+        upload: serverSettings.upload || currentState.upload,
+        display: serverSettings.display || currentState.display,
+        database: serverSettings.database || currentState.database,
+        export: serverSettings.export || currentState.export
+      })
+    } catch (error) {
+      set({ error: error instanceof Error ? error : new Error('Failed to reset settings') })
+    }
   }
-  
-  return context;
-} 
+})) 

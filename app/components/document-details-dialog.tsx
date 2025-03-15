@@ -7,10 +7,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { formatFileSize, formatDuration, formatTimestamp } from "@/lib/file-utils"
-import { useSettings } from "@/store/settings"
+import { useSettings } from "@/hooks/use-settings"
 import type { ProcessingStatus } from "@/types"
 import { useLanguage } from "@/hooks/use-language"
 import { t } from "@/lib/i18n/translations"
+import { useState, useEffect } from "react"
 
 interface DocumentDetailsDialogProps {
   document: ProcessingStatus | null
@@ -21,6 +22,51 @@ interface DocumentDetailsDialogProps {
 export function DocumentDetailsDialog({ document, open, onOpenChange }: DocumentDetailsDialogProps) {
   const settings = useSettings()
   const { language } = useLanguage()
+  const [results, setResults] = useState<OCRResult[]>([])
+  const [isLoadingResults, setIsLoadingResults] = useState(false)
+
+  // Load results when document changes
+  useEffect(() => {
+    async function loadResults() {
+      if (!document || !document.id) return
+      
+      setIsLoadingResults(true)
+      try {
+        const response = await fetch(`/api/results/${document.id}`)
+        if (!response.ok) throw new Error('Failed to load results')
+        const data = await response.json()
+        setResults(data.results || [])
+      } catch (error) {
+        console.error('Error loading results:', error)
+      } finally {
+        setIsLoadingResults(false)
+      }
+    }
+
+    loadResults()
+  }, [document])
+
+  // Ensure settings values are never undefined
+  const safeSettings = {
+    ocr: {
+      provider: settings.ocr?.provider || "google",
+      apiKey: settings.ocr?.apiKey || "",
+      region: settings.ocr?.region || "",
+      language: settings.ocr?.language || "en",
+    },
+    processing: {
+      maxConcurrentJobs: settings.processing?.maxConcurrentJobs || 1,
+      pagesPerChunk: settings.processing?.pagesPerChunk || 2,
+      concurrentChunks: settings.processing?.concurrentChunks || 1,
+      retryAttempts: settings.processing?.retryAttempts || 2,
+      retryDelay: settings.processing?.retryDelay || 1000,
+    },
+    upload: {
+      maxFileSize: settings.upload?.maxFileSize || 500,
+      allowedFileTypes: settings.upload?.allowedFileTypes || ['.pdf', '.jpg', '.jpeg', '.png'],
+      maxSimultaneousUploads: settings.upload?.maxSimultaneousUploads || 5,
+    }
+  }
 
   if (!document) return null
 
@@ -55,7 +101,7 @@ export function DocumentDetailsDialog({ document, open, onOpenChange }: Document
   }
 
   const getProviderName = () => {
-    switch (settings.ocr.provider) {
+    switch (safeSettings.ocr.provider) {
       case "google":
         return "Google Cloud Vision"
       case "microsoft":
@@ -67,7 +113,7 @@ export function DocumentDetailsDialog({ document, open, onOpenChange }: Document
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[600px] max-h-[80vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-[800px] max-h-[80vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileText className="h-5 w-5" />
@@ -79,9 +125,10 @@ export function DocumentDetailsDialog({ document, open, onOpenChange }: Document
         </DialogHeader>
 
         <Tabs defaultValue="info" className="mt-4">
-          <TabsList className="grid w-full grid-cols-2">
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="info">{t('fileInformation', language)}</TabsTrigger>
             <TabsTrigger value="processing">{t('processingDetails', language)}</TabsTrigger>
+            <TabsTrigger value="results">{t('ocrResults', language)}</TabsTrigger>
           </TabsList>
 
           <TabsContent value="info" className="space-y-4 mt-4">
@@ -142,7 +189,7 @@ export function DocumentDetailsDialog({ document, open, onOpenChange }: Document
                 </div>
                 <div className="flex justify-between items-center py-1">
                   <span className="text-sm text-muted-foreground">{t('language', language)}</span>
-                  <span className="font-medium">{settings.ocr.language?.toUpperCase() ?? 'AUTO'}</span>
+                  <span className="font-medium">{safeSettings.ocr.language?.toUpperCase() ?? 'AUTO'}</span>
                 </div>
                 <div className="flex justify-between items-center py-1">
                   <span className="text-sm text-muted-foreground">{t('startTime', language)}</span>
@@ -184,15 +231,15 @@ export function DocumentDetailsDialog({ document, open, onOpenChange }: Document
                 <div className="space-y-2">
                   <div className="flex justify-between items-center py-1">
                     <span className="text-sm text-muted-foreground">{t('concurrentJobs', language)}</span>
-                    <span className="font-medium">{settings.processing.maxConcurrentJobs}</span>
+                    <span className="font-medium">{safeSettings.processing.maxConcurrentJobs}</span>
                   </div>
                   <div className="flex justify-between items-center py-1">
                     <span className="text-sm text-muted-foreground">{t('pagesPerChunk', language)}</span>
-                    <span className="font-medium">{settings.processing.pagesPerChunk}</span>
+                    <span className="font-medium">{safeSettings.processing.pagesPerChunk}</span>
                   </div>
                   <div className="flex justify-between items-center py-1">
                     <span className="text-sm text-muted-foreground">{t('concurrentChunks', language)}</span>
-                    <span className="font-medium">{settings.processing.concurrentChunks}</span>
+                    <span className="font-medium">{safeSettings.processing.concurrentChunks}</span>
                   </div>
                   {document.progress && Object.entries(document.progress).map(([key, value]) => (
                     <div key={key} className="flex justify-between items-center py-1">
@@ -205,6 +252,57 @@ export function DocumentDetailsDialog({ document, open, onOpenChange }: Document
                 </div>
               </CardContent>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="results" className="space-y-4 mt-4">
+            {isLoadingResults ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-8 w-8 animate-spin" />
+              </div>
+            ) : results.length > 0 ? (
+              <div className="space-y-4">
+                {results.map((result, index) => (
+                  <Card key={result.id || index}>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-lg flex items-center justify-between">
+                        <span>{t('page', language)} {result.pageNumber}</span>
+                        <span className="text-sm text-muted-foreground">
+                          {t('confidence', language)}: {Math.round(result.confidence * 100)}%
+                        </span>
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      {result.imageUrl && (
+                        <div className="relative aspect-[16/9] overflow-hidden rounded-md">
+                          <img 
+                            src={result.imageUrl} 
+                            alt={`Page ${result.pageNumber}`}
+                            className="object-contain w-full h-full"
+                          />
+                        </div>
+                      )}
+                      <div className="relative">
+                        <div className="absolute -inset-2 bg-muted/50 rounded-lg -z-10" />
+                        <pre className="text-sm whitespace-pre-wrap break-words font-mono p-4">
+                          {result.text || t('noTextExtracted', language)}
+                        </pre>
+                      </div>
+                      {result.error && (
+                        <Alert variant="destructive">
+                          <AlertCircle className="h-4 w-4" />
+                          <AlertTitle>{t('error', language)}</AlertTitle>
+                          <AlertDescription>{result.error}</AlertDescription>
+                        </Alert>
+                      )}
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-8">
+                <p className="text-muted-foreground">{t('noResultsAvailable', language)}</p>
+              </div>
+            )}
           </TabsContent>
         </Tabs>
 

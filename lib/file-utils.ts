@@ -1,5 +1,11 @@
 import { CONFIG } from "@/config/constants"
 import { loadPDF, renderPageToBase64 } from "./pdf-utils"
+import { GlobalWorkerOptions } from 'pdfjs-dist'
+
+// Configure PDF.js worker
+if (typeof window !== 'undefined') {
+  GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${CONFIG.PDF_VERSION}/pdf.worker.js`
+}
 
 export async function generatePreview(file: File): Promise<string> {
   if (file.size > CONFIG.PREVIEW_MAX_SIZE) {

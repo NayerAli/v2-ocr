@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useSettings } from '@/store/settings'
+import { useSettings } from '@/hooks/use-settings'
 
 interface UseSettingsInitResult {
   isInitialized: boolean

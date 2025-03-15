@@ -1,8 +1,8 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Loader2, AlertCircle, Eye, EyeOff } from "lucide-react"
-import { useSettings } from "@/store/settings"
+import { Loader2, AlertCircle, Eye, EyeOff, RefreshCw } from "lucide-react"
+import { useSettings } from "@/hooks/use-settings"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -14,7 +14,7 @@ import { CONFIG } from "@/config/constants"
 import { validateGoogleApiKey, validateMicrosoftApiKey, validateMistralApiKey } from "@/lib/api-validation"
 import { useToast } from "@/hooks/use-toast"
 import { cn } from "@/lib/utils"
-import { db } from "@/lib/indexed-db"
+import { serverStorage } from "@/lib/client/server-storage-service"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import type { DatabaseStats } from "@/types/settings"
 import { useLanguage } from "@/hooks/use-language"
@@ -36,12 +36,52 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const [isValidating, setIsValidating] = useState(false)
   const [showApiKey, setShowApiKey] = useState(false)
   const [stats, setStats] = useState<DatabaseStats | null>(null)
+  const [isLoadingStats, setIsLoadingStats] = useState(false)
+  const [statsError, setStatsError] = useState<string | null>(null)
   const { toast } = useToast()
   const settings = useSettings()
   const [validationError, setValidationError] = useState<string | null>(null)
   const [isValid, setIsValid] = useState<boolean | null>(null)
   const [activeTab, setActiveTab] = useState("ocr")
   const { language } = useLanguage()
+
+  // Ensure settings values are never undefined
+  const safeSettings = {
+    ocr: {
+      provider: settings.ocr?.provider || "google",
+      apiKey: settings.ocr?.apiKey || "",
+      region: settings.ocr?.region || "",
+      language: settings.ocr?.language || "en",
+    },
+    processing: {
+      maxConcurrentJobs: settings.processing?.maxConcurrentJobs || 1,
+      pagesPerChunk: settings.processing?.pagesPerChunk || 2,
+      concurrentChunks: settings.processing?.concurrentChunks || 1,
+      retryAttempts: settings.processing?.retryAttempts || 2,
+      retryDelay: settings.processing?.retryDelay || 1000,
+    },
+    upload: {
+      maxFileSize: settings.upload?.maxFileSize || 500,
+      allowedFileTypes: settings.upload?.allowedFileTypes || ['.pdf', '.jpg', '.jpeg', '.png'],
+      maxSimultaneousUploads: settings.upload?.maxSimultaneousUploads || 5,
+    },
+    display: settings.display || {
+      theme: 'system',
+      fontSize: 14,
+      showConfidenceScores: true,
+      highlightUncertain: true,
+    },
+    database: settings.database || {
+      autoCleanup: false,
+      cleanupThreshold: 90,
+      retentionPeriod: 30,
+      maxStorageSize: 1000,
+    },
+    export: settings.export || {
+      format: 'txt' as const,
+      naming: '{filename}-{timestamp}',
+    },
+  }
 
   useEffect(() => {
     if (open) {
@@ -56,12 +96,12 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
 
     try {
       let result;
-      if (settings.ocr.provider === "google") {
-        result = await validateGoogleApiKey(settings.ocr.apiKey);
-      } else if (settings.ocr.provider === "microsoft") {
-        result = await validateMicrosoftApiKey(settings.ocr.apiKey, settings.ocr.region || "");
-      } else if (settings.ocr.provider === "mistral") {
-        result = await validateMistralApiKey(settings.ocr.apiKey);
+      if (safeSettings.ocr.provider === "google") {
+        result = await validateGoogleApiKey(safeSettings.ocr.apiKey);
+      } else if (safeSettings.ocr.provider === "microsoft") {
+        result = await validateMicrosoftApiKey(safeSettings.ocr.apiKey, safeSettings.ocr.region || "");
+      } else if (safeSettings.ocr.provider === "mistral") {
+        result = await validateMistralApiKey(safeSettings.ocr.apiKey);
       }
 
       if (!result) {
@@ -97,8 +137,24 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   }
 
   const refreshStats = async () => {
-    const stats = await db.getDatabaseStats()
-    setStats(stats)
+    setIsLoadingStats(true)
+    setStatsError(null)
+    try {
+      const stats = await serverStorage.getDatabaseStats()
+      setStats(stats)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t('unexpectedError', language)
+      setStatsError(message)
+      if (message !== 'Database not initialized') {
+        toast({
+          variant: "destructive",
+          title: t('statsError', language),
+          description: message,
+        })
+      }
+    } finally {
+      setIsLoadingStats(false)
+    }
   }
 
   return (
@@ -127,7 +183,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                     <Label htmlFor="provider" className="text-sm">🤖 {t('textRecognitionService', language)}</Label>
                     <p className="text-xs text-muted-foreground">{t('textRecognitionDescription', language)}</p>
                     <Select
-                      value={settings.ocr.provider}
+                      value={safeSettings.ocr.provider}
                       onValueChange={(value: (typeof CONFIG.SUPPORTED_APIS)[number]) => {
                         settings.updateOCRSettings({
                           provider: value,
@@ -157,7 +213,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                         <Input
                           id="api-key"
                           type={showApiKey ? "text" : "password"}
-                          value={settings.ocr.apiKey}
+                          value={safeSettings.ocr.apiKey}
                           onChange={(e) => {
                             settings.updateOCRSettings({ apiKey: e.target.value })
                             setIsValid(null)
@@ -183,8 +239,8 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                         onClick={handleValidateApiKey}
                         disabled={
                           isValidating ||
-                          !settings.ocr.apiKey ||
-                          (settings.ocr.provider === "microsoft" && !settings.ocr.region)
+                          !safeSettings.ocr.apiKey ||
+                          (safeSettings.ocr.provider === "microsoft" && !safeSettings.ocr.region)
                         }
                         className="whitespace-nowrap"
                       >
@@ -193,25 +249,25 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                         {t('testApi', language)}
                       </Button>
                     </div>
-                    {settings.ocr.provider === "google" && (
+                    {safeSettings.ocr.provider === "google" && (
                       <p className="text-sm text-muted-foreground">
                         Enter your Google Cloud Vision API key. Make sure the API is enabled in your Google Cloud Console.
                       </p>
                     )}
-                    {settings.ocr.provider === "mistral" && (
+                    {safeSettings.ocr.provider === "mistral" && (
                       <p className="text-sm text-muted-foreground">
                         Enter your Mistral API key. You can get it from the Mistral AI platform.
                       </p>
                     )}
                   </div>
 
-                  {settings.ocr.provider === "microsoft" && (
+                  {safeSettings.ocr.provider === "microsoft" && (
                     <div className="space-y-1.5">
                       <Label htmlFor="region" className="text-sm">🌍 {t('serviceLocation', language)}</Label>
                       <p className="text-xs text-muted-foreground">{t('serviceLocationDescription', language)}</p>
                       <Input
                         id="region"
-                        value={settings.ocr.region}
+                        value={safeSettings.ocr.region}
                         onChange={(e) => {
                           settings.updateOCRSettings({ region: e.target.value })
                           setIsValid(null)
@@ -227,7 +283,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                     <Label htmlFor="language" className="text-sm">🗣️ {t('documentLanguage', language)}</Label>
                     <p className="text-xs text-muted-foreground">{t('documentLanguageDescription', language)}</p>
                     <Select
-                      value={settings.ocr.language}
+                      value={safeSettings.ocr.language}
                       onValueChange={(value) => settings.updateOCRSettings({ language: value })}
                     >
                       <SelectTrigger id="language">
@@ -275,7 +331,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                       type="number"
                       min={1}
                       max={10}
-                      value={settings.processing.maxConcurrentJobs}
+                      value={safeSettings.processing.maxConcurrentJobs}
                       onChange={(e) => settings.updateProcessingSettings({ maxConcurrentJobs: parseInt(e.target.value) })}
                     />
                   </div>
@@ -288,7 +344,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                       type="number"
                       min={1}
                       max={50}
-                      value={settings.processing.pagesPerChunk}
+                      value={safeSettings.processing.pagesPerChunk}
                       onChange={(e) => settings.updateProcessingSettings({ pagesPerChunk: parseInt(e.target.value) })}
                     />
                   </div>
@@ -301,7 +357,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                       type="number"
                       min={1}
                       max={5}
-                      value={settings.processing.concurrentChunks}
+                      value={safeSettings.processing.concurrentChunks}
                       onChange={(e) => settings.updateProcessingSettings({ concurrentChunks: parseInt(e.target.value) })}
                     />
                   </div>
@@ -314,7 +370,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                       type="number"
                       min={0}
                       max={5}
-                      value={settings.processing.retryAttempts}
+                      value={safeSettings.processing.retryAttempts}
                       onChange={(e) => settings.updateProcessingSettings({ retryAttempts: parseInt(e.target.value) })}
                     />
                   </div>
@@ -328,7 +384,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                       min={100}
                       max={5000}
                       step={100}
-                      value={settings.processing.retryDelay}
+                      value={safeSettings.processing.retryDelay}
                       onChange={(e) => settings.updateProcessingSettings({ retryDelay: parseInt(e.target.value) })}
                     />
                   </div>
@@ -345,11 +401,11 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                       type="number"
                       min={1}
                       max={1000}
-                      value={settings.upload.maxFileSize}
+                      value={safeSettings.upload.maxFileSize}
                       onChange={(e) => settings.updateUploadSettings({ maxFileSize: parseInt(e.target.value) })}
                     />
                     <p className="text-xs text-muted-foreground">
-                      {t('current', language)}: {settings.upload.maxFileSize}.0 MB
+                      {t('current', language)}: {safeSettings.upload.maxFileSize}.0 MB
                     </p>
                   </div>
 
@@ -358,7 +414,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                     <p className="text-xs text-muted-foreground">{t('acceptedFilesDescription', language)}</p>
                     <Input
                       id="allowed-file-types"
-                      value={settings.upload.allowedFileTypes.join(", ")}
+                      value={safeSettings.upload.allowedFileTypes.join(", ")}
                       onChange={(e) => settings.updateUploadSettings({ 
                         allowedFileTypes: e.target.value.split(",").map(type => type.trim()) 
                       })}
@@ -373,7 +429,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                       type="number"
                       min={1}
                       max={10}
-                      value={settings.upload.maxSimultaneousUploads}
+                      value={safeSettings.upload.maxSimultaneousUploads}
                       onChange={(e) => settings.updateUploadSettings({ maxSimultaneousUploads: parseInt(e.target.value) })}
                     />
                   </div>
@@ -382,121 +438,138 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
 
               <TabsContent value="stats" className="space-y-4 mt-0 mb-6">
                 <div className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <Card>
-                      <CardHeader className="p-4 pb-2">
-                        <CardTitle className="text-sm">📊 {t('storageOverview', language)}</CardTitle>
-                      </CardHeader>
-                      <CardContent className="p-4 pt-2">
-                        <div className="space-y-2">
-                          <div className="flex justify-between">
-                            <span>{t('totalDocuments', language)}:</span>
-                            <span className="font-mono tabular-nums">{toArabicNumerals(stats?.totalDocuments || 0, language)}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>{t('totalResults', language)}:</span>
-                            <span className="font-mono tabular-nums">{toArabicNumerals(stats?.totalResults || 0, language)}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>{t('storageUsed', language)}:</span>
-                            <span className="font-mono tabular-nums">{toArabicNumerals(stats?.dbSize || 0, language)} MB</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>{t('averageSizePerDoc', language)}:</span>
-                            <span className="font-mono tabular-nums">
-                              {stats?.totalDocuments ? 
-                                toArabicNumerals((stats.dbSize / stats.totalDocuments).toFixed(2), language) : '٠'} MB
-                            </span>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-
-                    <Card>
-                      <CardHeader className="p-4 pb-2">
-                        <CardTitle className="text-sm">🔍 {t('ocrSettings', language)}</CardTitle>
-                      </CardHeader>
-                      <CardContent className="p-4 pt-2">
-                        <div className="space-y-2">
-                          <div className="flex justify-between">
-                            <span>{t('provider', language)}:</span>
-                            <span className="font-mono capitalize">{settings.ocr.provider}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>{t('language', language)}:</span>
-                            <span className="font-mono uppercase">{settings.ocr.language}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>{t('pagesPerBatch', language)}:</span>
-                            <span className="font-mono">{toArabicNumerals(settings.processing.pagesPerChunk, language)}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>{t('maxJobs', language)}:</span>
-                            <span className="font-mono">{toArabicNumerals(settings.processing.maxConcurrentJobs, language)}</span>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-
-                    <Card>
-                      <CardHeader className="p-4 pb-2">
-                        <CardTitle className="text-sm">⚡ {t('processingTab', language)}</CardTitle>
-                      </CardHeader>
-                      <CardContent className="p-4 pt-2">
-                        <div className="space-y-2">
-                          <div className="flex justify-between">
-                            <span>{t('concurrentChunks', language)}:</span>
-                            <span className="font-mono">{toArabicNumerals(settings.processing.concurrentChunks, language)}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>{t('retryAttempts', language)}:</span>
-                            <span className="font-mono">{toArabicNumerals(settings.processing.retryAttempts, language)}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>{t('retryDelay', language)}:</span>
-                            <span className="font-mono">{toArabicNumerals(settings.processing.retryDelay, language)} ms</span>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-
-                    <Card>
-                      <CardHeader className="p-4 pb-2">
-                        <CardTitle className="text-sm">📈 {t('uploadSettings', language)}</CardTitle>
-                      </CardHeader>
-                      <CardContent className="p-4 pt-2">
-                        <div className="space-y-2">
-                          <div className="flex justify-between">
-                            <span>{t('maxFileSize', language)}:</span>
-                            <span className="font-mono">{toArabicNumerals(settings.upload.maxFileSize, language)} MB</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>{t('maxParallel', language)}:</span>
-                            <span className="font-mono">{toArabicNumerals(settings.upload.maxSimultaneousUploads, language)}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>{t('fileTypes', language)}:</span>
-                            <span className="font-mono text-right text-xs">
-                              {settings.upload.allowedFileTypes.join(", ")}
-                            </span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>{t('storageLimit', language)}:</span>
-                            <span className="font-mono">{toArabicNumerals(settings.database.maxStorageSize, language)} MB</span>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </div>
-
-                  {!stats && (
+                  {isLoadingStats ? (
                     <div className="flex items-center justify-center p-4">
                       <div className="flex items-center space-x-2">
                         <Loader2 className="h-4 w-4 animate-spin" />
                         <p className="text-sm text-muted-foreground">{t('loadingStatistics', language)}</p>
                       </div>
                     </div>
-                  )}
+                  ) : statsError ? (
+                    <Alert variant={statsError === 'Database not initialized' ? 'default' : 'destructive'}>
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertTitle>{t('statsError', language)}</AlertTitle>
+                      <AlertDescription>{statsError}</AlertDescription>
+                      {statsError === 'Database not initialized' && (
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          className="mt-2"
+                          onClick={refreshStats}
+                        >
+                          <RefreshCw className="mr-2 h-4 w-4" />
+                          {t('retry', language)}
+                        </Button>
+                      )}
+                    </Alert>
+                  ) : stats ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <Card>
+                        <CardHeader className="p-4 pb-2">
+                          <CardTitle className="text-sm">📊 {t('storageOverview', language)}</CardTitle>
+                        </CardHeader>
+                        <CardContent className="p-4 pt-2">
+                          <div className="space-y-2">
+                            <div className="flex justify-between">
+                              <span>{t('totalDocuments', language)}:</span>
+                              <span className="font-mono tabular-nums">{toArabicNumerals(stats?.totalDocuments || 0, language)}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>{t('totalResults', language)}:</span>
+                              <span className="font-mono tabular-nums">{toArabicNumerals(stats?.totalResults || 0, language)}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>{t('storageUsed', language)}:</span>
+                              <span className="font-mono tabular-nums">{toArabicNumerals(stats?.dbSize || 0, language)} MB</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>{t('averageSizePerDoc', language)}:</span>
+                              <span className="font-mono tabular-nums">
+                                {stats?.totalDocuments ? 
+                                  toArabicNumerals((stats.dbSize / stats.totalDocuments).toFixed(2), language) : '٠'} MB
+                              </span>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+
+                      <Card>
+                        <CardHeader className="p-4 pb-2">
+                          <CardTitle className="text-sm">🔍 {t('ocrSettings', language)}</CardTitle>
+                        </CardHeader>
+                        <CardContent className="p-4 pt-2">
+                          <div className="space-y-2">
+                            <div className="flex justify-between">
+                              <span>{t('provider', language)}:</span>
+                              <span className="font-mono capitalize">{safeSettings.ocr.provider}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>{t('language', language)}:</span>
+                              <span className="font-mono uppercase">{safeSettings.ocr.language}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>{t('pagesPerBatch', language)}:</span>
+                              <span className="font-mono">{toArabicNumerals(safeSettings.processing.pagesPerChunk, language)}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>{t('maxJobs', language)}:</span>
+                              <span className="font-mono">{toArabicNumerals(safeSettings.processing.maxConcurrentJobs, language)}</span>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+
+                      <Card>
+                        <CardHeader className="p-4 pb-2">
+                          <CardTitle className="text-sm">⚡ {t('processingTab', language)}</CardTitle>
+                        </CardHeader>
+                        <CardContent className="p-4 pt-2">
+                          <div className="space-y-2">
+                            <div className="flex justify-between">
+                              <span>{t('concurrentChunks', language)}:</span>
+                              <span className="font-mono">{toArabicNumerals(safeSettings.processing.concurrentChunks, language)}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>{t('retryAttempts', language)}:</span>
+                              <span className="font-mono">{toArabicNumerals(safeSettings.processing.retryAttempts, language)}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>{t('retryDelay', language)}:</span>
+                              <span className="font-mono">{toArabicNumerals(safeSettings.processing.retryDelay, language)} ms</span>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+
+                      <Card>
+                        <CardHeader className="p-4 pb-2">
+                          <CardTitle className="text-sm">📈 {t('uploadSettings', language)}</CardTitle>
+                        </CardHeader>
+                        <CardContent className="p-4 pt-2">
+                          <div className="space-y-2">
+                            <div className="flex justify-between">
+                              <span>{t('maxFileSize', language)}:</span>
+                              <span className="font-mono">{toArabicNumerals(safeSettings.upload.maxFileSize, language)} MB</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>{t('maxParallel', language)}:</span>
+                              <span className="font-mono">{toArabicNumerals(safeSettings.upload.maxSimultaneousUploads, language)}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>{t('fileTypes', language)}:</span>
+                              <span className="font-mono text-right text-xs">
+                                {safeSettings.upload.allowedFileTypes.join(", ")}
+                              </span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>{t('storageLimit', language)}:</span>
+                              <span className="font-mono">{toArabicNumerals(safeSettings.database.maxStorageSize, language)} MB</span>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+                  ) : null}
                 </div>
               </TabsContent>
             </div>

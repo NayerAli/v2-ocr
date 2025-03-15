@@ -49,36 +49,8 @@ export interface Database {
           created_at: string
           updated_at: string
         }
-        Insert: {
-          id: string
-          filename: string
-          status: string
-          progress: number
-          current_page: number
-          total_pages: number
-          size: number
-          type: string
-          start_time?: number | null
-          end_time?: number | null
-          completion_time?: number | null
-          created_at?: string
-          updated_at?: string
-        }
-        Update: {
-          id?: string
-          filename?: string
-          status?: string
-          progress?: number
-          current_page?: number
-          total_pages?: number
-          size?: number
-          type?: string
-          start_time?: number | null
-          end_time?: number | null
-          completion_time?: number | null
-          created_at?: string
-          updated_at?: string
-        }
+        Insert: Omit<Database['public']['Tables']['documents']['Row'], 'id' | 'created_at' | 'updated_at'>
+        Update: Partial<Omit<Database['public']['Tables']['documents']['Row'], 'id'>>
         Relationships: []
       }
       results: {

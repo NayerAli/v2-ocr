@@ -1,10 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { getSettings, updateSettings, resetSettings } from '@/lib/server/settings';
-
-// Simple in-memory cache for API responses
-let responseCache: any = null;
-let cacheTime = 0;
-const CACHE_TTL = 10000; // 10 seconds
+import { NextRequest, NextResponse } from 'next/server'
+import { getSettings, updateSettings, resetSettings } from '@/lib/server/settings'
+import type { SettingsState } from '@/types/settings'
 
 /**
  * GET /api/settings
@@ -12,22 +8,16 @@ const CACHE_TTL = 10000; // 10 seconds
  */
 export async function GET() {
   try {
-    // Check if we have a valid cache
-    const now = Date.now();
-    if (responseCache && (now - cacheTime < CACHE_TTL)) {
-      return NextResponse.json(responseCache);
-    }
-    
-    // Get fresh settings
+    console.log('[API] Getting settings');
     const settings = await getSettings();
-    
-    // Update cache
-    responseCache = settings;
-    cacheTime = now;
-    
+    console.log('[API] Settings retrieved:', {
+      hasApiKey: !!settings.ocr.apiKey,
+      provider: settings.ocr.provider,
+      language: settings.ocr.language
+    });
     return NextResponse.json(settings);
   } catch (error) {
-    console.error('Error getting settings:', error);
+    console.error('[API] Error getting settings:', error);
     return NextResponse.json(
       { error: 'Failed to get settings' },
       { status: 500 }
@@ -37,22 +27,43 @@ export async function GET() {
 
 /**
  * POST /api/settings
- * Update settings
+ * Update settings (alternative to PATCH for clients that don't support PATCH)
  */
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    // Check if this is a reset request
+    if (request.nextUrl.pathname === '/api/settings/reset') {
+      console.log('[API] Resetting settings');
+      const settings = await resetSettings();
+      console.log('[API] Settings reset:', {
+        hasApiKey: !!settings.ocr.apiKey,
+        provider: settings.ocr.provider,
+        language: settings.ocr.language
+      });
+      return NextResponse.json(settings);
+    }
+
+    // Handle normal settings update
+    console.log('[API] Updating settings via POST');
+    const partial: Partial<SettingsState> = await request.json();
+    console.log('[API] Update payload:', {
+      updatingOCR: !!partial.ocr,
+      newApiKey: partial.ocr?.apiKey ? '***' : undefined,
+      language: partial.ocr?.language
+    });
     
     // Update settings
-    const updatedSettings = await updateSettings(body);
+    const settings = await updateSettings(partial);
     
-    // Update cache
-    responseCache = updatedSettings;
-    cacheTime = Date.now();
+    console.log('[API] Settings updated:', {
+      hasApiKey: !!settings.ocr.apiKey,
+      provider: settings.ocr.provider,
+      language: settings.ocr.language
+    });
     
-    return NextResponse.json(updatedSettings);
+    return NextResponse.json(settings);
   } catch (error) {
-    console.error('Error updating settings:', error);
+    console.error('[API] Error updating settings:', error);
     return NextResponse.json(
       { error: 'Failed to update settings' },
       { status: 500 }
@@ -61,24 +72,34 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * DELETE /api/settings
- * Reset settings to defaults
+ * PATCH /api/settings
+ * Update settings
  */
-export async function DELETE() {
+export async function PATCH(request: NextRequest) {
   try {
-    // Reset settings to defaults
-    const defaultSettings = await resetSettings();
+    console.log('[API] Updating settings via PATCH');
+    const partial: Partial<SettingsState> = await request.json();
+    console.log('[API] Update payload:', {
+      updatingOCR: !!partial.ocr,
+      newApiKey: partial.ocr?.apiKey ? '***' : undefined,
+      language: partial.ocr?.language
+    });
     
-    // Update cache
-    responseCache = defaultSettings;
-    cacheTime = Date.now();
+    // Update settings
+    const settings = await updateSettings(partial);
     
-    return NextResponse.json(defaultSettings);
+    console.log('[API] Settings updated:', {
+      hasApiKey: !!settings.ocr.apiKey,
+      provider: settings.ocr.provider,
+      language: settings.ocr.language
+    });
+    
+    return NextResponse.json(settings);
   } catch (error) {
-    console.error('Error resetting settings:', error);
+    console.error('[API] Error updating settings:', error);
     return NextResponse.json(
-      { error: 'Failed to reset settings' },
+      { error: 'Failed to update settings' },
       { status: 500 }
     );
   }
-} 
+}

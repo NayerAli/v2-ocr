@@ -4,9 +4,16 @@ import type { ProcessingStatus, OCRResult } from '@/types';
  * Upload a file for processing
  */
 export async function uploadFile(file: File): Promise<{ id: string; status: ProcessingStatus }> {
+  console.log('[Client] Starting file upload:', {
+    name: file.name,
+    type: file.type,
+    size: file.size
+  });
+
   const formData = new FormData();
   formData.append('file', file);
   
+  console.log('[Client] Sending request to /api/process');
   const response = await fetch('/api/process', {
     method: 'POST',
     body: formData,
@@ -14,10 +21,13 @@ export async function uploadFile(file: File): Promise<{ id: string; status: Proc
   
   if (!response.ok) {
     const error = await response.json();
+    console.error('[Client] Upload failed:', error);
     throw new Error(error.error || 'Failed to upload file');
   }
   
-  return response.json();
+  const result = await response.json();
+  console.log('[Client] Upload successful:', result);
+  return result;
 }
 
 /**

@@ -24,40 +24,69 @@ async function ensureDirectories() {
   }
 }
 
-// Initialize database
-async function initDB() {
-  // Try to set up Supabase schema first
-  try {
-    const isAvailable = await isSupabaseAvailable();
-    if (isAvailable) {
-      console.log('Supabase is available, setting up schema...');
-      await setupSupabaseSchema();
-    } else {
-      console.log('Supabase is not available, using local file storage');
-    }
-  } catch (error) {
-    console.error('Error checking Supabase availability:', error);
-    console.log('Falling back to local file storage');
-  }
-  
-  // Ensure local directories for fallback
-  await ensureDirectories();
-}
-
-// Initialize flag
+// Initialize flag and promise
 let hasInitialized = false;
+let initializationPromise: Promise<void> | null = null;
+let initializationError: Error | null = null;
+let initializationAttempts = 0;
+const MAX_INITIALIZATION_ATTEMPTS = 3;
+const INITIALIZATION_RETRY_DELAY = 2000; // 2 seconds
 
 // Initialize database at startup
-(async () => {
-  try {
-    console.log('Initializing database...');
-    await initDB();
-    hasInitialized = true;
-    console.log('Database initialized');
-  } catch (error) {
-    console.error('Error initializing database:', error);
+async function initDB() {
+  if (hasInitialized) return Promise.resolve();
+  if (initializationError && initializationAttempts >= MAX_INITIALIZATION_ATTEMPTS) {
+    return Promise.reject(initializationError);
   }
-})();
+  if (initializationPromise) return initializationPromise;
+  
+  initializationPromise = (async () => {
+    while (initializationAttempts < MAX_INITIALIZATION_ATTEMPTS) {
+      try {
+        console.log(`Initializing database (attempt ${initializationAttempts + 1}/${MAX_INITIALIZATION_ATTEMPTS})...`);
+        
+        // Check environment variables
+        if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+          throw new Error('Missing required Supabase environment variables');
+        }
+        
+        // Try to set up Supabase schema first
+        const isAvailable = await isSupabaseAvailable();
+        if (isAvailable) {
+          console.log('Supabase is available, setting up schema...');
+          const success = await setupSupabaseSchema();
+          if (!success) {
+            throw new Error('Failed to set up Supabase schema');
+          }
+        } else {
+          console.log('Supabase is not available, using local file storage');
+        }
+        
+        // Ensure local directories for fallback
+        await ensureDirectories();
+        
+        hasInitialized = true;
+        initializationError = null;
+        console.log('Database initialized successfully');
+        return;
+      } catch (error) {
+        initializationAttempts++;
+        console.error(`Database initialization attempt ${initializationAttempts} failed:`, error);
+        
+        if (initializationAttempts >= MAX_INITIALIZATION_ATTEMPTS) {
+          initializationError = error instanceof Error ? error : new Error('Failed to initialize database');
+          initializationPromise = null; // Allow future retries
+          throw initializationError;
+        }
+        
+        // Wait before retrying
+        await new Promise(resolve => setTimeout(resolve, INITIALIZATION_RETRY_DELAY));
+      }
+    }
+  })();
+  
+  return initializationPromise;
+}
 
 // Cache for database operations (for fallback file-based storage)
 interface CacheData {
@@ -158,13 +187,57 @@ function supabaseResultToOCRResult(result: SupabaseResult): OCRResult {
   };
 }
 
+interface DatabaseService {
+  isInitialized(): Promise<boolean>;
+  getInitializationStatus(): { 
+    isInitialized: boolean; 
+    error: string | null; 
+    attempts: number;
+  };
+  getDatabaseStats(): Promise<DatabaseStats>;
+  getQueue(): Promise<ProcessingStatus[]>;
+  getQueueItem(id: string): Promise<ProcessingStatus | null>;
+  saveToQueue(item: ProcessingStatus): Promise<void>;
+  removeFromQueue(id: string): Promise<void>;
+  getResults(documentId: string): Promise<OCRResult[]>;
+  saveResults(documentId: string, results: OCRResult[]): Promise<void>;
+  cleanupOldRecords(retentionPeriod: number): Promise<void>;
+  clearDatabase(type?: 'queue' | 'results' | 'all'): Promise<void>;
+  getAllFromQueue(): Promise<ProcessingStatus[]>;
+  getAll(type: 'queue' | 'results'): Promise<ProcessingStatus[] | OCRResult[]>;
+}
+
 // Database service
-export const db = {
+export const db: DatabaseService = {
   /**
    * Check if the database is initialized
    */
-  isInitialized(): boolean {
-    return hasInitialized;
+  async isInitialized(): Promise<boolean> {
+    if (hasInitialized) return true;
+    if (initializationError && initializationAttempts >= MAX_INITIALIZATION_ATTEMPTS) return false;
+    
+    try {
+      await initDB();
+      return hasInitialized;
+    } catch (error) {
+      console.error('Database initialization failed:', error);
+      return false;
+    }
+  },
+  
+  /**
+   * Get initialization status with detailed information
+   */
+  getInitializationStatus(): { 
+    isInitialized: boolean; 
+    error: string | null; 
+    attempts: number;
+  } {
+    return {
+      isInitialized: hasInitialized,
+      error: initializationError?.message || null,
+      attempts: initializationAttempts
+    };
   },
   
   /**
@@ -180,18 +253,18 @@ export const db = {
       // Supabase implementation
       async () => {
         // Get queue count
-        const { count: documentsCount, error: documentsError } = await supabase
+        const { data: documents, error: documentsError } = await supabase
           .from('documents')
-          .select('*', { count: 'exact', head: true });
+          .select('id');
           
         if (documentsError) {
           throw documentsError;
         }
         
         // Get results count
-        const { count: resultsCount, error: resultsError } = await supabase
+        const { data: results, error: resultsError } = await supabase
           .from('results')
-          .select('*', { count: 'exact', head: true });
+          .select('id');
           
         if (resultsError) {
           throw resultsError;
@@ -224,8 +297,8 @@ export const db = {
         }
         
         return {
-          totalDocuments: documentsCount || 0,
-          totalResults: resultsCount || 0,
+          totalDocuments: documents?.length || 0,
+          totalResults: results?.length || 0,
           dbSize,
           lastCleared
         };
@@ -820,54 +893,61 @@ export const db = {
   },
   
   /**
-   * Save OCR results
+   * Save OCR results for a document
    */
   async saveResults(documentId: string, results: OCRResult[]): Promise<void> {
-    if (!hasInitialized) {
-      await initDB();
-      hasInitialized = true;
-    }
-    
-    return withSupabaseFallback(
-      // Supabase implementation
-      async () => {
-        // Process results for storage
-        const processedResults = results.map(processResultForStorage);
-        
-        // Insert results into Supabase
+    try {
+      console.log('[Database] Saving results for document:', documentId);
+      
+      // Format results for database storage
+      const formattedResults = results.map(result => ({
+        id: result.id,
+        document_id: documentId,
+        page: result.pageNumber || null,
+        text: result.text || '',
+        confidence: result.confidence || 0,
+        image_url: result.imageUrl || null,
+        language: result.language || 'en',
+        processing_time: result.processingTime || 0,
+        created_at: new Date().toISOString()
+      }));
+
+      if (await isSupabaseAvailable()) {
         const { error } = await supabase
           .from('results')
-          .upsert(
-            processedResults.map(result => ({
-              id: result.id,
-              document_id: result.documentId,
-              page: result.pageNumber || null,
-              image_url: result.imageUrl || null,
-              text: result.text || null,
-              confidence: result.confidence || null
-            }))
-          );
-          
+          .insert(formattedResults);
+
         if (error) {
-          console.error('Error saving results to Supabase:', error);
+          console.error('[Database] Error saving results:', error);
           throw error;
         }
-      },
-      // Fallback file-based implementation
-      async () => {
-        try {
-          // Save results to file
-          const filePath = path.join(RESULTS_DIR, `${documentId}.json`);
-          await fs.writeFile(filePath, JSON.stringify(results, null, 2));
-          
-          // Update cache
-          cache.results.set(documentId, results);
-          cache.lastResultsUpdate.set(documentId, Date.now());
-        } catch (error) {
-          console.error('Error saving results to file:', error);
-          throw error;
-        }
+        
+        console.log('[Database] Results saved successfully');
+      } else {
+        // Fallback to file storage
+        const resultsPath = path.join(RESULTS_DIR, `${documentId}.json`);
+        await fs.writeFile(resultsPath, JSON.stringify(results));
       }
-    );
+
+      // Update cache
+      cache.results.set(documentId, results);
+      cache.lastResultsUpdate.set(documentId, Date.now());
+    } catch (error) {
+      console.error('[Database] Error saving results:', error);
+      throw error;
+    }
+  },
+  
+  async getAll(type: 'queue' | 'results'): Promise<ProcessingStatus[] | OCRResult[]> {
+    if (type === 'queue') {
+      return [...cache.queue];
+    } else {
+      // For results, flatten all results from all documents into a single array
+      return Array.from(cache.results.values()).flat();
+    }
+  },
+  
+  async getAllFromQueue(): Promise<ProcessingStatus[]> {
+    return this.getAll('queue') as Promise<ProcessingStatus[]>;
   }
 }; 

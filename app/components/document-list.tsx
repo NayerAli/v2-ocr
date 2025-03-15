@@ -155,23 +155,6 @@ export function DocumentList({
     return t(doc.status, language)
   }
 
-  const getProgressIndicator = (doc: ProcessingStatus) => {
-    if (doc.status === "processing" || doc.rateLimitInfo?.isRateLimited) {
-      return (
-        <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
-          <div
-            className={cn(
-              "h-full transition-all duration-500",
-              doc.rateLimitInfo?.isRateLimited ? "bg-purple-500" : "bg-blue-500"
-            )}
-            style={{ width: `${doc.progress}%` }}
-          />
-        </div>
-      )
-    }
-    return null
-  }
-
   if (isLoading) {
     return (
       <div className="rounded-md border bg-card">
@@ -230,7 +213,7 @@ export function DocumentList({
 
   if (variant === "grid") {
     return (
-      <div className="space-y-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {documents.map((doc) => (
           <div 
             key={doc.id} 
@@ -248,77 +231,62 @@ export function DocumentList({
               <div className="flex-1 truncate">
                 <p className="text-sm truncate">
                   <span className="inline-flex items-center gap-2">
-                    {doc.type?.startsWith('image/') ? (
-                      <ImageIcon className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                    ) : (
-                      <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                    )}
+                    <FileText className="h-4 w-4 flex-shrink-0" />
                     <FileNameDisplay filename={doc.filename} />
                   </span>
                 </p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {formatFileSize(doc.size ?? 0, language)} • {toArabicNumerals(doc.totalPages || 0, language)} {t('pages', language)}
+                <p className="text-sm text-muted-foreground mt-1">
+                  {formatDate(doc.createdAt, language)}
                 </p>
               </div>
+              <div className="flex-shrink-0">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" className="h-8 w-8 p-0">
+                      <span className="sr-only">{t('openMenu', language)}</span>
+                      <MoreVertical className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    {canViewDocument(doc) && (
+                      <DropdownMenuItem onClick={() => onShowDetails(doc)}>
+                        <Eye className="h-4 w-4 mr-2" />
+                        {t('viewDetails', language)}
+                      </DropdownMenuItem>
+                    )}
+                    <DropdownMenuItem onClick={() => onDownload(doc.id)}>
+                      <Download className="h-4 w-4 mr-2" />
+                      {t('download', language)}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem 
+                      onClick={() => onDelete(doc.id)}
+                      className="text-destructive focus:text-destructive"
+                    >
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      {t('delete', language)}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </div>
+            <div>
               <div className="flex items-center gap-2">
                 <span className={getStatusBadgeClass(doc)}>
                   {getStatusIcon(doc.status)}
                   {getStatusText(doc)}
                 </span>
-                <div onClick={(e) => e.stopPropagation()}>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="sm" className="h-8 w-8">
-                        <MoreVertical className="h-4 w-4" />
-                        <span className="sr-only">Open menu</span>
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => onShowDetails(doc)}>
-                        <Eye className="mr-2 h-4 w-4" />
-                        {t('viewDetails', language)}
-                      </DropdownMenuItem>
-                      {canViewDocument(doc) && (
-                        doc.status === "cancelled" ? (
-                          <TooltipProvider delayDuration={100}>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <div>
-                                  <DropdownMenuItem 
-                                    onClick={() => onDownload(doc.id)}
-                                    disabled={true}
-                                    className="opacity-50 cursor-not-allowed"
-                                  >
-                                    <Download className="h-4 w-4 mr-2" />
-                                    {t('download', language)}
-                                  </DropdownMenuItem>
-                                </div>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p>{t('downloadNotAvailableForCancelledFiles', language)}</p>
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        ) : (
-                          <DropdownMenuItem onClick={() => onDownload(doc.id)}>
-                            <Download className="h-4 w-4 mr-2" />
-                            {t('download', language)}
-                          </DropdownMenuItem>
-                        )
-                      )}
-                      <DropdownMenuItem 
-                        className="text-destructive focus:text-destructive" 
-                        onClick={() => onDelete(doc.id)}
-                      >
-                        <Trash2 className="h-4 w-4 mr-2" />
-                        {t('delete', language)}
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
               </div>
+              {doc.progress !== undefined && doc.progress > 0 && (
+                <div className="mt-2">
+                  <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-primary transition-all duration-500"
+                      style={{ width: `${doc.progress}%` }}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
-            {getProgressIndicator(doc)}
           </div>
         ))}
       </div>
@@ -330,20 +298,20 @@ export function DocumentList({
       <Table>
         <TableHeader>
           <TableRow className="hover:bg-transparent">
-            <TableColumnHeader>{t('fileName', language)}</TableColumnHeader>
-            <TableColumnHeader>{t('status', language)}</TableColumnHeader>
-            <TableColumnHeader>{t('date', language)}</TableColumnHeader>
-            <TableColumnHeader>{t('pages', language)}</TableColumnHeader>
-            <TableColumnHeader>{t('size', language)}</TableColumnHeader>
-            <TableColumnHeader className="w-[100px]">{t('actions', language)}</TableColumnHeader>
+            <TableHead>{t('fileName', language)}</TableHead>
+            <TableHead>{t('status', language)}</TableHead>
+            <TableHead>{t('date', language)}</TableHead>
+            <TableHead>{t('pages', language)}</TableHead>
+            <TableHead>{t('size', language)}</TableHead>
+            <TableHead className="w-[100px] text-center">{t('actions', language)}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {documents.map((doc) => (
-            <TableRow 
+            <TableRow
               key={doc.id}
               className={cn(
-                canViewDocument(doc) && "hover:bg-accent/5 cursor-pointer"
+                canViewDocument(doc) && "cursor-pointer hover:bg-accent/5"
               )}
               onClick={() => {
                 if (canViewDocument(doc)) {
@@ -352,93 +320,70 @@ export function DocumentList({
               }}
             >
               <TableCell>
-                <div className="flex items-center gap-2 max-w-[300px] sm:max-w-[400px] md:max-w-[500px]">
-                  {doc.type?.startsWith('image/') ? (
-                    <ImageIcon className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                  ) : (
-                    <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                  )}
+                <div className="flex items-center gap-4">
+                  <FileText className="h-4 w-4 flex-shrink-0" />
                   <FileNameDisplay filename={doc.filename} />
                 </div>
               </TableCell>
               <TableCell>
-                <span className={getStatusBadgeClass(doc)}>
-                  {getStatusIcon(doc.status)}
-                  {getStatusText(doc)}
-                </span>
-              </TableCell>
-              <TableCell className="text-center">
-                <span className="text-sm">
-                  {formatDate(doc.startTime || Date.now(), language)}
-                </span>
-              </TableCell>
-              <TableCell className="text-center">
-                <span className="text-sm">
-                  {toArabicNumerals(doc.totalPages || 0, language)}
-                </span>
-              </TableCell>
-              <TableCell className="text-center">
-                <span className="text-sm">
-                  {formatFileSize(doc.size || 0, language)}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className={getStatusBadgeClass(doc)}>
+                    {getStatusIcon(doc.status)}
+                    {getStatusText(doc)}
+                  </span>
+                </div>
+                {doc.progress !== undefined && doc.progress > 0 && (
+                  <div className="mt-2">
+                    <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-primary transition-all duration-500"
+                        style={{ width: `${doc.progress}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
               </TableCell>
               <TableCell>
-                <div className="flex justify-center" onClick={(e) => e.stopPropagation()}>
+                {formatDate(doc.createdAt, language)}
+              </TableCell>
+              <TableCell>
+                {doc.totalPages ? toArabicNumerals(doc.totalPages, language) : '-'}
+              </TableCell>
+              <TableCell>
+                {doc.size ? formatFileSize(doc.size, language) : '-'}
+              </TableCell>
+              <TableCell>
+                <div className="flex justify-center">
                   <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon">
-                        <MoreVertical className="h-4 w-4" />
+                    <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                      <Button variant="ghost" className="h-8 w-8 p-0">
                         <span className="sr-only">{t('openMenu', language)}</span>
+                        <MoreVertical className="h-4 w-4" />
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={(e) => {
-                        e.stopPropagation();
-                        onShowDetails(doc);
-                      }}>
-                        <Eye className="mr-2 h-4 w-4" />
-                        {t('viewDetails', language)}
-                      </DropdownMenuItem>
                       {canViewDocument(doc) && (
-                        doc.status === "cancelled" ? (
-                          <TooltipProvider delayDuration={100}>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <div>
-                                  <DropdownMenuItem 
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      onDownload(doc.id);
-                                    }}
-                                    disabled={true}
-                                    className="opacity-50 cursor-not-allowed"
-                                  >
-                                    <Download className="h-4 w-4 mr-2" />
-                                    {t('download', language)}
-                                  </DropdownMenuItem>
-                                </div>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p>{t('downloadNotAvailableForCancelledFiles', language)}</p>
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        ) : (
-                          <DropdownMenuItem onClick={(e) => {
-                            e.stopPropagation();
-                            onDownload(doc.id);
-                          }}>
-                            <Download className="h-4 w-4 mr-2" />
-                            {t('download', language)}
-                          </DropdownMenuItem>
-                        )
+                        <DropdownMenuItem onClick={(e) => {
+                          e.stopPropagation()
+                          onShowDetails(doc)
+                        }}>
+                          <Eye className="h-4 w-4 mr-2" />
+                          {t('viewDetails', language)}
+                        </DropdownMenuItem>
                       )}
+                      <DropdownMenuItem onClick={(e) => {
+                        e.stopPropagation()
+                        onDownload(doc.id)
+                      }}>
+                        <Download className="h-4 w-4 mr-2" />
+                        {t('download', language)}
+                      </DropdownMenuItem>
                       <DropdownMenuItem 
-                        className="text-destructive focus:text-destructive" 
                         onClick={(e) => {
-                          e.stopPropagation();
-                          onDelete(doc.id);
+                          e.stopPropagation()
+                          onDelete(doc.id)
                         }}
+                        className="text-destructive focus:text-destructive"
                       >
                         <Trash2 className="h-4 w-4 mr-2" />
                         {t('delete', language)}
