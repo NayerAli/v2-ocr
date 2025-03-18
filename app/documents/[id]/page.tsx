@@ -264,8 +264,8 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
 
       setDocStatus(doc)
 
-      // If the document is completed, load the results
-      if (doc.status === "completed") {
+      // If the document is completed or has an error, load the results
+      if (doc.status === "completed" || doc.status === "error") {
         const results = await serverStorage.getResults(params.id)
         if (results && results.length > 0) {
           setResults(results)

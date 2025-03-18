@@ -4,6 +4,7 @@ import { renderPageToBase64, loadPDFFromBuffer } from "./pdf-utils";
 import type { OCRProvider } from "../ocr/providers/types";
 import { MistralOCRProvider } from "../ocr/providers/mistral";
 import { PDFDocumentProxy } from "pdfjs-dist/types/src/display/api";
+import crypto from "crypto";
 
 export class FileProcessor {
   private processingSettings: ProcessingSettings;
@@ -35,6 +36,9 @@ export class FileProcessor {
 
       console.log(`[Process] Processing image: ${filename}`);
       const result = await this.ocrProvider.processImage(base64, signal);
+      
+      // Ensure result has an ID
+      result.id = crypto.randomUUID();
       result.documentId = documentId;
       result.imageUrl = `data:${mimeType};base64,${base64}`;
       console.log(`[Process] Completed image: ${filename}`);
@@ -170,6 +174,8 @@ export class FileProcessor {
         totalPages // totalPages
       );
       
+      // Ensure result has an ID
+      result.id = crypto.randomUUID();
       result.imageUrl = `data:image/png;base64,${base64Data}`;
       result.documentId = documentId;
       result.pageNumber = pageNum;

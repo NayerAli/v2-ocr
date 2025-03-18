@@ -1,5 +1,6 @@
 import type { OCRResult, OCRSettings } from "@/types";
 import type { OCRProvider } from "./types";
+import crypto from "crypto";
 
 export class GoogleVisionProvider implements OCRProvider {
   private apiKey: string;
@@ -14,20 +15,20 @@ export class GoogleVisionProvider implements OCRProvider {
     this.language = settings.language || 'en';
   }
 
-  async processImage(imageData: ArrayBuffer): Promise<OCRResult[]> {
+  async processImage(base64Data: string, signal: AbortSignal, fileType?: string, pageNumber: number = 1, totalPages: number = 1): Promise<OCRResult> {
     if (!this.apiKey) {
       console.error('[GoogleVision] No API key provided');
       throw new Error('Google Vision API key is required');
     }
 
     console.log('[GoogleVision] Processing image:', {
-      size: imageData.byteLength,
+      size: base64Data.length,
       language: this.language
     });
 
     try {
-      // Convert image data to base64
-      const base64Image = Buffer.from(imageData).toString('base64');
+      // No need to convert to base64 as input is already base64
+      const base64Image = base64Data;
 
       // Construct request body
       const body = {
@@ -76,14 +77,28 @@ export class GoogleVisionProvider implements OCRProvider {
       // Extract text from response
       const textAnnotation = data.responses[0]?.fullTextAnnotation;
       if (!textAnnotation) {
-        return [];
+        return {
+          id: crypto.randomUUID(),
+          documentId: '',
+          text: '',
+          confidence: 0,
+          language: this.language,
+          processingTime: 0,
+          pageNumber: pageNumber,
+          totalPages: totalPages
+        };
       }
 
-      return [{
+      return {
+        id: crypto.randomUUID(),
+        documentId: '',  // Will be filled by caller
         text: textAnnotation.text,
         confidence: textAnnotation.pages?.[0]?.confidence || 0,
-        language: textAnnotation.pages?.[0]?.property?.detectedLanguages?.[0]?.languageCode || this.language
-      }];
+        language: textAnnotation.pages?.[0]?.property?.detectedLanguages?.[0]?.languageCode || this.language,
+        processingTime: 0,
+        pageNumber: pageNumber,
+        totalPages: totalPages
+      };
     } catch (error) {
       console.error('[GoogleVision] Error processing image:', error);
       throw error;
@@ -94,4 +109,4 @@ export class GoogleVisionProvider implements OCRProvider {
   canProcessPdfDirectly(fileSize: number, pageCount?: number): boolean {
     return false;
   }
-} 
+}

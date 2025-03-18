@@ -41,17 +41,23 @@ export default function DocumentsPage() {
         // Only show loading state on initial load
         if (isInitialLoad) {
           setIsLoadingData(true)
+          console.log("[Documents] Initial loading of documents")
         }
         
+        console.log("[Documents] Fetching document queue")
         const queue = await serverStorage.getQueue()
+        console.log(`[Documents] Retrieved ${queue.length} documents from queue`)
+        
         if (isSubscribed) {
           setDocuments(queue)
+          console.log(`[Documents] Updated document state with ${queue.length} documents`)
         }
       } catch (error) {
-        console.error("Error loading documents:", error)
+        console.error("[Documents] Error loading documents:", error)
       } finally {
         if (isSubscribed && isInitialLoad) {
           setIsLoadingData(false)
+          console.log("[Documents] Finished initial loading")
         }
       }
     }

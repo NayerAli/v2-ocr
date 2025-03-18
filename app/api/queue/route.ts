@@ -12,6 +12,7 @@ export async function GET() {
     const status = db.getInitializationStatus();
     
     if (!isInitialized) {
+      console.log('[API Queue] Database not initialized');
       return NextResponse.json(
         { 
           error: 'Database not initialized',
@@ -32,8 +33,11 @@ export async function GET() {
       );
     }
     
+    console.log('[API Queue] Getting queue from database');
     const queue = await db.getQueue();
-    return NextResponse.json(queue, {
+    console.log(`[API Queue] Retrieved ${queue.length} documents from queue`);
+    
+    return NextResponse.json({ queue }, {
       headers: {
         'Cache-Control': 'private, max-age=5'
       }

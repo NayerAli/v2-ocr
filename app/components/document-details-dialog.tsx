@@ -8,7 +8,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { formatFileSize, formatDuration, formatTimestamp } from "@/lib/file-utils"
 import { useSettings } from "@/hooks/use-settings"
-import type { ProcessingStatus } from "@/types"
+import type { ProcessingStatus, OCRResult } from "@/types"
 import { useLanguage } from "@/hooks/use-language"
 import { t } from "@/lib/i18n/translations"
 import { useState, useEffect } from "react"
@@ -30,16 +30,22 @@ export function DocumentDetailsDialog({ document, open, onOpenChange }: Document
     async function loadResults() {
       if (!document || !document.id) return
       
-      setIsLoadingResults(true)
-      try {
-        const response = await fetch(`/api/results/${document.id}`)
-        if (!response.ok) throw new Error('Failed to load results')
-        const data = await response.json()
-        setResults(data.results || [])
-      } catch (error) {
-        console.error('Error loading results:', error)
-      } finally {
-        setIsLoadingResults(false)
+      // Always attempt to load results for completed or error status documents
+      if (document.status === "completed" || document.status === "error") {
+        setIsLoadingResults(true)
+        try {
+          const response = await fetch(`/api/results/${document.id}`)
+          if (!response.ok) throw new Error('Failed to load results')
+          const data = await response.json()
+          setResults(data.results || [])
+        } catch (error) {
+          console.error('Error loading results:', error)
+        } finally {
+          setIsLoadingResults(false)
+        }
+      } else {
+        // Clear results for other statuses
+        setResults([])
       }
     }
 
@@ -261,6 +267,15 @@ export function DocumentDetailsDialog({ document, open, onOpenChange }: Document
               </div>
             ) : results.length > 0 ? (
               <div className="space-y-4">
+                {document.status === "error" && (
+                  <Alert variant="destructive" className="mb-4">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertTitle>{t('processingError', language)}</AlertTitle>
+                    <AlertDescription>
+                      {document.error || t('processingErrorDesc', language)}
+                    </AlertDescription>
+                  </Alert>
+                )}
                 {results.map((result, index) => (
                   <Card key={result.id || index}>
                     <CardHeader className="pb-2">

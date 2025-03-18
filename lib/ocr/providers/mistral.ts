@@ -219,17 +219,19 @@ export class MistralOCRProvider implements OCRProvider {
         // Log success
         console.log(`[Mistral] Successfully processed image page ${pageNumber}/${totalPages}`);
 
-        return {
+        // Create a result with a valid ID
+        const result: OCRResult = {
           id: crypto.randomUUID(),
-          documentId: "",
+          documentId: '',  // Will be filled by caller
           text: extractedText,
-          confidence: 1, // Mistral doesn't provide confidence scores, so we use 1
-          language: this.settings.language || "unknown",
+          confidence: 1,  // Mistral doesn't provide confidence scores
+          language: this.settings.language || 'en',
           processingTime: Date.now() - startTime,
           pageNumber: pageNumber,
-          totalPages: totalPages,
-          rateLimitInfo: this.rateLimiter.isLimited() ? this.rateLimiter.getRateLimitInfo() : undefined
+          totalPages: totalPages
         };
+        
+        return result;
       } catch (error) {
         console.error(`[Mistral] Error during processing:`, error);
         
@@ -560,16 +562,21 @@ export class MistralOCRProvider implements OCRProvider {
     // Log success
     console.log(`[Mistral] Successfully processed PDF with ${totalPages} page(s)`);
     
-    return {
+    // Process the response and convert to OCRResult
+    const processingTime = Date.now() - startTime;
+    
+    // Create a result with a valid ID
+    const result: OCRResult = {
       id: crypto.randomUUID(),
-      documentId: "",
+      documentId: '',  // This will be filled in by the caller
       text: extractedText,
-      confidence: 1, // Mistral doesn't provide confidence scores, so we use 1
-      language: this.settings.language || "unknown",
-      processingTime: Date.now() - startTime,
+      confidence: 0.9,  // Mistral doesn't provide confidence scores
+      language: this.settings.language || 'en',
+      processingTime,
       pageNumber: 1,
-      totalPages: totalPages,
-      rateLimitInfo: this.rateLimiter.isLimited() ? this.rateLimiter.getRateLimitInfo() : undefined
+      totalPages: totalPages
     };
+    
+    return result;
   }
 } 

@@ -22,15 +22,29 @@ export const serverStorage = {
    */
   async getQueue(): Promise<ProcessingStatus[]> {
     try {
+      console.log('[ServerStorage] Fetching document queue');
       const response = await fetch('/api/queue')
+      
+      console.log(`[ServerStorage] Queue response status: ${response.status}`);
+      
       if (!response.ok) {
-        throw new Error('Failed to fetch queue')
+        const errorText = await response.text();
+        console.error(`[ServerStorage] Queue error response: ${errorText}`);
+        throw new Error(`Failed to fetch queue: ${response.status} ${response.statusText}`);
       }
-      const data = await response.json()
-      return data.queue || []
+      
+      const data = await response.json();
+      
+      if (!data.queue) {
+        console.warn('[ServerStorage] Queue response did not contain queue property:', data);
+        return [];
+      }
+      
+      console.log(`[ServerStorage] Retrieved ${data.queue.length} documents from queue`);
+      return data.queue || [];
     } catch (error) {
-      console.error('Error fetching queue:', error)
-      return []
+      console.error('[ServerStorage] Error fetching queue:', error);
+      return [];
     }
   },
 
@@ -75,14 +89,29 @@ export const serverStorage = {
    */
   async getResults(id: string): Promise<OCRResult[]> {
     try {
+      console.log(`[ServerStorage] Fetching results for document: ${id}`)
       const response = await fetch(`/api/results/${id}`)
+      
+      console.log(`[ServerStorage] Response status: ${response.status}`)
+      
       if (!response.ok) {
-        throw new Error('Failed to fetch results')
+        const errorText = await response.text()
+        console.error(`[ServerStorage] Error response: ${errorText}`)
+        throw new Error(`Failed to fetch results: ${response.status} ${response.statusText}`)
       }
+      
       const data = await response.json()
+      console.log(`[ServerStorage] Results received:`, data)
+      
+      if (!data.results || data.results.length === 0) {
+        console.warn(`[ServerStorage] No results found for document ${id}`)
+        return []
+      }
+      
+      console.log(`[ServerStorage] Returning ${data.results.length} results`)
       return data.results || []
     } catch (error) {
-      console.error(`Error fetching results for ${id}:`, error)
+      console.error(`[ServerStorage] Error fetching results for ${id}:`, error)
       throw error
     }
   },

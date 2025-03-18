@@ -114,7 +114,9 @@ export function DocumentList({
   const { language } = useLanguage()
 
   const canViewDocument = (doc: ProcessingStatus) => {
-    if (doc.status === "completed") return true
+    // Allow viewing completed documents or documents with errors
+    if (doc.status === "completed" || doc.status === "error") return true
+    
     // Only allow viewing cancelled files if they have some processed pages
     if (doc.status === "cancelled") {
       return (doc.currentPage || 0) > 0 || (doc.totalPages || 0) > 0
@@ -231,7 +233,9 @@ export function DocumentList({
               <div className="flex-1 truncate">
                 <p className="text-sm truncate">
                   <span className="inline-flex items-center gap-2">
-                    <FileText className="h-4 w-4 flex-shrink-0" />
+                    {doc.type && doc.type.startsWith('image/') 
+                      ? <ImageIcon className="h-4 w-4 flex-shrink-0" /> 
+                      : <FileText className="h-4 w-4 flex-shrink-0" />}
                     <FileNameDisplay filename={doc.filename} />
                   </span>
                 </p>
@@ -276,7 +280,7 @@ export function DocumentList({
                   {getStatusText(doc)}
                 </span>
               </div>
-              {doc.progress !== undefined && doc.progress > 0 && (
+              {doc.progress !== undefined && doc.progress > 0 && doc.status !== "completed" && doc.status !== "error" && (
                 <div className="mt-2">
                   <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
                     <div
@@ -298,12 +302,12 @@ export function DocumentList({
       <Table>
         <TableHeader>
           <TableRow className="hover:bg-transparent">
-            <TableHead>{t('fileName', language)}</TableHead>
-            <TableHead>{t('status', language)}</TableHead>
-            <TableHead>{t('date', language)}</TableHead>
-            <TableHead>{t('pages', language)}</TableHead>
-            <TableHead>{t('size', language)}</TableHead>
-            <TableHead className="w-[100px] text-center">{t('actions', language)}</TableHead>
+            <TableColumnHeader className="w-[35%]">{t('fileName', language)}</TableColumnHeader>
+            <TableColumnHeader className="w-[140px]">{t('status', language)}</TableColumnHeader>
+            <TableColumnHeader className="w-[140px]">{t('date', language)}</TableColumnHeader>
+            <TableColumnHeader className="w-[80px]">{t('pages', language)}</TableColumnHeader>
+            <TableColumnHeader className="w-[100px]">{t('size', language)}</TableColumnHeader>
+            <TableColumnHeader className="w-[80px]">{t('actions', language)}</TableColumnHeader>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -321,18 +325,20 @@ export function DocumentList({
             >
               <TableCell>
                 <div className="flex items-center gap-4">
-                  <FileText className="h-4 w-4 flex-shrink-0" />
+                  {doc.type && doc.type.startsWith('image/') 
+                    ? <ImageIcon className="h-4 w-4 flex-shrink-0" /> 
+                    : <FileText className="h-4 w-4 flex-shrink-0" />}
                   <FileNameDisplay filename={doc.filename} />
                 </div>
               </TableCell>
-              <TableCell>
-                <div className="flex items-center gap-2">
+              <TableCell className="text-center px-4">
+                <div className="flex items-center justify-start gap-2 pl-8">
                   <span className={getStatusBadgeClass(doc)}>
                     {getStatusIcon(doc.status)}
                     {getStatusText(doc)}
                   </span>
                 </div>
-                {doc.progress !== undefined && doc.progress > 0 && (
+                {doc.progress !== undefined && doc.progress > 0 && doc.status !== "completed" && doc.status !== "error" && (
                   <div className="mt-2">
                     <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
                       <div
@@ -343,13 +349,17 @@ export function DocumentList({
                   </div>
                 )}
               </TableCell>
-              <TableCell>
+              <TableCell className="text-center">
                 {formatDate(doc.createdAt, language)}
               </TableCell>
-              <TableCell>
-                {doc.totalPages ? toArabicNumerals(doc.totalPages, language) : '-'}
+              <TableCell className="text-center">
+                {doc.totalPages && doc.totalPages > 0
+                  ? toArabicNumerals(doc.totalPages, language) 
+                  : doc.type && doc.type.startsWith('image/') 
+                      ? toArabicNumerals(1, language) 
+                      : toArabicNumerals(1, language)}
               </TableCell>
-              <TableCell>
+              <TableCell className="text-center">
                 {doc.size ? formatFileSize(doc.size, language) : '-'}
               </TableCell>
               <TableCell>

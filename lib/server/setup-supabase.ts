@@ -216,8 +216,6 @@ export async function setupSupabaseSchema(): Promise<boolean> {
                 text TEXT,
                 confidence FLOAT,
                 image_url TEXT,
-                language TEXT,
-                processing_time INTEGER,
                 created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
               );
               
@@ -406,8 +404,6 @@ async function setupResultsTable(adminClient: SupabaseClient): Promise<void> {
           text TEXT,
           confidence FLOAT,
           image_url TEXT,
-          language TEXT,
-          processing_time INTEGER,
           created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
         );
         

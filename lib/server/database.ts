@@ -180,9 +180,9 @@ function supabaseResultToOCRResult(result: SupabaseResult): OCRResult {
     imageUrl: result.image_url === null ? '' : result.image_url,
     text: result.text === null ? '' : result.text,
     confidence: result.confidence === null ? 0 : result.confidence,
-    // Add required OCRResult properties with default values
-    language: 'en',
-    processingTime: 0,
+    // Add required OCRResult properties with default values since they're not in DB
+    language: 'en', // Default language
+    processingTime: 0, // Default processing time
     pageNumber: result.page === null ? 0 : result.page
   };
 }
@@ -560,7 +560,7 @@ export const db: DatabaseService = {
   },
   
   /**
-   * Get queue
+   * Get all processing queue items
    */
   async getQueue(): Promise<ProcessingStatus[]> {
     if (!hasInitialized) {
@@ -571,17 +571,29 @@ export const db: DatabaseService = {
     return withSupabaseFallback<ProcessingStatus[]>(
       // Supabase implementation
       async () => {
+        console.log('[Database] Fetching document queue from Supabase');
+        // Fetch all documents including those with error status
         const { data, error } = await supabase
           .from('documents')
           .select('*')
           .order('created_at', { ascending: false });
           
         if (error) {
+          console.error('[Database] Error fetching queue:', error);
           throw error;
         }
         
+        console.log(`[Database] Retrieved ${data?.length || 0} documents from Supabase`);
+        
+        if (!data || data.length === 0) {
+          console.warn('[Database] No documents found in Supabase');
+          return [];
+        }
+        
         // Convert from Supabase schema to app schema
-        return data.map(supabaseDocToProcessingStatus);
+        const mappedData = data.map(supabaseDocToProcessingStatus);
+        console.log(`[Database] Converted ${mappedData.length} documents to app schema`);
+        return mappedData;
       },
       // Fallback file-based implementation
       async () => {
@@ -907,8 +919,6 @@ export const db: DatabaseService = {
         text: result.text || '',
         confidence: result.confidence || 0,
         image_url: result.imageUrl || null,
-        language: result.language || 'en',
-        processing_time: result.processingTime || 0,
         created_at: new Date().toISOString()
       }));
 
