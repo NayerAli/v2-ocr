@@ -55,9 +55,12 @@ export const serverStorage = {
     try {
       const response = await fetch(`/api/process/${id}`)
       if (!response.ok) {
-        throw new Error('Failed to fetch status')
+        console.error(`Error fetching status for ${id}: ${response.statusText}`)
+        return undefined
       }
+      
       const data = await response.json()
+      // The API returns { status: {...} }
       return data.status
     } catch (error) {
       console.error(`Error fetching status for ${id}:`, error)

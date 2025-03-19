@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/tooltip"
 import { useLanguage } from "@/hooks/use-language"
 import { t, type Language } from "@/lib/i18n/translations"
+import { useEffect } from "react"
 
 interface DocumentListProps {
   documents: ProcessingStatus[]
@@ -113,6 +114,14 @@ export function DocumentList({
   const router = useRouter()
   const { language } = useLanguage()
 
+  // Log processing documents for debugging
+  useEffect(() => {
+    const processingDocs = documents.filter(doc => doc.status === 'processing')
+    if (processingDocs.length > 0) {
+      console.log('Processing documents:', processingDocs)
+    }
+  }, [documents])
+  
   const canViewDocument = (doc: ProcessingStatus) => {
     // Allow viewing completed documents or documents with errors
     if (doc.status === "completed" || doc.status === "error") return true
@@ -147,7 +156,12 @@ export function DocumentList({
     }
     
     if (doc.status === "processing") {
-      return `${t('processing', language)} ${toArabicNumerals(doc.currentPage || 0, language)}/${toArabicNumerals(doc.totalPages || 0, language)}`
+      const current = doc.currentPage || 0
+      const total = doc.totalPages || 1
+      const percent = typeof doc.progress === 'number' 
+        ? `(${toArabicNumerals(Math.round(doc.progress), language)}%)` 
+        : ''
+      return `${t('processing', language)} ${toArabicNumerals(current, language)}/${toArabicNumerals(total, language)} ${percent}`
     }
     
     if (doc.status === "cancelled" && doc.currentPage && doc.currentPage > 0) {
@@ -280,12 +294,12 @@ export function DocumentList({
                   {getStatusText(doc)}
                 </span>
               </div>
-              {doc.progress !== undefined && doc.progress > 0 && doc.status !== "completed" && doc.status !== "error" && (
+              {doc.status === "processing" && (
                 <div className="mt-2">
                   <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
                     <div
                       className="h-full bg-primary transition-all duration-500"
-                      style={{ width: `${doc.progress}%` }}
+                      style={{ width: `${typeof doc.progress === 'number' ? Math.max(1, doc.progress) : 1}%` }}
                     />
                   </div>
                 </div>
@@ -338,12 +352,12 @@ export function DocumentList({
                     {getStatusText(doc)}
                   </span>
                 </div>
-                {doc.progress !== undefined && doc.progress > 0 && doc.status !== "completed" && doc.status !== "error" && (
+                {doc.status === "processing" && (
                   <div className="mt-2">
                     <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
                       <div
                         className="h-full bg-primary transition-all duration-500"
-                        style={{ width: `${doc.progress}%` }}
+                        style={{ width: `${typeof doc.progress === 'number' ? Math.max(1, doc.progress) : 1}%` }}
                       />
                     </div>
                   </div>

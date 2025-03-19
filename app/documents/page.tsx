@@ -66,13 +66,47 @@ export default function DocumentsPage() {
     loadDocuments(true)
     
     // Setup polling without loading state
-    const interval = setInterval(() => loadDocuments(false), 5000)
+    const interval = setInterval(() => loadDocuments(false), 3000)
     
     return () => {
       isSubscribed = false
       clearInterval(interval)
     }
   }, [isInitialized])
+
+  // Poll more frequently for processing documents
+  useEffect(() => {
+    // Find documents that are being processed
+    const processingDocs = documents.filter(
+      doc => doc.status === 'processing' || doc.status === 'queued'
+    )
+    
+    if (processingDocs.length === 0) {
+      return
+    }
+    
+    console.log(`[Documents] Polling ${processingDocs.length} processing documents specifically`)
+    
+    const pollProcessingDocs = async () => {
+      for (const doc of processingDocs) {
+        try {
+          const status = await serverStorage.getStatus(doc.id)
+          if (!status) continue
+          
+          // Update document in state immediately on change
+          setDocuments(prev => 
+            prev.map(d => d.id === status.id ? status : d)
+          )
+        } catch (error) {
+          console.error(`[Documents] Failed to poll status for ${doc.id}:`, error)
+        }
+      }
+    }
+    
+    const processingInterval = setInterval(pollProcessingDocs, 1000)
+    
+    return () => clearInterval(processingInterval)
+  }, [documents])
 
   const getSortedDocuments = useCallback((docs: ProcessingStatus[], sort: string, order: "asc" | "desc") => {
     return [...docs].sort((a, b) => {

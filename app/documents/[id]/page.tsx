@@ -292,6 +292,35 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     loadDocument()
   }, [params.id])
 
+  // Poll for updates if document is still processing
+  useEffect(() => {
+    if (!docStatus || !['processing', 'queued'].includes(docStatus.status)) {
+      return
+    }
+    
+    const interval = setInterval(async () => {
+      try {
+        const status = await serverStorage.getStatus(params.id)
+        if (status) {
+          setDocStatus(status)
+          
+          // If completed, load results
+          if (status.status === 'completed') {
+            const results = await serverStorage.getResults(params.id)
+            if (results && results.length > 0) {
+              setResults(results)
+              setCurrentPage(1)
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error polling for document status:', error)
+      }
+    }, 1000)
+    
+    return () => clearInterval(interval)
+  }, [docStatus?.status, params.id])
+
   // Reset states when component mounts or refreshes
   useEffect(() => {
     setImageLoaded(false)
