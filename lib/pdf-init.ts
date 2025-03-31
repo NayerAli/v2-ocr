@@ -6,9 +6,9 @@ export async function initializePDFJS() {
   if (isInitialized) return
 
   try {
-    // Use webpack worker loader for better reliability
-    const worker = new Worker(new URL("pdfjs-dist/build/pdf.worker.mjs", import.meta.url))
-    pdfjsLib.GlobalWorkerOptions.workerPort = worker
+    // Set the worker source path directly
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 
+      `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
     // Test PDF.js initialization with proper error handling
     await pdfjsLib.getDocument(new Uint8Array([37, 80, 68, 70, 45])).promise
