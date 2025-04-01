@@ -66,7 +66,12 @@ class DatabaseService {
       return this.cache.stats
     }
 
-    if (!this.db) return { totalDocuments: 0, totalResults: 0, dbSize: 0 }
+    if (!this.db) return { 
+      totalDocuments: 0, 
+      totalResults: 0, 
+      dbSize: 0,
+      storageProvider: 'local'
+    }
     const db = await this.db
     
     const queue = await db.getAll("queue")
@@ -99,12 +104,34 @@ class DatabaseService {
     
     const queueSize = calculateSize(queue)
     const resultsSize = calculateSize(results)
+    const totalSizeMB = Math.round((queueSize + resultsSize) / (1024 * 1024)) // Convert to MB
+    
+    // For local storage, get an estimate of available space
+    // Navigator.storage API is not widely supported, so we're using a fixed value
+    const storageQuota = 250 // Default estimate of 250MB for IndexedDB
+    const storageUsagePercent = Math.min(100, Math.round((totalSizeMB / storageQuota) * 100))
+    
+    // Estimate growth rate if we have lastCleared date
+    let storageGrowthRate = 0
+    if (lastCleared) {
+      const daysSinceCleared = (Date.now() - lastCleared.getTime()) / (1000 * 60 * 60 * 24)
+      if (daysSinceCleared > 0) {
+        storageGrowthRate = Number((totalSizeMB / Math.max(1, daysSinceCleared)).toFixed(2))
+      }
+    }
     
     const stats = {
       totalDocuments: queue.length,
       totalResults: results.length,
-      dbSize: Math.round((queueSize + resultsSize) / (1024 * 1024)), // Convert to MB
-      lastCleared
+      dbSize: totalSizeMB,
+      lastCleared,
+      storageProvider: 'local' as const,
+      // Local storage uses the same storage for files and database
+      storageSize: totalSizeMB,
+      storageFiles: queue.length,
+      storageQuota,
+      storageUsagePercent,
+      storageGrowthRate
     }
 
     this.cache.stats = stats

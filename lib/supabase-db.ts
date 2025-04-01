@@ -9,6 +9,8 @@ interface CacheData {
   stats: DatabaseStats | null
 }
 
+type ReconnectionState = 'idle' | 'connecting' | 'success' | 'error';
+
 class SupabaseService {
   private cache: CacheData = {
     queue: [],
@@ -24,6 +26,11 @@ class SupabaseService {
   }[] = []
   private isOffline = false
   private syncInterval: NodeJS.Timeout | null = null
+  private reconnectInterval: NodeJS.Timeout | null = null
+  private reconnectionAttempts = 0
+  private maxReconnectionAttempts = 10
+  private reconnectionState: ReconnectionState = 'idle'
+  private reconnectionListeners: ((state: ReconnectionState) => void)[] = []
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -48,14 +55,179 @@ class SupabaseService {
   }
   
   private handleOnline = async () => {
-    console.log('[SupabaseDB] Back online, syncing changes...')
+    console.log('[SupabaseDB] Back online, initiating reconnection...')
     this.isOffline = false
-    await this.syncOfflineChanges()
+    this.initiateReconnection()
   }
   
   private handleOffline = () => {
     console.log('[SupabaseDB] Device is offline, queuing changes')
     this.isOffline = true
+    
+    // Clear any pending reconnection attempts
+    if (this.reconnectInterval) {
+      clearInterval(this.reconnectInterval)
+      this.reconnectInterval = null
+    }
+    
+    this.updateReconnectionState('idle')
+  }
+  
+  private initiateReconnection = () => {
+    // If already connecting or successfully connected, don't start again
+    if (this.reconnectionState === 'connecting' || this.reconnectionState === 'success') {
+      return
+    }
+    
+    console.log('[SupabaseDB] Initiating reconnection process')
+    this.reconnectionAttempts = 0
+    this.tryReconnect()
+  }
+  
+  /**
+   * Attempt to reconnect with exponential backoff
+   */
+  private tryReconnect = async () => {
+    if (this.isOffline) {
+      console.log('[SupabaseDB] Still offline, cannot reconnect')
+      this.updateReconnectionState('error')
+      return
+    }
+    
+    if (this.reconnectionAttempts >= this.maxReconnectionAttempts) {
+      console.log('[SupabaseDB] Max reconnection attempts reached')
+      this.updateReconnectionState('error')
+      return
+    }
+    
+    this.updateReconnectionState('connecting')
+    
+    try {
+      console.log(`[SupabaseDB] Reconnection attempt ${this.reconnectionAttempts + 1}/${this.maxReconnectionAttempts}`)
+      const supabase = getSupabaseClient()
+      const { error } = await supabase.from('documents').select('count').limit(1).single()
+      
+      if (error) {
+        throw error
+      }
+      
+      // Successful connection
+      console.log('[SupabaseDB] Reconnection successful')
+      this.updateReconnectionState('success')
+      
+      // Sync offline changes
+      await this.syncOfflineChanges()
+      
+      // Clear any pending reconnect interval
+      if (this.reconnectInterval) {
+        clearInterval(this.reconnectInterval)
+        this.reconnectInterval = null
+      }
+    } catch (error) {
+      console.error('[SupabaseDB] Reconnection attempt failed:', error)
+      
+      // Calculate delay with exponential backoff: 2^n seconds (max 2 minutes)
+      const baseDelay = Math.min(1000 * Math.pow(2, this.reconnectionAttempts), 120000)
+      // Add some randomness (jitter) to prevent all clients reconnecting at the same time
+      const jitter = Math.random() * 1000
+      const delay = baseDelay + jitter
+      
+      console.log(`[SupabaseDB] Will try again in ${Math.round(delay / 1000)} seconds`)
+      
+      this.reconnectionAttempts++
+      
+      // Schedule next attempt with exponential backoff
+      if (this.reconnectInterval) {
+        clearInterval(this.reconnectInterval)
+      }
+      
+      this.reconnectInterval = setTimeout(this.tryReconnect, delay)
+    }
+  }
+  
+  /**
+   * Manually trigger a reconnection attempt
+   * @returns Promise that resolves to true if reconnection was successful
+   */
+  async reconnect(): Promise<boolean> {
+    // If offline, don't even try
+    if (this.isOffline) {
+      console.log('[SupabaseDB] Device is offline, cannot manually reconnect')
+      return false
+    }
+    
+    // Reset reconnection attempts to start fresh
+    this.reconnectionAttempts = 0
+    
+    // Clear any existing reconnection interval
+    if (this.reconnectInterval) {
+      clearInterval(this.reconnectInterval)
+      this.reconnectInterval = null
+    }
+    
+    this.updateReconnectionState('connecting')
+    
+    try {
+      const supabase = getSupabaseClient()
+      const { error } = await supabase.from('documents').select('count').limit(1).single()
+      
+      if (error) {
+        throw error
+      }
+      
+      console.log('[SupabaseDB] Manual reconnection successful')
+      this.updateReconnectionState('success')
+      
+      // Sync offline changes
+      await this.syncOfflineChanges()
+      
+      return true
+    } catch (error) {
+      console.error('[SupabaseDB] Manual reconnection failed:', error)
+      this.updateReconnectionState('error')
+      return false
+    }
+  }
+  
+  /**
+   * Get current reconnection state
+   */
+  getReconnectionState(): ReconnectionState {
+    return this.reconnectionState
+  }
+  
+  /**
+   * Register a listener for reconnection state changes
+   * @param listener Function that will be called when reconnection state changes
+   * @returns Function to remove the listener
+   */
+  onReconnectionStateChange(listener: (state: ReconnectionState) => void): () => void {
+    this.reconnectionListeners.push(listener)
+    return () => {
+      this.reconnectionListeners = this.reconnectionListeners.filter(l => l !== listener)
+    }
+  }
+  
+  private updateReconnectionState(state: ReconnectionState) {
+    if (this.reconnectionState === state) return
+    
+    this.reconnectionState = state
+    
+    // Notify all listeners
+    this.reconnectionListeners.forEach(listener => {
+      try {
+        listener(state)
+      } catch (e) {
+        console.error('[SupabaseDB] Error in reconnection state listener:', e)
+      }
+    })
+    
+    // Save last known state for recovery
+    try {
+      localStorage.setItem('supabase-reconnection-state', state)
+    } catch (e) {
+      console.warn('[SupabaseDB] Could not save reconnection state to localStorage:', e)
+    }
   }
   
   private syncOfflineChanges = async () => {
@@ -110,6 +282,12 @@ class SupabaseService {
           this.offlineQueue = JSON.parse(saved)
           console.log(`[SupabaseDB] Loaded ${this.offlineQueue.length} offline changes`)
         }
+        
+        // Load last reconnection state if available
+        const savedState = localStorage.getItem('supabase-reconnection-state')
+        if (savedState) {
+          this.reconnectionState = savedState as ReconnectionState
+        }
       } catch (error) {
         console.warn('[SupabaseDB] Error loading offline queue:', error)
       }
@@ -124,9 +302,13 @@ class SupabaseService {
       
       if (error) {
         console.error('Supabase initialization error:', error)
+        this.updateReconnectionState('error')
+      } else {
+        this.updateReconnectionState('success')
       }
     } catch (error) {
       console.error('Supabase initialization error:', error)
+      this.updateReconnectionState('error')
     }
   }
 
@@ -173,11 +355,48 @@ class SupabaseService {
       
       const lastCleared = metadataData?.value ? new Date(metadataData.value as string) : undefined
       
-      const stats = {
+      // Get storage stats
+      let storageStats: Partial<DatabaseStats> = {}
+      try {
+        storageStats = await this.getStorageStats()
+      } catch (storageError) {
+        console.error('Error getting storage stats:', storageError)
+      }
+      
+      // Try to get storage quota info if available
+      const { data: quotaData } = await supabase
+        .from('settings')
+        .select('value')
+        .eq('key', 'storage_quota')
+        .single()
+      
+      const storageQuota = quotaData?.value ? Number(quotaData.value) : 500 // Default to 500MB if not specified
+      
+      // Calculate usage percentage
+      const storageUsagePercent = storageStats.storageSize ? 
+        Math.min(100, Math.round((storageStats.storageSize / storageQuota) * 100)) : 0
+        
+      // Estimate growth rate (MB per day) if we have lastCleared date
+      let storageGrowthRate = 0
+      if (lastCleared && storageStats.storageSize) {
+        const daysSinceCleared = (Date.now() - lastCleared.getTime()) / (1000 * 60 * 60 * 24)
+        if (daysSinceCleared > 0) {
+          storageGrowthRate = Number((storageStats.storageSize / Math.max(1, daysSinceCleared)).toFixed(2))
+        }
+      }
+      
+      const stats: DatabaseStats = {
         totalDocuments: documentsCount || 0,
         totalResults: resultsCount || 0,
         dbSize: Math.round(estimatedSize),
-        lastCleared
+        lastCleared,
+        storageProvider: 'supabase',
+        storageSize: storageStats.storageSize || 0,
+        storageFiles: storageStats.storageFiles || 0,
+        storageBucket: storageStats.storageBucket,
+        storageUsagePercent,
+        storageQuota,
+        storageGrowthRate
       }
 
       this.cache.stats = stats
@@ -185,7 +404,74 @@ class SupabaseService {
       return stats
     } catch (error) {
       console.error('Error getting database stats:', error)
-      return { totalDocuments: 0, totalResults: 0, dbSize: 0 }
+      return { totalDocuments: 0, totalResults: 0, dbSize: 0, storageProvider: 'supabase' }
+    }
+  }
+  
+  /**
+   * Get storage statistics from Supabase Storage
+   */
+  private async getStorageStats(): Promise<Partial<DatabaseStats>> {
+    try {
+      const supabase = getSupabaseClient()
+      const bucketName = 'documents'
+      
+      // List all files in the documents bucket
+      const { data: files, error } = await supabase
+        .storage
+        .from(bucketName)
+        .list()
+      
+      if (error) throw error
+      
+      if (!files || files.length === 0) {
+        return {
+          storageSize: 0,
+          storageFiles: 0,
+          storageBucket: bucketName
+        }
+      }
+      
+      // For each folder, list files within
+      let totalSize = 0
+      let totalFiles = 0
+      
+      // Process each folder (user ID)
+      for (const item of files) {
+        if (item.metadata) {
+          // This is a file at the root level
+          totalSize += item.metadata.size || 0
+          totalFiles += 1
+        } else {
+          // This is a folder, get its contents
+          const { data: folderFiles, error: folderError } = await supabase
+            .storage
+            .from(bucketName)
+            .list(item.name)
+          
+          if (!folderError && folderFiles) {
+            // Sum up sizes of all files in this folder
+            for (const file of folderFiles) {
+              if (file.metadata) {
+                totalSize += file.metadata.size || 0
+                totalFiles += 1
+              }
+            }
+          }
+        }
+      }
+      
+      // Convert bytes to MB
+      const storageSizeMB = totalSize / (1024 * 1024)
+      
+      return {
+        storageSize: Number(storageSizeMB.toFixed(2)),
+        storageFiles: totalFiles,
+        storageBucket: bucketName
+      }
+    } catch (error) {
+      console.error('Error calculating storage stats:', error)
+      return {}
     }
   }
 
@@ -642,10 +928,17 @@ class SupabaseService {
       clearInterval(this.syncInterval)
     }
     
+    if (this.reconnectInterval) {
+      clearTimeout(this.reconnectInterval)
+    }
+    
     if (typeof window !== 'undefined') {
       window.removeEventListener('online', this.handleOnline)
       window.removeEventListener('offline', this.handleOffline)
     }
+    
+    // Clear reconnection listeners
+    this.reconnectionListeners = []
   }
 
   // Settings related methods

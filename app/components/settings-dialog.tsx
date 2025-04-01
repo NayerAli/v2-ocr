@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Loader2, AlertCircle, Eye, EyeOff } from "lucide-react"
+import { Loader2, AlertCircle, Eye, EyeOff, Database, Cloud, CloudOff, HardDrive } from "lucide-react"
 import { useSettings } from "@/store/settings"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -15,7 +15,8 @@ import { validateGoogleApiKey, validateMicrosoftApiKey, validateMistralApiKey } 
 import { useToast } from "@/hooks/use-toast"
 import { cn } from "@/lib/utils"
 import { getDatabaseService } from "@/lib/db-factory"
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
+import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card"
+import { Progress } from "@/components/ui/progress"
 import type { DatabaseStats } from "@/types/settings"
 import { useLanguage } from "@/hooks/use-language"
 import { t, type Language } from "@/lib/i18n/translations"
@@ -419,6 +420,79 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                       </CardContent>
                     </Card>
 
+                    {stats?.storageProvider === 'supabase' && (
+                      <Card>
+                        <CardHeader className="p-4 pb-2">
+                          <CardTitle className="text-sm flex items-center gap-2">
+                            <Cloud className="h-4 w-4" />
+                            Supabase Storage
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent className="p-4 pt-2">
+                          <div className="space-y-4">
+                            <div className="space-y-2">
+                              <div className="flex justify-between">
+                                <span>Storage Files:</span>
+                                <span className="font-mono tabular-nums">{toArabicNumerals(stats?.storageFiles || 0, language)}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span>Storage Size:</span>
+                                <span className="font-mono tabular-nums">{toArabicNumerals(stats?.storageSize || 0, language)} MB</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span>Storage Quota:</span>
+                                <span className="font-mono tabular-nums">{toArabicNumerals(stats?.storageQuota || 0, language)} MB</span>
+                              </div>
+                              <div className="flex justify-between items-center">
+                                <span>Usage:</span>
+                                <span className="font-mono tabular-nums">
+                                  {toArabicNumerals(stats?.storageUsagePercent || 0, language)}%
+                                </span>
+                              </div>
+                            </div>
+                          
+                            <div className="space-y-1">
+                              <Progress 
+                                value={stats?.storageUsagePercent || 0} 
+                                className={cn(
+                                  "h-2",
+                                  (stats?.storageUsagePercent || 0) > 90 ? "bg-red-100" : 
+                                  (stats?.storageUsagePercent || 0) > 75 ? "bg-amber-100" : 
+                                  "bg-muted"
+                                )}
+                                indicatorClassName={cn(
+                                  (stats?.storageUsagePercent || 0) > 90 ? "bg-red-500" : 
+                                  (stats?.storageUsagePercent || 0) > 75 ? "bg-amber-500" : 
+                                  "bg-blue-500"
+                                )}
+                              />
+                              <p className="text-xs text-muted-foreground">
+                                {(stats?.storageUsagePercent || 0) > 90 
+                                  ? "Critical: Storage nearly full" 
+                                  : (stats?.storageUsagePercent || 0) > 75 
+                                  ? "Warning: Storage usage high"
+                                  : "Storage usage normal"}
+                              </p>
+                            </div>
+                          
+                            {stats?.storageGrowthRate && stats.storageGrowthRate > 0 && (
+                              <div className="text-xs text-muted-foreground">
+                                <p>
+                                  Estimated growth: {stats.storageGrowthRate} MB/day
+                                  {stats?.storageQuota && (
+                                    <span>
+                                      {" "}
+                                      ({Math.floor((stats.storageQuota - (stats?.storageSize || 0)) / stats.storageGrowthRate)} days until full)
+                                    </span>
+                                  )}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )}
+
                     <Card>
                       <CardHeader className="p-4 pb-2">
                         <CardTitle className="text-sm">🔍 {t('ocrSettings', language)}</CardTitle>
@@ -504,6 +578,24 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                       </div>
                     </div>
                   )}
+                  
+                  <div className="flex justify-between border-t pt-4">
+                    <div className="text-sm flex items-center gap-1">
+                      <Database className="h-4 w-4" />
+                      Storage Provider: 
+                      <span className="font-semibold capitalize">
+                        {settings.database.preferredProvider}
+                      </span>
+                    </div>
+                    <Button 
+                      size="sm" 
+                      variant="ghost" 
+                      onClick={refreshStats}
+                      className="text-xs flex items-center gap-1"
+                    >
+                      <span>Refresh</span>
+                    </Button>
+                  </div>
                 </div>
               </TabsContent>
             </div>

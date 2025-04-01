@@ -1,9 +1,10 @@
 import { db as indexedDB } from './indexed-db'
 import { supabaseDB, getSupabaseDB } from './supabase-db'
 import { isSupabaseEnabled } from './supabase'
-import type { DatabaseSettings } from '@/types/settings'
+import type { DatabaseSettings, DatabaseStats } from '@/types/settings'
 
 export type DatabaseProvider = 'local' | 'supabase'
+export type ReconnectionState = 'idle' | 'connecting' | 'success' | 'error';
 
 // Base interface for database services
 export interface DatabaseService {
@@ -12,11 +13,15 @@ export interface DatabaseService {
   saveToQueue(status: any): Promise<void>;
   saveResults(documentId: string, results: any[]): Promise<void>;
   removeFromQueue(id: string): Promise<void>;
-  getDatabaseStats(): Promise<any>;
+  getDatabaseStats(): Promise<DatabaseStats>;
   cleanupOldRecords(retentionPeriod: number): Promise<number | undefined>;
   clearDatabase(type?: 'queue' | 'results' | 'all'): Promise<void>;
   getSettings?(key: string): Promise<Record<string, any> | null>;
   saveSettings?(key: string, value: Record<string, any>): Promise<boolean>;
+  // New reconnection methods (optional for providers that don't support online/offline)
+  reconnect?(): Promise<boolean>;
+  getReconnectionState?(): ReconnectionState;
+  onReconnectionStateChange?(listener: (state: ReconnectionState) => void): () => void;
 }
 
 // Factory function to get the appropriate database service

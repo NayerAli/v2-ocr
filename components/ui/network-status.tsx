@@ -1,16 +1,20 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Wifi, WifiOff, Cloud, CloudOff } from 'lucide-react'
+import { Wifi, WifiOff, Cloud, CloudOff, RefreshCw } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './tooltip'
 import { useSettings } from '@/store/settings'
 import { isSupabaseEnabled } from '@/lib/supabase'
+import { getDatabaseService } from '@/lib/db-factory'
+import { type ReconnectionState } from '@/lib/db-factory'
+import { Button } from './button'
 
 interface NetworkStatusProps {
   className?: string
   showTooltip?: boolean
   size?: 'sm' | 'md' | 'lg'
   showLabel?: boolean
+  showReconnectButton?: boolean
 }
 
 /**
@@ -21,13 +25,17 @@ export function NetworkStatus({
   className = '',
   showTooltip = true,
   size = 'md',
-  showLabel = false
+  showLabel = false,
+  showReconnectButton = false
 }: NetworkStatusProps) {
   const [isOnline, setIsOnline] = useState(true)
   const [isSupabaseConnected, setIsSupabaseConnected] = useState(false)
   const [lastOnlineTime, setLastOnlineTime] = useState<Date | null>(null)
   const [isCheckingSupabase, setIsCheckingSupabase] = useState(false)
-  const { database } = useSettings()
+  const [reconnectionState, setReconnectionState] = useState<ReconnectionState>('idle')
+  const [isReconnecting, setIsReconnecting] = useState(false)
+  const settings = useSettings()
+  const { database } = settings
   
   // Icon sizes based on the size prop
   const iconSizes = {
@@ -76,6 +84,44 @@ export function NetworkStatus({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   
+  // Subscribe to reconnection state changes
+  useEffect(() => {
+    if (isSupabaseEnabled() && database.preferredProvider === 'supabase') {
+      try {
+        const db = getDatabaseService('supabase')
+        // Set initial state if available
+        if (db.getReconnectionState) {
+          setReconnectionState(db.getReconnectionState())
+        }
+        
+        // Subscribe to changes
+        let unsubscribe: (() => void) | undefined
+        if (db.onReconnectionStateChange) {
+          unsubscribe = db.onReconnectionStateChange((state) => {
+            setReconnectionState(state)
+            
+            // Update connection status based on reconnection state
+            if (state === 'success') {
+              setIsSupabaseConnected(true)
+              setIsCheckingSupabase(false)
+            } else if (state === 'error') {
+              setIsSupabaseConnected(false)
+              setIsCheckingSupabase(false)
+            } else if (state === 'connecting') {
+              setIsCheckingSupabase(true)
+            }
+          })
+        }
+        
+        return () => {
+          if (unsubscribe) unsubscribe()
+        }
+      } catch (error) {
+        console.error('Error subscribing to reconnection state:', error)
+      }
+    }
+  }, [database.preferredProvider])
+  
   // Check Supabase connection when database settings change
   useEffect(() => {
     checkSupabaseConnection()
@@ -114,6 +160,41 @@ export function NetworkStatus({
     }
   }
   
+  // Manually trigger reconnect
+  const handleReconnect = async () => {
+    if (!isOnline || database.preferredProvider !== 'supabase' || !isSupabaseEnabled()) {
+      return
+    }
+    
+    try {
+      setIsReconnecting(true)
+      
+      const db = getDatabaseService('supabase')
+      if (db.reconnect) {
+        const success = await db.reconnect()
+        if (success) {
+          setIsSupabaseConnected(true)
+          settings.updateDatabaseSettings({
+            connectionStatus: 'success'
+          })
+        } else {
+          setIsSupabaseConnected(false)
+          settings.updateDatabaseSettings({
+            connectionStatus: 'error'
+          })
+        }
+      } else {
+        // Fallback to simple connection check
+        await checkSupabaseConnection()
+      }
+    } catch (error) {
+      console.error('Error during manual reconnect:', error)
+      setIsSupabaseConnected(false)
+    } finally {
+      setIsReconnecting(false)
+    }
+  }
+  
   // Get status text and icon
   const getNetworkStatusInfo = () => {
     const isUsingSupabase = database.preferredProvider === 'supabase' && isSupabaseEnabled()
@@ -128,7 +209,7 @@ export function NetworkStatus({
       }
     }
     
-    if (isUsingSupabase && isCheckingSupabase) {
+    if (isUsingSupabase && (isCheckingSupabase || reconnectionState === 'connecting')) {
       return {
         text: 'Connecting...',
         icon: <Cloud className={`${iconSizes[size]} text-amber-500 animate-pulse`} />,
@@ -138,17 +219,17 @@ export function NetworkStatus({
       }
     }
     
-    if (isUsingSupabase && !isSupabaseConnected) {
+    if (isUsingSupabase && (!isSupabaseConnected || reconnectionState === 'error')) {
       return {
         text: 'Supabase Disconnected',
         icon: <CloudOff className={`${iconSizes[size]} text-destructive`} />,
         color: 'text-destructive',
         bgColor: 'bg-destructive/10',
-        tooltipText: 'Connected to the internet but unable to reach Supabase. Make sure your Docker containers are running.'
+        tooltipText: 'Connected to the internet but unable to reach Supabase. Try reconnecting or make sure your Docker containers are running.'
       }
     }
     
-    if (isUsingSupabase && isSupabaseConnected) {
+    if (isUsingSupabase && (isSupabaseConnected || reconnectionState === 'success')) {
       return {
         text: 'Supabase Connected',
         icon: <Cloud className={`${iconSizes[size]} text-green-500`} />,
@@ -190,6 +271,13 @@ export function NetworkStatus({
   
   const lastOnlineText = getLastOnlineText()
   
+  // Determine if reconnect button should be shown
+  const shouldShowReconnectButton = showReconnectButton && 
+    isOnline && 
+    database.preferredProvider === 'supabase' && 
+    isSupabaseEnabled() && 
+    (!isSupabaseConnected || reconnectionState === 'error');
+  
   const content = (
     <div className={`flex items-center gap-1.5 ${className} ${!showLabel ? statusInfo.bgColor : ''} ${!showLabel ? 'rounded-full p-1.5' : ''}`}>
       {statusInfo.icon}
@@ -202,28 +290,62 @@ export function NetworkStatus({
   )
   
   if (!showTooltip) {
-    return content
+    return (
+      <div className="flex items-center gap-2">
+        {content}
+        {shouldShowReconnectButton && (
+          <Button 
+            variant="outline" 
+            size="sm" 
+            className="h-7 px-2 text-xs"
+            onClick={handleReconnect}
+            disabled={isReconnecting || !isOnline}
+          >
+            <RefreshCw className={`h-3 w-3 mr-1 ${isReconnecting ? 'animate-spin' : ''}`} />
+            Reconnect
+          </Button>
+        )}
+      </div>
+    )
   }
   
   return (
-    <TooltipProvider>
-      <Tooltip delayDuration={300}>
-        <TooltipTrigger asChild>
-          {content}
-        </TooltipTrigger>
-        <TooltipContent className="max-w-xs p-3">
-          <div className="space-y-2">
-            <p className="font-semibold">{statusInfo.text}</p>
-            <p className="text-xs text-muted-foreground">{statusInfo.tooltipText}</p>
-            {lastOnlineText && (
-              <p className="text-xs italic">{lastOnlineText}</p>
-            )}
-            {isCheckingSupabase && (
-              <p className="text-xs text-muted-foreground">Checking Supabase connection...</p>
-            )}
-          </div>
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+    <div className="flex items-center gap-2">
+      <TooltipProvider>
+        <Tooltip delayDuration={300}>
+          <TooltipTrigger asChild>
+            {content}
+          </TooltipTrigger>
+          <TooltipContent className="max-w-xs p-3">
+            <div className="space-y-2">
+              <p className="font-semibold">{statusInfo.text}</p>
+              <p className="text-xs text-muted-foreground">{statusInfo.tooltipText}</p>
+              {lastOnlineText && (
+                <p className="text-xs italic">{lastOnlineText}</p>
+              )}
+              {(isCheckingSupabase || reconnectionState === 'connecting') && (
+                <p className="text-xs text-muted-foreground">Attempting to connect to Supabase...</p>
+              )}
+              {reconnectionState === 'error' && (
+                <p className="text-xs text-destructive">Connection failed. You can try manually reconnecting.</p>
+              )}
+            </div>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+      
+      {shouldShowReconnectButton && (
+        <Button 
+          variant="outline" 
+          size="sm" 
+          className="h-7 px-2 text-xs"
+          onClick={handleReconnect}
+          disabled={isReconnecting || !isOnline}
+        >
+          <RefreshCw className={`h-3 w-3 mr-1 ${isReconnecting ? 'animate-spin' : ''}`} />
+          Reconnect
+        </Button>
+      )}
+    </div>
   )
 } 

@@ -32,6 +32,14 @@ export interface DatabaseStats {
   totalResults: number
   dbSize: number
   lastCleared?: Date
+  // Supabase Storage specific stats
+  storageSize?: number  // Total size of files in storage in MB
+  storageFiles?: number  // Total number of files in storage
+  storageBucket?: string  // Storage bucket name
+  storageUsagePercent?: number  // Percentage of storage quota used
+  storageQuota?: number  // Storage quota in MB if available
+  storageGrowthRate?: number  // Estimated MB per day growth rate
+  storageProvider?: 'local' | 'supabase'  // Current active storage provider
 }
 
 export interface DatabaseSettings {

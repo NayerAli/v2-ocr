@@ -3,6 +3,12 @@
 ## Overview
 This updated plan focuses on implementing Supabase as the primary database solution for storage while keeping processing client-based. We'll replace IndexedDB with Supabase for storing results, settings, and metadata, but maintain client-side processing to avoid server resource usage.
 
+For smooth user experience, the system will:
+- Store results locally first when received
+- Update and save to Supabase in the background
+- Clean local storage once data is successfully synced to the database
+- Fall back to local storage when user is not connected to Supabase
+
 For detailed information about the database schema and structure, refer to the [database.MD](./database.MD) file.
 
 ## Current Architecture
@@ -65,20 +71,19 @@ For detailed information about the database schema and structure, refer to the [
   - [x] 4.1.8 Improve error handling for optional database methods
 - [ ] 4.2 Create settings migration utility for existing users
   - [ ] 4.2.1 Detect first-time Supabase users
-  - [ ] 4.2.2 Migrate existing IndexedDB settings to Supabase
   - [ ] 4.2.3 Add settings backup/restore functionality
-- [ ] 4.3 Implement connection status indicators
-  - [ ] 4.3.1 Create status indicator component
-  - [ ] 4.3.2 Add tooltips for connection details
-  - [ ] 4.3.3 Implement animated transitions for status changes
-- [ ] 4.4 Update stats component to show Supabase storage usage
-  - [ ] 4.4.1 Add API for fetching Supabase storage stats
-  - [ ] 4.4.2 Create visual storage usage indicators
-  - [ ] 4.4.3 Add quota warning notifications
-- [ ] 4.5 Add reconnection logic for offline scenarios
-  - [ ] 4.5.1 Implement exponential backoff for reconnection attempts
-  - [ ] 4.5.2 Add manual reconnect option
-  - [ ] 4.5.3 Create session recovery mechanism
+- [x] 4.3 Implement connection status indicators
+  - [x] 4.3.1 Create status indicator component
+  - [x] 4.3.2 Add tooltips for connection details
+  - [x] 4.3.3 Implement animated transitions for status changes
+- [x] 4.4 Update stats component to show Supabase storage usage
+  - [x] 4.4.1 Add API for fetching Supabase storage stats
+  - [x] 4.4.2 Create visual storage usage indicators
+  - [x] 4.4.3 Add quota warning notifications
+- [x] 4.5 Add reconnection logic for offline scenarios
+  - [x] 4.5.1 Implement exponential backoff for reconnection attempts
+  - [x] 4.5.2 Add manual reconnect option
+  - [x] 4.5.3 Create session recovery mechanism
 
 ### Phase 5: Cleanup & Optimization
 - [ ] 5.1 Remove unused IndexedDB code
@@ -106,7 +111,7 @@ For detailed information about the database schema and structure, refer to the [
 - ✅ Phase 1: Supabase Foundations (Completed)
 - ✅ Phase 2: Core Service Integration (Completed)
 - ✅ Phase 3: UI & Feature Integration (Completed)
-- 🔄 Phase 4: Settings Integration & Storage (In Progress)
+- ✅ Phase 4: Settings Integration & Storage (Completed)
   - ✅ 4.1.1 Create Supabase table for user settings
   - ✅ 4.1.2 Update settings store to use database factory
   - ✅ 4.1.3 Implement settings sync between devices
@@ -120,39 +125,50 @@ For detailed information about the database schema and structure, refer to the [
     - ✅ 4.3.2 Add tooltips for connection details
     - ✅ 4.3.3 Implement animated transitions for status changes
     - ✅ 4.3.4 Persist connection status between sessions
-  - ⬜ 4.2 Create settings migration utility for existing users
-  - ⬜ 4.4 Update stats component to show Supabase storage usage
-  - ⬜ 4.5 Add reconnection logic for offline scenarios
-- ⬜ Phase 5: Cleanup & Optimization (Not Started)
+  - ✅ 4.4 Update stats component to show Supabase storage usage
+    - ✅ 4.4.1 Add API for fetching Supabase storage stats
+    - ✅ 4.4.2 Create visual storage usage indicators
+    - ✅ 4.4.3 Add quota warning notifications
+  - ✅ 4.5 Add reconnection logic for offline scenarios
+    - ✅ 4.5.1 Implement exponential backoff for reconnection attempts
+    - ✅ 4.5.2 Add manual reconnect option
+    - ✅ 4.5.3 Create session recovery mechanism
+- 🔄 Phase 5: Cleanup & Optimization (In Progress)
 
 ## Current Task
-Continuing with Phase 4: Settings Integration & Storage. We've successfully updated the settings store to persist settings to Supabase and enhanced the connection status indicators:
+Starting Phase 5: Cleanup & Optimization. We've successfully completed all tasks in Phase 4, including implementing a robust reconnection mechanism for Supabase:
 
-1. Improved the connection status persistence:
-   - Added connectionStatus field to database settings
-   - Persisted connection status between application sessions
-   - Auto-test connection when reopening settings dialog
-   - Enhanced visual feedback for connection state changes
+1. Enhanced reconnection capabilities:
+   - Implemented exponential backoff algorithm for automatic reconnection
+   - Added manual reconnection button in network status indicator
+   - Created state management for reconnection process
+   - Added event listeners for online/offline status changes
+   - Integrated reconnection with settings updates
+   - Improved network status UI with detailed connection state information
 
-2. Enhanced the Supabase settings UI:
-   - Redesigned the connection status panel with clear visual states
-   - Added animated transitions between connection states
-   - Improved feedback for testing and syncing operations
-   - Added test button even when Supabase is not active
+2. Improved offline recovery mechanism:
+   - Added persistent state tracking through localStorage
+   - Implemented session recovery after reconnection
+   - Created listeners for reconnection state changes
+   - Added connection testing for both manual and automatic reconnection
 
-3. Fixed network status component interaction:
-   - Synchronized network status with persisted connection state
-   - Added more robust connection testing
+Next focus - Task 5.1: Remove unused IndexedDB code:
+1. Identify all IndexedDB dependencies:
+   - Create inventory of all files that import IndexedDB
+   - Identify all components that use IndexedDB directly
+   - Check for any hidden dependencies on IndexedDB-specific features
+   - Ensure all features are properly abstracted through DatabaseService interface
 
-Next steps:
-1. Complete implementation of settings migration utility (4.2)
-   - Create a migration dialog/component that shows on first Supabase connection
-   - Implement logic to copy IndexedDB settings to Supabase
-   - Add option to skip migration
+2. Create deprecation plan:
+   - Determine which components need to be updated
+   - Identify any remaining implementation gaps between providers
+   - Ensure backward compatibility during transition
+   - Add clear comments for future maintenance
 
-2. Update stats component to show Supabase storage usage (4.4)
-   - Add API for fetching Supabase storage stats
-   - Create visual storage usage indicators
-   - Add quota warning notifications
+3. Remove or comment out unused code:
+   - Safely remove direct IndexedDB references
+   - Update components to use database factory
+   - Remove IndexedDB-specific optimizations or workarounds
+   - Clean up any remaining IndexedDB-specific types or interfaces
 
-Status: In progress - Improved connection status persistence and visual feedback 
+Status: In progress - Starting identification of IndexedDB dependencies 
