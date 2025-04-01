@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { SettingsDialog } from "./settings-dialog"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { cn } from "@/lib/utils"
 import {
   DropdownMenu,
@@ -16,6 +16,9 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { useLanguage } from "@/hooks/use-language"
 import { t, type TranslationKey } from "@/lib/i18n/translations"
+import { NetworkStatus } from "@/components/ui/network-status"
+import { useSettings } from "@/store/settings"
+import { isSupabaseEnabled } from "@/lib/supabase"
 
 const navigation = [
   {
@@ -35,6 +38,28 @@ export function Header() {
   const pathname = usePathname()
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const { language, setLanguage } = useLanguage()
+  const { database } = useSettings()
+  const [isSupabaseConnected, setIsSupabaseConnected] = useState(false)
+  
+  // Check Supabase connection when database settings change
+  useEffect(() => {
+    const checkConnection = async () => {
+      if (database.preferredProvider === 'supabase' && isSupabaseEnabled()) {
+        try {
+          const { getSupabaseClient } = await import('@/lib/supabase')
+          const supabase = getSupabaseClient()
+          const { error } = await supabase.from('documents').select('id').limit(1)
+          setIsSupabaseConnected(!error)
+        } catch (error) {
+          setIsSupabaseConnected(false)
+        }
+      } else {
+        setIsSupabaseConnected(false)
+      }
+    }
+    
+    checkConnection()
+  }, [database])
 
   const languages = [
     { 
@@ -104,6 +129,24 @@ export function Header() {
 
           {/* Right Section: Actions */}
           <div className="flex items-center gap-3 ml-auto">
+            {/* Network Status Indicator */}
+            <div className="relative group">
+              <NetworkStatus 
+                size="sm" 
+                showLabel={false} 
+                className="transition-all duration-200 group-hover:scale-110"
+              />
+              {/* Animated ping effect only when Supabase is connected */}
+              {database.preferredProvider === 'supabase' && isSupabaseConnected && (
+                <span className="absolute -top-0.5 -right-0.5 flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                </span>
+              )}
+            </div>
+            
+            <div className="h-6 w-px bg-border/80 hidden sm:block" />
+            
             <Button
               variant="ghost"
               size="sm"

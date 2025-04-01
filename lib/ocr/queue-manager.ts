@@ -1,7 +1,9 @@
 import type { ProcessingStatus, OCRResult } from "@/types";
 import type { ProcessingSettings, UploadSettings } from "@/types/settings";
-import { db } from "../indexed-db";
+import { getDatabaseService, type DatabaseProvider } from "../db-factory";
 import { FileProcessor } from "./file-processor";
+import { useSettings } from "@/store/settings";
+import { createFileStorageAdapter } from "./file-storage-adapter";
 
 export class QueueManager {
   private queueMap: Map<string, ProcessingStatus> = new Map();
@@ -11,6 +13,9 @@ export class QueueManager {
   private uploadSettings: UploadSettings;
   private fileProcessor: FileProcessor;
   private abortControllers: Map<string, AbortController> = new Map();
+  private db: ReturnType<typeof getDatabaseService>;
+  private unsubscribe: () => void;
+  private fileStorage = createFileStorageAdapter();
 
   constructor(
     processingSettings: ProcessingSettings, 
@@ -20,10 +25,24 @@ export class QueueManager {
     this.processingSettings = processingSettings;
     this.uploadSettings = uploadSettings;
     this.fileProcessor = fileProcessor;
+    
+    // Get the current database service based on user's settings
+    const settings = useSettings.getState();
+    this.db = getDatabaseService(settings.database.preferredProvider);
+    
+    // Listen for changes to database provider setting
+    this.unsubscribe = useSettings.subscribe(
+      (state) => {
+        // When database provider changes, update the database service
+        if (state.database.preferredProvider !== settings.database.preferredProvider) {
+          this.db = getDatabaseService(state.database.preferredProvider);
+        }
+      }
+    );
   }
 
   async initializeQueue() {
-    const savedQueue = await db.getQueue();
+    const savedQueue = await this.db.getQueue();
     savedQueue.forEach((item) => {
       if (item.status === "processing") {
         item.status = "queued";
@@ -34,33 +53,46 @@ export class QueueManager {
 
   async addToQueue(files: File[]): Promise<string[]> {
     const ids: string[] = [];
-
+    
     for (const file of files) {
-      if (!this.isFileValid(file)) {
-        throw new Error(`Invalid file: ${file.name}`);
+      if (file.size > this.uploadSettings.maxFileSize * 1024 * 1024) {
+        console.warn(`File ${file.name} exceeds max size limit of ${this.uploadSettings.maxFileSize}MB`);
+        continue;
       }
-
+      
       const id = crypto.randomUUID();
-      const now = new Date();
+      const fileType = file.type || file.name.split('.').pop() || 'unknown';
+      
+      // Create a new status object for this file
       const status: ProcessingStatus = {
         id,
         filename: file.name,
+        fileType,
+        fileSize: file.size,
         status: "queued",
         progress: 0,
-        currentPage: 0,
-        totalPages: 0,
-        size: file.size,
-        type: file.type,
-        file,
-        createdAt: now,
-        updatedAt: now
+        file, // Store reference to file for processing
+        createdAt: new Date(),
+        updatedAt: new Date()
       };
 
+      // If we're using Supabase, upload the file to storage
+      try {
+        const fileUrl = await this.fileStorage.uploadFile(file, id);
+        if (fileUrl) {
+          status.fileUrl = fileUrl;
+        }
+      } catch (error) {
+        console.error(`[Queue] Error uploading file to storage: ${error}`);
+        // Continue with local file reference even if upload fails
+      }
+      
+      // Add to local queue and persisted queue
       this.queueMap.set(id, status);
-      await db.saveToQueue(status);
+      await this.db.saveToQueue(status);
       ids.push(id);
     }
-
+    
     return ids;
   }
 
@@ -84,13 +116,13 @@ export class QueueManager {
           item.startTime = Date.now();
           item.progress = 0; // Initialize progress to 0
           item.currentPage = 0; // Initialize current page to 0
-          await db.saveToQueue(item);
+          await this.db.saveToQueue(item);
 
           // Set up a status update interval for UI updates
           const statusUpdateInterval = setInterval(async () => {
             if (item.status === "processing") {
               // Save current status to update UI
-              await db.saveToQueue({...item});
+              await this.db.saveToQueue({...item});
             } else {
               clearInterval(statusUpdateInterval);
             }
@@ -115,113 +147,78 @@ export class QueueManager {
           // Check for rate limiting in results
           const hasRateLimit = results.some(result => result.rateLimitInfo?.isRateLimited);
           if (hasRateLimit) {
-            // Find the result with the longest retry time
-            const rateLimitedResult = results
-              .filter(result => result.rateLimitInfo?.isRateLimited)
-              .sort((a, b) => 
-                (b.rateLimitInfo?.retryAfter || 0) - (a.rateLimitInfo?.retryAfter || 0)
-              )[0];
-            
-            if (rateLimitedResult?.rateLimitInfo) {
-              // Update the item with rate limit info
-              item.rateLimitInfo = {
-                isRateLimited: true,
-                retryAfter: rateLimitedResult.rateLimitInfo.retryAfter,
-                rateLimitStart: Date.now()
-              };
-              
-              console.log(`[Process] Rate limited for ${item.filename}. Retry after ${rateLimitedResult.rateLimitInfo.retryAfter}s`);
-              
-              // If we have partial results, save them
-              if (results.some(r => r.text && r.text.length > 0)) {
-                await db.saveResults(item.id, results);
-                item.progress = Math.floor((results.length / (item.totalPages || 1)) * 100);
-              }
-              
-              // Keep the item in processing state but with rate limit info
-              await db.saveToQueue(item);
-              return;
-            }
+            const rateLimitInfo = results.find(r => r.rateLimitInfo)?.rateLimitInfo;
+            item.status = "rate_limited";
+            item.rateLimitInfo = rateLimitInfo;
+            console.log(`[Process] Rate limited: ${item.filename} - Retry after ${rateLimitInfo?.retryAfter}ms`);
+          } else {
+            // Update status to completed
+            item.status = "completed";
+            item.progress = 100;
+            item.endTime = Date.now();
+            item.error = undefined;
           }
-
-          // Save results
-          await db.saveResults(item.id, results);
-
-          // Update status to completed
-          item.status = "completed";
-          item.endTime = Date.now();
-          item.progress = 100;
-          // Clear any rate limit info
-          item.rateLimitInfo = undefined;
-          await db.saveToQueue(item);
+          
+          await this.db.saveToQueue(item);
+          
+          // Save OCR results if not rate limited
+          if (!hasRateLimit) {
+            await this.db.saveResults(item.id, results);
+          }
         } catch (error) {
-          console.error(`Error processing ${item.filename}:`, error);
+          console.error(`[Process] Processing error for ${item.filename}:`, error);
           
-          if (error instanceof Error && (
-            error.name === "AbortError" || 
-            error.message === "Processing aborted"
-          )) {
-            console.log(`[Process] Processing aborted for ${item.filename}`);
+          // Check if processing was cancelled
+          if (error instanceof Error && error.name === "AbortError") {
+            console.log(`[Process] Processing cancelled for ${item.filename}`);
             return;
           }
           
-          // Check if the error is related to rate limiting
-          const isRateLimitError = error instanceof Error && 
-            (error.message.includes("429") || error.message.includes("rate limit"));
-          
-          if (isRateLimitError) {
-            // Set a default retry time of 60 seconds if we can't extract it
-            const retryAfter = 60;
-            item.rateLimitInfo = {
-              isRateLimited: true,
-              retryAfter,
-              rateLimitStart: Date.now()
-            };
-            console.log(`[Process] Rate limited for ${item.filename}. Retry after ${retryAfter}s`);
-            await db.saveToQueue(item);
-            return;
-          }
-          
+          // Update status to error
           item.status = "error";
-          item.error = error instanceof Error ? error.message : "Unknown error occurred";
           item.endTime = Date.now();
-          await db.saveToQueue(item);
-          this.abortControllers.delete(item.id);
+          item.error = error instanceof Error ? error.message : `Unknown error: ${error}`;
+          await this.db.saveToQueue(item);
         }
       });
 
+      // Wait for all processes to complete
       await Promise.all(processingPromises);
-    } catch (error) {
-      console.error("Queue processing error:", error);
-    }
 
-    this.isProcessing = false;
-
-    // Check if there are more items to process
-    const remainingItems = Array.from(this.queueMap.values())
-      .filter(item => item.status === "queued");
-      
-    // Check for rate-limited items that are ready to retry
-    const rateLimitedItems = Array.from(this.queueMap.values())
-      .filter(item => 
-        item.status === "processing" && 
-        item.rateLimitInfo?.isRateLimited &&
-        Date.now() >= (item.rateLimitInfo.rateLimitStart + (item.rateLimitInfo.retryAfter * 1000))
+      // Check if there are more items to process
+      const remainingItems = Array.from(this.queueMap.values()).filter(
+        item => item.status === "queued"
       );
-    
-    // Reset rate-limited items to queued state if they're ready to retry
-    if (rateLimitedItems.length > 0) {
-      for (const item of rateLimitedItems) {
-        console.log(`[Process] Rate limit period ended for ${item.filename}. Requeuing...`);
-        item.status = "queued";
-        item.rateLimitInfo = undefined;
-        await db.saveToQueue(item);
-      }
-    }
       
-    if ((remainingItems.length > 0 || rateLimitedItems.length > 0) && !this.isPaused) {
-      // Use setTimeout to prevent stack overflow with recursive calls
-      setTimeout(() => this.processQueue(), 0);
+      // Check for rate-limited items that can be retried
+      const rateLimitedItems = Array.from(this.queueMap.values())
+        .filter(item => {
+          if (item.status !== "rate_limited" || !item.rateLimitInfo) return false;
+          
+          const now = Date.now();
+          const retryTime = item.rateLimitInfo.timestamp + item.rateLimitInfo.retryAfter;
+          return now >= retryTime;
+        });
+      
+      this.isProcessing = false;
+      
+      // Reset rate-limited items to queued state if they're ready to retry
+      if (rateLimitedItems.length > 0) {
+        for (const item of rateLimitedItems) {
+          console.log(`[Process] Rate limit period ended for ${item.filename}. Requeuing...`);
+          item.status = "queued";
+          item.rateLimitInfo = undefined;
+          await this.db.saveToQueue(item);
+        }
+      }
+        
+      if ((remainingItems.length > 0 || rateLimitedItems.length > 0) && !this.isPaused) {
+        // Use setTimeout to prevent stack overflow with recursive calls
+        setTimeout(() => this.processQueue(), 0);
+      }
+    } catch (error) {
+      console.error("[Process] Queue processing error:", error);
+      this.isProcessing = false;
     }
   }
 
@@ -231,12 +228,12 @@ export class QueueManager {
       Array.from(this.abortControllers.values()).forEach(controller => controller.abort());
       this.abortControllers.clear();
     }
-    // Save current state to IndexedDB
+    // Save current state to the database
     for (const status of Array.from(this.queueMap.values())) {
       if (status.status === "processing") {
         status.status = "queued";
       }
-      await db.saveToQueue(status);
+      await this.db.saveToQueue(status);
     }
   }
 
@@ -271,7 +268,7 @@ export class QueueManager {
 
     // Save to queue and notify UI
     this.queueMap.set(id, status);
-    await db.saveToQueue(status);
+    await this.db.saveToQueue(status);
 
     // If this was the only processing item, reset processing state
     const processingItems = Array.from(this.queueMap.values()).filter(
@@ -283,17 +280,26 @@ export class QueueManager {
   }
 
   async getStatus(id: string): Promise<ProcessingStatus | undefined> {
-    return this.queueMap.get(id) || db.getQueue().then((queue) => queue.find((item) => item.id === id));
+    return this.queueMap.get(id) || this.db.getQueue().then((queue) => queue.find((item) => item.id === id));
   }
 
   async getAllStatus(): Promise<ProcessingStatus[]> {
     return Array.from(this.queueMap.values());
   }
-
-  private isFileValid(file: File): boolean {
-    if (file.size > this.uploadSettings.maxFileSize * 1024 * 1024) return false;
-    return this.uploadSettings.allowedFileTypes.some(type =>
-      file.name.toLowerCase().endsWith(type.toLowerCase())
-    );
+  
+  /**
+   * Cleanup method to be called when QueueManager is no longer needed
+   * Unsubscribes from settings changes to prevent memory leaks
+   */
+  destroy() {
+    if (this.unsubscribe) {
+      this.unsubscribe();
+    }
+    
+    // Abort any in-progress operations
+    if (this.abortControllers.size > 0) {
+      Array.from(this.abortControllers.values()).forEach(controller => controller.abort());
+      this.abortControllers.clear();
+    }
   }
 } 

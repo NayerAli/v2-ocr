@@ -20,19 +20,20 @@ export interface OCRResult {
   rateLimitInfo?: {
     isRateLimited: boolean
     retryAfter: number
-    retryAt: string
+    timestamp: number
   }
 }
 
 export interface ProcessingStatus {
   id: string
   filename: string
-  status: 'pending' | 'processing' | 'completed' | 'failed' | 'queued' | 'error' | 'cancelled'
+  status: 'pending' | 'processing' | 'completed' | 'failed' | 'queued' | 'error' | 'cancelled' | 'rate_limited'
   progress?: number
   error?: string
   file?: File
-  size?: number
-  type?: string
+  fileType?: string
+  fileSize?: number
+  fileUrl?: string
   currentPage?: number
   totalPages?: number
   startTime?: number
@@ -40,13 +41,14 @@ export interface ProcessingStatus {
   completionTime?: number
   metadata?: Record<string, any>
   results?: OCRResult[]
-  createdAt: Date
-  updatedAt: Date
+  createdAt: Date | string
+  updatedAt: Date | string
   rateLimitInfo?: {
     isRateLimited: boolean
     retryAfter: number
-    rateLimitStart: number
+    timestamp: number
   }
+  migrated?: boolean
 }
 
 export interface OCRSettings {

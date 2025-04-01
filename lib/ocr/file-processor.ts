@@ -5,10 +5,12 @@ import type { PDFDocumentProxy } from "pdfjs-dist";
 import { getDocument } from "pdfjs-dist";
 import type { OCRProvider } from "./providers/types";
 import { MistralOCRProvider } from "./providers/mistral";
+import { createFileStorageAdapter } from "./file-storage-adapter";
 
 export class FileProcessor {
   private processingSettings: ProcessingSettings;
   private ocrProvider: OCRProvider;
+  private fileStorage = createFileStorageAdapter();
 
   constructor(processingSettings: ProcessingSettings, ocrProvider: OCRProvider) {
     this.processingSettings = processingSettings;
@@ -16,12 +18,18 @@ export class FileProcessor {
   }
 
   async processFile(status: ProcessingStatus, signal: AbortSignal): Promise<OCRResult[]> {
-    if (!status.file) throw new Error("No file to process");
     console.log(`[Process] Starting ${status.filename}`);
 
+    // Get the file data - either from status.file or from Supabase storage via the URL
+    const fileData = await this.fileStorage.getFileData(status);
+    
+    if (!fileData) {
+      throw new Error("No file to process");
+    }
+
     // For images
-    if (status.file.type.startsWith("image/")) {
-      const base64 = await this.fileToBase64(status.file);
+    if (status.fileType?.startsWith("image/") || (fileData instanceof File && fileData.type.startsWith("image/"))) {
+      const base64 = await this.fileToBase64(fileData);
       
       // Check if cancelled
       if (signal.aborted) {
@@ -32,16 +40,16 @@ export class FileProcessor {
       console.log(`[Process] Processing image: ${status.filename}`);
       const result = await this.ocrProvider.processImage(base64, signal);
       result.documentId = status.id;
-      result.imageUrl = `data:${status.file.type};base64,${base64}`;
+      result.imageUrl = `data:${status.fileType || fileData.type};base64,${base64}`;
       console.log(`[Process] Completed image: ${status.filename}`);
       return [result];
     }
 
     // For PDFs
-    if (status.file.type === "application/pdf") {
+    if (status.fileType === "application/pdf" || (fileData instanceof File && fileData.type === "application/pdf")) {
       try {
         console.log(`[Process] Processing PDF: ${status.filename}`);
-        const fileSize = status.file.size;
+        const fileSize = status.fileSize || (fileData instanceof File ? fileData.size : 0);
         const fileSizeMB = fileSize / (1024 * 1024);
         console.log(`[Process] PDF file size: ${Math.round(fileSizeMB * 100) / 100}MB`);
         
@@ -51,7 +59,15 @@ export class FileProcessor {
         }
         
         // Get array buffer and load PDF to get page count
-        const arrayBuffer = await status.file.arrayBuffer();
+        let arrayBuffer: ArrayBuffer;
+        if (fileData instanceof ArrayBuffer) {
+          arrayBuffer = fileData;
+        } else if (fileData instanceof Blob) {
+          arrayBuffer = await fileData.arrayBuffer();
+        } else {
+          throw new Error("Invalid file data type");
+        }
+        
         const pdf = await getDocument({ data: arrayBuffer }).promise;
         const numPages = pdf.numPages;
         status.totalPages = numPages;
@@ -65,7 +81,7 @@ export class FileProcessor {
             
             try {
               // Convert PDF to base64
-              const base64Data = await this.fileToBase64(status.file);
+              const base64Data = await this.fileToBase64(fileData);
               console.log(`[Process] Successfully converted PDF to base64`);
               
               // Check if cancelled
@@ -92,18 +108,17 @@ export class FileProcessor {
             console.log(`[Process] PDF exceeds Mistral limits. Processing page by page.`);
             return this.processPageByPage(pdf, status, signal);
           }
-        } else {
-          // For non-Mistral providers, always process page by page
-          console.log(`[Process] Using non-Mistral provider. Processing PDF page by page.`);
-          return this.processPageByPage(pdf, status, signal);
         }
+        // For non-Mistral providers, always process page by page
+        console.log(`[Process] Using non-Mistral provider. Processing PDF page by page.`);
+        return this.processPageByPage(pdf, status, signal);
       } catch (error) {
         console.error(`[Process] Error processing PDF: ${error}`);
         throw error;
       }
     }
 
-    throw new Error(`Unsupported file type: ${status.file.type}`);
+    throw new Error(`Unsupported file type: ${status.fileType || (fileData instanceof File ? fileData.type : 'unknown')}`);
   }
   
   private async processPageByPage(pdf: PDFDocumentProxy, status: ProcessingStatus, signal: AbortSignal): Promise<OCRResult[]> {
@@ -225,7 +240,7 @@ export class FileProcessor {
     }
   }
 
-  private async fileToBase64(file: File): Promise<string> {
+  private async fileToBase64(file: File | Blob): Promise<string> {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => {

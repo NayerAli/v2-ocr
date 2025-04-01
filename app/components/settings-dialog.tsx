@@ -14,11 +14,12 @@ import { CONFIG } from "@/config/constants"
 import { validateGoogleApiKey, validateMicrosoftApiKey, validateMistralApiKey } from "@/lib/api-validation"
 import { useToast } from "@/hooks/use-toast"
 import { cn } from "@/lib/utils"
-import { db } from "@/lib/indexed-db"
+import { getDatabaseService } from "@/lib/db-factory"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import type { DatabaseStats } from "@/types/settings"
 import { useLanguage } from "@/hooks/use-language"
 import { t, type Language } from "@/lib/i18n/translations"
+import { SupabaseSettings } from "./supabase-settings"
 
 interface SettingsDialogProps {
   open: boolean
@@ -97,8 +98,9 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   }
 
   const refreshStats = async () => {
-    const stats = await db.getDatabaseStats()
-    setStats(stats)
+    const db = getDatabaseService(settings.database.preferredProvider);
+    const stats = await db.getDatabaseStats();
+    setStats(stats);
   }
 
   return (
@@ -113,10 +115,11 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
 
         <div className="flex-1 overflow-y-auto -mr-6 pr-6 my-6">
           <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-            <TabsList className="grid w-full grid-cols-4 sticky top-0 bg-background z-10 mb-6">
+            <TabsList className="grid w-full grid-cols-5 sticky top-0 bg-background z-10 mb-6">
               <TabsTrigger value="ocr" className="text-sm px-1">{t('ocrTab', language)}</TabsTrigger>
               <TabsTrigger value="processing" className="text-sm px-1">{t('processingTab', language)}</TabsTrigger>
               <TabsTrigger value="upload" className="text-sm px-1">{t('uploadTab', language)}</TabsTrigger>
+              <TabsTrigger value="database" className="text-sm px-1">Database</TabsTrigger>
               <TabsTrigger value="stats" className="text-sm px-1">{t('statsTab', language)}</TabsTrigger>
             </TabsList>
 
@@ -378,6 +381,10 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                     />
                   </div>
                 </div>
+              </TabsContent>
+
+              <TabsContent value="database" className="space-y-4 mt-0 mb-6">
+                <SupabaseSettings />
               </TabsContent>
 
               <TabsContent value="stats" className="space-y-4 mt-0 mb-6">

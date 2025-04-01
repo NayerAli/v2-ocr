@@ -59,6 +59,17 @@ function createServiceComponents(settings: ServiceSettings, rateLimiter: AzureRa
  * Get or create the processing service instance
  */
 export function getProcessingService(settings: ServiceSettings) {
+  // Cleanup previous service instance if settings have changed
+  if (serviceState && (
+    JSON.stringify(serviceState.ocrSettings) !== JSON.stringify(settings.ocr) ||
+    JSON.stringify(serviceState.processingSettings) !== JSON.stringify(settings.processing) ||
+    JSON.stringify(serviceState.uploadSettings) !== JSON.stringify(settings.upload)
+  )) {
+    // Cleanup old resources
+    serviceState.queueManager.destroy();
+    serviceState = null;
+  }
+
   if (!serviceState) {
     const azureRateLimiter = new AzureRateLimiter();
     serviceState = {
@@ -69,22 +80,6 @@ export function getProcessingService(settings: ServiceSettings) {
     // Initialize asynchronously
     initializeService(serviceState).catch(err => 
       console.error('[ProcessingService] Initialization error:', err)
-    );
-  } else if (
-    JSON.stringify(serviceState.ocrSettings) !== JSON.stringify(settings.ocr) ||
-    JSON.stringify(serviceState.processingSettings) !== JSON.stringify(settings.processing) ||
-    JSON.stringify(serviceState.uploadSettings) !== JSON.stringify(settings.upload)
-  ) {
-    // Update settings if they've changed
-    const components = createServiceComponents(settings, serviceState.azureRateLimiter);
-    serviceState = {
-      ...components,
-      azureRateLimiter: serviceState.azureRateLimiter
-    };
-    
-    // Initialize with new settings
-    initializeService(serviceState).catch(err => 
-      console.error('[ProcessingService] Reinitialization error:', err)
     );
   }
   

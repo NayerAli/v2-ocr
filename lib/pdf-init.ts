@@ -1,4 +1,5 @@
 import * as pdfjsLib from "pdfjs-dist"
+import "pdfjs-dist/build/pdf.worker.mjs"
 
 let isInitialized = false
 
@@ -6,11 +7,9 @@ export async function initializePDFJS() {
   if (isInitialized) return
 
   try {
-    // Set the worker source path directly
-    pdfjsLib.GlobalWorkerOptions.workerSrc = 
-      `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
-
-    // Test PDF.js initialization with proper error handling
+    // Don't set GlobalWorkerOptions.workerSrc as the worker is imported directly
+    
+    // Test initialization
     await pdfjsLib.getDocument(new Uint8Array([37, 80, 68, 70, 45])).promise
       .catch(error => {
         if (error.name === "InvalidPDFException") {
@@ -18,7 +17,7 @@ export async function initializePDFJS() {
           return
         }
         throw error
-      })
+      });
 
     isInitialized = true
     console.log("PDF.js initialized successfully")
@@ -28,7 +27,7 @@ export async function initializePDFJS() {
   }
 }
 
-// Initialize on module load
+// Initialize on module load, but only in browser
 if (typeof window !== "undefined") {
   initializePDFJS().catch(console.error)
 } 

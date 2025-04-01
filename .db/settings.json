@@ -1,0 +1,43 @@
+{
+  "ocr": {
+    "provider": "google",
+    "apiKey": "AIzaSyA9zNTZb8JBDT9W2LwKjbqsDvVnXeVe_9E",
+    "region": "",
+    "language": "en"
+  },
+  "processing": {
+    "maxConcurrentJobs": 1,
+    "pagesPerChunk": 2,
+    "concurrentChunks": 1,
+    "retryAttempts": 2,
+    "retryDelay": 1000
+  },
+  "upload": {
+    "maxFileSize": 500,
+    "allowedFileTypes": [
+      ".pdf",
+      ".jpg",
+      ".jpeg",
+      ".png"
+    ],
+    "maxSimultaneousUploads": 5
+  },
+  "display": {
+    "theme": "system",
+    "fontSize": 14,
+    "showConfidenceScores": true,
+    "highlightUncertain": true
+  },
+  "database": {
+    "autoCleanup": false,
+    "cleanupThreshold": 90,
+    "retentionPeriod": 30,
+    "maxStorageSize": 1000
+  },
+  "export": {
+    "format": "txt",
+    "naming": "{filename}-{timestamp}"
+  },
+  "isLoading": false,
+  "error": null
+}

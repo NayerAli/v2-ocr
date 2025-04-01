@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react"
-import { ArrowLeft, Download, Copy, ChevronLeft, ChevronRight, Check, AlertCircle, Keyboard, Search, Minus, Plus, Type, ScanLine, Upload, FileText, ImageIcon } from "lucide-react"
+import { ArrowLeft, Download, Copy, ChevronLeft, ChevronRight, Check, AlertCircle, Keyboard, Search, Minus, Plus, Type, ScanLine, Upload, FileText, ImageIcon, ZoomIn, ZoomOut, X, Cloud } from "lucide-react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -28,9 +28,14 @@ import {
 import { useRouter } from "next/navigation"
 import { useLanguage } from "@/hooks/use-language"
 import { Language, t, tCount } from "@/lib/i18n/translations"
+import Image from "next/image"
+import { format } from "date-fns"
+import { createDatabaseAdapter } from "@/lib/db-factory"
+import { createFileStorageAdapter } from "@/lib/ocr/file-storage-adapter"
+import { FileNameDisplay } from "@/app/components/document-list"
 
 const LOADING_TIMEOUT = 30000 // 30 seconds
-const OPERATION_TIMEOUT = 10000 // 10 seconds
+const OPERATION_TIMEOUT = 20000 // 20 seconds
 
 // Add LRU Cache for images
 class ImageCache {
@@ -97,42 +102,47 @@ function isRTLText(text: string): boolean {
   return rtlRegex.test(text)
 }
 
-function FileNameDisplay({ filename }: { filename: string }) {
-  const isRTL = isRTLText(filename)
-  return (
-    <div className="flex-1 min-w-0">
-      <span
-        className={cn(
-          "text-lg font-semibold inline-block",
-          isRTL && "text-right",
-          // Use responsive max-width classes
-          "max-w-[280px] sm:max-w-[400px] md:max-w-[500px] lg:max-w-[600px] xl:max-w-[800px]",
-          "truncate"
-        )}
-        style={{
-          direction: isRTL ? 'rtl' : 'ltr',
-          unicodeBidi: 'isolate',
-          // Add text overflow handling
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-          overflow: 'hidden',
-          // Ensure proper text wrapping for RTL
-          overflowWrap: 'break-word',
-          wordWrap: 'break-word'
-        }}
-        title={filename} // Add tooltip for full filename on hover
-      >
-        {filename}
-      </span>
-    </div>
-  )
-}
-
 function toArabicNumerals(num: number | string, language: Language): string {
   if (language !== 'ar' && language !== 'fa') return String(num)
   
   const arabicNumerals = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩']
   return String(num).replace(/[0-9]/g, (d) => arabicNumerals[parseInt(d)])
+}
+
+// Database access
+const db = createDatabaseAdapter()
+const fileStorage = createFileStorageAdapter()
+
+// Document status display helper
+function getStatusDisplay(status: string, currentPage: number, totalPages: number): string {
+  switch (status) {
+    case 'completed':
+      return `Completed • ${totalPages} pages`
+    case 'processing':
+      return `Processing • ${currentPage}/${totalPages} pages`
+    case 'cancelled':
+      return `Cancelled • ${currentPage} pages processed`
+    default:
+      return status.charAt(0).toUpperCase() + status.slice(1)
+  }
+}
+
+// Generate text timestamp
+function getTextTimestamp(): string {
+  return format(new Date(), "yyyy-MM-dd HH:mm:ss")
+}
+
+// Helpers for text formatting
+function normalizeText(text: string): string {
+  return text
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function formatTextForCopying(text: string): string {
+  return text
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
 }
 
 export default function DocumentPage({ params }: { params: { id: string } }) {
@@ -164,64 +174,20 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
   const router = useRouter()
   const [pageInputValue, setPageInputValue] = useState<string>("")
   const [isEditingPage, setIsEditingPage] = useState(false)
+  const [isLoadingFile, setIsLoadingFile] = useState(false)
+  const [imageBlob, setImageBlob] = useState<string | null>(null)
 
   const currentResult = results.find((r) => r.pageNumber === currentPage)
 
-  // Move getStatusDisplay inside the component
-  const getStatusDisplay = (status: string, currentPage?: number, totalPages?: number) => {
-    switch (status) {
-      case "processing":
-        return totalPages 
-          ? tCount('processingPage', currentPage || 0, language)
-          : t('processing', language)
-      case "completed":
-        return t('completed', language)
-      case "queued":
-        return t('queued', language)
-      case "cancelled":
-        return t('cancelled', language)
-      case "error":
-        return t('error', language)
-      default:
-        return status
-    }
-  }
-
-  // Zoom-related functions
+  // Text formatting functions
   const handleZoomChange = useCallback((newZoom: number) => {
-    if (!imageContainerRef.current || !imageRef.current) return
-
-    const container = imageContainerRef.current
-    const image = imageRef.current
+    setZoomLevel(newZoom)
     
-    // Reset pan position when zooming to 100% or less
+    // Reset pan position when zooming out to 100%
     if (newZoom <= 100) {
       setPanPosition({ x: 0, y: 0 })
-    } else {
-      // Maintain center point when zooming
-      const containerRect = container.getBoundingClientRect()
-      const imageRect = image.getBoundingClientRect()
-
-      const containerCenterX = containerRect.width / 2
-      const containerCenterY = containerRect.height / 2
-      const imageCenterX = (imageRect.left + imageRect.right) / 2
-      const imageCenterY = (imageRect.top + imageRect.bottom) / 2
-
-      const scaleDiff = newZoom / zoomLevel
-      const newX = (containerCenterX - imageCenterX) * (scaleDiff - 1)
-      const newY = (containerCenterY - imageCenterY) * (scaleDiff - 1)
-
-      // Apply smooth transition to pan position
-      requestAnimationFrame(() => {
-        setPanPosition(prev => ({
-          x: prev.x + newX,
-          y: prev.y + newY
-        }))
-      })
     }
-
-    setZoomLevel(newZoom)
-  }, [zoomLevel])
+  }, [])
 
   const handleZoomIn = useCallback(() => {
     handleZoomChange(Math.min(zoomLevel + 25, 200))
@@ -261,6 +227,30 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
           return
         }
         setDocStatus(doc)
+
+        // If we need to load a remote file, do it now
+        if (doc.fileUrl && !doc.file) {
+          setIsLoadingFile(true)
+          try {
+            // This will download the file using our adapter
+            const fileData = await fileStorage.getFileData(doc)
+            if (fileData) {
+              // Update the doc with the file data
+              doc.file = fileData
+            } else {
+              console.warn("Could not retrieve file data for document:", doc.id)
+            }
+          } catch (error) {
+            console.error("Error loading file from storage:", error)
+            toast({
+              variant: "destructive",
+              title: "File Access Error",
+              description: "Could not access the file from storage. Some features may be limited.",
+            })
+          } finally {
+            setIsLoadingFile(false)
+          }
+        }
 
         if (doc.status === "cancelled") {
           clearTimeout(timeoutId)
@@ -306,34 +296,60 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     setIsRetrying(false)
   }, [])
 
-  // Preload image when URL changes
+  // For remote image URLs, use our file storage adapter
   useEffect(() => {
-    if (!currentResult?.imageUrl) return
+    if (!currentResult?.imageUrl || imageBlob) return
 
-    const img = new Image()
-    img.onload = () => {
-      setImageLoaded(true)
-      setImageError(false)
-      setIsRetrying(false)
-    }
-    img.onerror = () => {
-      setImageError(true)
-      setImageLoaded(false)
-      setIsRetrying(false)
-    }
-    img.src = currentResult.imageUrl
+    const loadImage = async () => {
+      try {
+        setImageLoaded(false)
+        setImageError(false)
+        
+        if (currentResult.imageUrl?.startsWith('blob:') || currentResult.imageUrl?.startsWith('data:')) {
+          // It's already a blob or data URL, just use it directly
+          setImageBlob(currentResult.imageUrl)
+          return
+        }
 
-    return () => {
-      img.onload = null
-      img.onerror = null
+        // If it's a remote URL, use our file storage to get it
+        if (docStatus && currentResult.imageUrl) {
+          // Create a modified status object with the image URL as fileUrl
+          const imageStatus = {
+            ...docStatus,
+            fileUrl: currentResult.imageUrl
+          }
+          
+          const fileData = await fileStorage.downloadFile(imageStatus)
+          if (fileData) {
+            const blobUrl = URL.createObjectURL(fileData)
+            setImageBlob(blobUrl)
+            
+            // Clean up on unmount
+            return () => {
+              URL.revokeObjectURL(blobUrl)
+            }
+          } else {
+            setImageError(true)
+            console.error("Failed to load image from URL:", currentResult.imageUrl)
+          }
+        }
+      } catch (error) {
+        console.error("Error loading image:", error)
+        setImageError(true)
+      } finally {
+        setImageLoaded(true)
+      }
     }
-  }, [currentResult?.imageUrl])
+
+    loadImage()
+  }, [currentResult?.imageUrl, docStatus])
 
   // Reset states when page changes
   useEffect(() => {
     setImageLoaded(false)
     setImageError(false)
     setIsRetrying(false)
+    setImageBlob(null)
   }, [currentPage])
 
   // Add preloading logic
@@ -410,27 +426,17 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
   }
 
   const handleCopyText = useCallback(async () => {
-    if (!currentResult?.text || isCopying) return
-    
+    if (!currentResult || isCopying) return
+
     try {
       setIsCopying(true)
-      const copyTimeout = setTimeout(() => {
-        setIsCopying(false)
-        toast({
-          variant: "destructive",
-          title: "Copy Failed",
-          description: "Failed to copy text. Please try again.",
-        })
-      }, OPERATION_TIMEOUT)
-
-      await navigator.clipboard.writeText(currentResult.text)
-      clearTimeout(copyTimeout)
+      const text = formatTextForCopying(currentResult.text || '')
+      
+      await navigator.clipboard.writeText(text)
       toast({
         title: "Text Copied",
-        description: "The text has been copied to your clipboard.",
+        description: "The extracted text has been copied to your clipboard.",
       })
-      // Keep the checkmark visible briefly
-      await new Promise(resolve => setTimeout(resolve, 1000))
     } catch (err) {
       console.error("Copy error:", err)
       toast({
@@ -441,7 +447,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     } finally {
       setIsCopying(false)
     }
-  }, [currentResult?.text, isCopying, toast])
+  }, [currentResult, isCopying, toast])
 
   const handleDownload = async () => {
     if (!results.length || !docStatus || isDownloading) return
@@ -1312,91 +1318,105 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
   )
 
   const renderImageContent = () => {
-    if (isLoading) {
+    if (isLoading || isLoadingFile) {
       return (
         <div className="w-full h-full flex items-center justify-center">
-          <div className="relative w-full h-full">
-            <Skeleton className="absolute inset-0" />
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="flex flex-col items-center gap-3">
-                <div className="h-5 w-5 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
-                <p className="text-sm text-muted-foreground animate-pulse">Loading document...</p>
-              </div>
-            </div>
+          <div className="flex flex-col items-center">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <p className="mt-4 text-sm text-muted-foreground">
+              {isLoadingFile ? "Loading file from storage..." : "Loading document..."}
+            </p>
           </div>
         </div>
       )
     }
 
-    if (docStatus?.status === "cancelled" && !results.length) {
+    if (error) {
       return (
         <div className="w-full h-full flex items-center justify-center">
-          <div className="relative w-full h-full">
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="w-full max-w-md p-6 text-center">
-                <div className="mb-6">
-                  <div className="relative mx-auto h-24 w-24">
-                    <div className="absolute inset-0 rounded-full border-4 border-dashed border-gray-200 dark:border-gray-800 animate-[spin_10s_linear_infinite]" />
-                    <div className="absolute inset-3 rounded-full bg-muted flex items-center justify-center">
-                      <AlertCircle className="h-8 w-8 text-muted-foreground" />
-                    </div>
-                  </div>
+          <div className="max-w-md mx-auto p-6 text-center">
+            <X className="h-12 w-12 text-destructive mx-auto mb-4" />
+            <h3 className="text-lg font-medium mb-2">Error Loading Document</h3>
+            <p className="text-muted-foreground">{error}</p>
+            <Button 
+              variant="outline" 
+              className="mt-4"
+              onClick={() => router.push('/documents')}
+            >
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back to Documents
+            </Button>
+          </div>
+        </div>
+      )
+    }
+
+    if (!docStatus) {
+      return (
+        <div className="w-full h-full flex items-center justify-center">
+          <p className="text-muted-foreground">Document not found</p>
+        </div>
+      )
+    }
+
+    if (docStatus.status === "cancelled") {
+      return (
+        <div className="w-full h-full flex items-center justify-center">
+          <div className="max-w-md mx-auto p-6 text-center">
+            <X className="h-12 w-12 text-destructive mx-auto mb-4" />
+            <h3 className="text-lg font-medium mb-2">Processing Cancelled</h3>
+            {(docStatus.currentPage ?? 0) > 0 ? (
+              <>
+                <p className="text-muted-foreground mb-6">
+                  This document&apos;s processing was cancelled, but {docStatus.currentPage ?? 0} {(docStatus.currentPage ?? 0) === 1 ? "page was" : "pages were"} processed successfully.
+                  Use the navigation controls above to view the processed pages.
+                </p>
+                <div className="flex flex-col gap-3 sm:flex-row items-center justify-center">
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => router.push('/documents')}
+                    className="w-full sm:w-auto"
+                  >
+                    <ArrowLeft className="h-4 w-4 mr-2" />
+                    Back to Documents
+                  </Button>
                 </div>
-                <h3 className="text-lg font-semibold mb-2">Processing Cancelled</h3>
-                {(docStatus.currentPage ?? 0) > 0 ? (
-                  <>
-                    <p className="text-muted-foreground mb-6">
-                      This document&apos;s processing was cancelled, but {docStatus.currentPage ?? 0} {(docStatus.currentPage ?? 0) === 1 ? "page was" : "pages were"} processed successfully.
-                      Use the navigation controls above to view the processed pages.
-                    </p>
-                    <div className="flex flex-col gap-3 sm:flex-row items-center justify-center">
-                      <Button 
-                        variant="outline" 
-                        size="sm"
-                        onClick={() => router.push('/documents')}
-                        className="w-full sm:w-auto"
-                      >
-                        <ArrowLeft className="h-4 w-4 mr-2" />
-                        Back to Documents
-                      </Button>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-muted-foreground mb-6">
-                      This document&apos;s processing was cancelled before any pages could be processed.
-                      You may want to try processing it again.
-                    </p>
-                    <div className="flex flex-col gap-3 sm:flex-row items-center justify-center">
-                      <Button 
-                        variant="outline" 
-                        size="sm"
-                        onClick={() => router.push('/documents')}
-                        className="w-full sm:w-auto"
-                      >
-                        <ArrowLeft className="h-4 w-4 mr-2" />
-                        Back to Documents
-                      </Button>
-                      <Button
-                        variant="default"
-                        size="sm"
-                        onClick={() => router.push('/')}
-                        className="w-full sm:w-auto"
-                      >
-                        <Upload className="h-4 w-4 mr-2" />
-                        Try Processing Again
-                      </Button>
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
+              </>
+            ) : (
+              <>
+                <p className="text-muted-foreground mb-6">
+                  This document&apos;s processing was cancelled before any pages could be processed.
+                  You may want to try processing it again.
+                </p>
+                <div className="flex flex-col gap-3 sm:flex-row items-center justify-center">
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => router.push('/documents')}
+                    className="w-full sm:w-auto"
+                  >
+                    <ArrowLeft className="h-4 w-4 mr-2" />
+                    Back to Documents
+                  </Button>
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={() => router.push('/')}
+                    className="w-full sm:w-auto"
+                  >
+                    <Upload className="h-4 w-4 mr-2" />
+                    Try Processing Again
+                  </Button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )
     }
 
-    if (!currentResult?.imageUrl) {
+    if (!currentResult?.imageUrl && !imageBlob) {
       return (
         <div className="w-full h-full flex items-center justify-center">
           <div className="relative w-full h-full border-2 border-dashed rounded-lg bg-muted/5">
@@ -1408,66 +1428,94 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
       )
     }
 
-    const cachedImage = imageCache.get(currentResult.imageUrl)
-    const showLoadingState = !imageLoaded && !cachedImage
+    const showLoadingState = !imageLoaded || !imageBlob
+    const imageUrl = imageBlob || currentResult?.imageUrl
 
     return (
       <div 
         ref={imageContainerRef}
         className={cn(
-          "relative w-full h-full",
-          zoomLevel > 100 ? "overflow-auto" : "overflow-hidden",
-          isPanning && "cursor-grabbing",
-          zoomLevel > 100 && !isPanning && "cursor-grab"
+          "w-full h-full flex items-center justify-center relative overflow-hidden",
+          !imageLoaded && "bg-muted/5",
+          (zoomLevel > 100 || isPanning) && "cursor-grab",
+          isPanning && "cursor-grabbing"
         )}
         onMouseDown={handlePanStart}
         onMouseMove={handlePanMove}
         onMouseUp={handlePanEnd}
         onMouseLeave={handlePanEnd}
       >
-        <div className="min-h-full flex items-center justify-center p-4">
-          <div
-            className="relative will-change-transform"
-            style={{
-              transform: `scale(${zoomLevel / 100}) translate(${panPosition.x}px, ${panPosition.y}px)`,
-              transformOrigin: 'center',
-              transition: isPanning ? 'none' : 'all 0.15s cubic-bezier(0.4, 0, 0.2, 1)',
-              backfaceVisibility: 'hidden',
-              WebkitBackfaceVisibility: 'hidden',
-            }}
-          >
-            {showLoadingState && !imageError && (
-              <div className="absolute inset-0 flex items-center justify-center bg-muted/5">
-                <div className="flex flex-col items-center gap-3">
-                  <div className="h-5 w-5 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
-                  <p className="text-sm text-muted-foreground animate-pulse">
-                    {isRetrying ? "Retrying..." : "Loading preview..."}
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              ref={imageRef}
-              key={`${currentResult.imageUrl}-${retryCount}`}
-              src={currentResult.imageUrl}
-              alt={`Page ${currentPage}`}
-              className={cn(
-                "max-h-[calc(100vh-14rem)] w-auto rounded-lg select-none",
-                (imageLoaded || cachedImage) && !imageError ? "opacity-100" : "opacity-0",
-                "transition-opacity duration-300",
-                "will-change-transform"
-              )}
-              onLoad={handleImageLoad}
-              onError={handleImageError}
-              draggable={false}
-              loading="eager"
-              decoding="async"
-            />
-
-            {imageError && renderImageError(currentResult.imageUrl)}
+        {showLoadingState && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-muted/5 z-10">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <p className="mt-4 text-sm text-muted-foreground">Loading image...</p>
           </div>
+        )}
+        
+        {imageError && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-muted/10 z-10">
+            <X className="h-8 w-8 text-destructive" />
+            <p className="mt-4 text-sm text-muted-foreground">Failed to load image</p>
+            
+            {retryCount < 3 && (
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="mt-4"
+                disabled={isRetrying}
+                onClick={() => {
+                  setIsRetrying(true)
+                  setRetryCount(count => count + 1)
+                  setImageLoaded(false)
+                  setImageError(false)
+                  setImageBlob(null)
+                  
+                  // Force reload the image
+                  setTimeout(() => {
+                    setIsRetrying(false)
+                  }, 1000)
+                }}
+              >
+                {isRetrying ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                ) : null}
+                Try Again ({retryCount + 1}/3)
+              </Button>
+            )}
+          </div>
+        )}
+        
+        <div
+          style={{
+            transform: `scale(${zoomLevel / 100}) translate(${panPosition.x}px, ${panPosition.y}px)`,
+            transformOrigin: 'center',
+            transition: isPanning ? 'none' : 'transform 0.1s ease-out',
+            maxWidth: '100%',
+            maxHeight: '100%',
+          }}
+        >
+          {imageUrl && (
+            <div className="relative">
+              <img
+                ref={imageRef}
+                src={imageUrl}
+                alt={`Page ${currentPage}`}
+                className={cn(
+                  "max-w-full max-h-full object-contain transition-opacity",
+                  !imageLoaded && "opacity-0",
+                  imageLoaded && "opacity-100"
+                )}
+                onLoad={handleImageLoad}
+                onError={handleImageError}
+              />
+              {docStatus?.fileUrl && currentResult?.imageUrl?.includes('supabase') && (
+                <div className="absolute top-2 right-2 bg-primary text-white px-2 py-1 rounded-full text-xs flex items-center gap-1">
+                  <Cloud className="h-3 w-3" />
+                  Remote File
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     )

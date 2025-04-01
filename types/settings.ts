@@ -35,10 +35,12 @@ export interface DatabaseStats {
 }
 
 export interface DatabaseSettings {
+  preferredProvider: 'local' | 'supabase'
   autoCleanup: boolean
   cleanupThreshold: number // in days
   retentionPeriod: number // in days
   maxStorageSize: number // in MB
+  connectionStatus?: 'untested' | 'success' | 'error' // Track Supabase connection status
 }
 
 export interface ExportSettings {
@@ -60,4 +62,5 @@ export interface SettingsState {
   updateDatabaseSettings: (settings: Partial<DatabaseSettings>) => void
   updateExportSettings: (settings: Partial<ExportSettings>) => void
   resetSettings: () => void
+  syncSettings: () => Promise<boolean>
 } 
