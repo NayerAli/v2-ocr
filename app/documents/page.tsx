@@ -8,7 +8,8 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { DocumentDetailsDialog } from "../components/document-details-dialog"
 import { DocumentList } from "../components/document-list"
-import { db } from "@/lib/indexed-db"
+import { SupabaseError } from "../components/supabase-error"
+import { db } from "@/lib/database"
 import type { ProcessingStatus } from "@/types"
 import { cn } from "@/lib/utils"
 import { useSettingsInit } from "@/hooks/use-settings-init"
@@ -42,7 +43,7 @@ export default function DocumentsPage() {
         if (isInitialLoad) {
           setIsLoadingData(true)
         }
-        
+
         const queue = await db.getQueue()
         if (isSubscribed) {
           setDocuments(queue)
@@ -58,10 +59,10 @@ export default function DocumentsPage() {
 
     // Initial load with loading state
     loadDocuments(true)
-    
+
     // Setup polling without loading state
     const interval = setInterval(() => loadDocuments(false), 3000)
-    
+
     return () => {
       isSubscribed = false
       clearInterval(interval)
@@ -79,8 +80,8 @@ export default function DocumentsPage() {
         return order === "desc" ? b.filename.localeCompare(a.filename) : a.filename.localeCompare(b.filename)
       }
       if (sort === "size") {
-        return order === "desc" 
-          ? (b.size ?? 0) - (a.size ?? 0) 
+        return order === "desc"
+          ? (b.size ?? 0) - (a.size ?? 0)
           : (a.size ?? 0) - (b.size ?? 0)
       }
       return 0
@@ -123,6 +124,7 @@ export default function DocumentsPage() {
 
   return (
     <div className="space-y-8">
+      <SupabaseError />
       <div className="flex items-center justify-between">
         <div>
           <p className="text-sm font-medium text-muted-foreground">{t('documentsLibrary', language)}</p>

@@ -14,7 +14,7 @@ import { CONFIG } from "@/config/constants"
 import { validateGoogleApiKey, validateMicrosoftApiKey, validateMistralApiKey } from "@/lib/api-validation"
 import { useToast } from "@/hooks/use-toast"
 import { cn } from "@/lib/utils"
-import { db } from "@/lib/indexed-db"
+import { db } from "@/lib/database"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import type { DatabaseStats } from "@/types/settings"
 import { useLanguage } from "@/hooks/use-language"
@@ -27,7 +27,7 @@ interface SettingsDialogProps {
 
 function toArabicNumerals(num: number | string, language: Language): string {
   if (language !== 'ar' && language !== 'fa') return String(num)
-  
+
   const arabicNumerals = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩']
   return String(num).replace(/[0-9]/g, (d) => arabicNumerals[parseInt(d)])
 }
@@ -235,9 +235,9 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                       </SelectTrigger>
                       <SelectContent>
                         {CONFIG.SUPPORTED_LANGUAGES.map((lang) => (
-                          <SelectItem 
-                            key={lang.code} 
-                            value={lang.code} 
+                          <SelectItem
+                            key={lang.code}
+                            value={lang.code}
                             className={cn(
                               "flex items-center justify-between gap-2",
                               lang.direction === "rtl" && "font-ibm-plex-sans-arabic"
@@ -359,8 +359,8 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                     <Input
                       id="allowed-file-types"
                       value={settings.upload.allowedFileTypes.join(", ")}
-                      onChange={(e) => settings.updateUploadSettings({ 
-                        allowedFileTypes: e.target.value.split(",").map(type => type.trim()) 
+                      onChange={(e) => settings.updateUploadSettings({
+                        allowedFileTypes: e.target.value.split(",").map(type => type.trim())
                       })}
                     />
                   </div>
@@ -404,7 +404,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                           <div className="flex justify-between">
                             <span>{t('averageSizePerDoc', language)}:</span>
                             <span className="font-mono tabular-nums">
-                              {stats?.totalDocuments ? 
+                              {stats?.totalDocuments ?
                                 toArabicNumerals((stats.dbSize / stats.totalDocuments).toFixed(2), language) : '٠'} MB
                             </span>
                           </div>

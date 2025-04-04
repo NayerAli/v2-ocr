@@ -13,12 +13,13 @@ import { useSettings } from "@/store/settings"
 import { useSettingsInit } from "@/hooks/use-settings-init"
 import { useToast } from "@/hooks/use-toast"
 import { cn } from "@/lib/utils"
-import { db } from "@/lib/indexed-db"
+import { db } from "@/lib/database"
 import { getProcessingService } from "@/lib/processing-service"
 import { formatFileSize } from "@/lib/file-utils"
 import { initializePDFJS } from "@/lib/pdf-init"
 import { DocumentDetailsDialog } from "./components/document-details-dialog"
 import { DocumentList } from "./components/document-list"
+import { SupabaseError } from "./components/supabase-error"
 import { useLanguage } from "@/hooks/use-language"
 import { t, tCount, translationKeys, type Language } from "@/lib/i18n/translations"
 
@@ -31,7 +32,7 @@ interface DashboardStats {
 
 function toArabicNumerals(num: number | string, language: Language): string {
   if (language !== 'ar' && language !== 'fa') return String(num)
-  
+
   const arabicNumerals = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩']
   return String(num).replace(/[0-9]/g, (d) => arabicNumerals[parseInt(d)])
 }
@@ -116,7 +117,7 @@ export default function DashboardPage() {
 
     // Initial load with loading state
     loadQueue(true)
-    
+
     // Setup polling without loading state
     const interval = setInterval(() => loadQueue(false), 3000)
 
@@ -132,7 +133,7 @@ export default function DashboardPage() {
       const newItems = await Promise.all(ids.map((id) => processingService.getStatus(id)))
       setProcessingQueue((prev) => [...prev, ...newItems.filter((item): item is ProcessingStatus => !!item)])
 
-      const message = tCount('filesAddedDesc', files.length, language).replace(/\d+/g, num => 
+      const message = tCount('filesAddedDesc', files.length, language).replace(/\d+/g, num =>
         toArabicNumerals(num, language)
       )
 
@@ -160,15 +161,15 @@ export default function DashboardPage() {
       }
 
       // Remove from active queue but keep in recent documents
-      setProcessingQueue(prev => prev.map(item => 
-        item.id === id 
+      setProcessingQueue(prev => prev.map(item =>
+        item.id === id
           ? { ...item, status: "cancelled" }
           : item
       ))
 
       toast({
         title: "File Removed",
-        description: status.status === "processing" 
+        description: status.status === "processing"
           ? "Processing cancelled and document removed from queue"
           : "Document removed from queue",
       })
@@ -188,10 +189,10 @@ export default function DashboardPage() {
   const handleCancel = async (id: string) => {
     try {
       await processingService.cancelProcessing(id)
-      
+
       // Update the queue item status
-      setProcessingQueue(prev => prev.map(item => 
-        item.id === id 
+      setProcessingQueue(prev => prev.map(item =>
+        item.id === id
           ? { ...item, status: "cancelled" }
           : item
       ))
@@ -230,6 +231,8 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen">
       <div className="space-y-8">
+        {/* Supabase Error Alert */}
+        <SupabaseError />
         {/* Page Header */}
         <div>
           <p className="text-sm font-medium text-muted-foreground">{t('welcome', language)}</p>
@@ -417,8 +420,8 @@ export default function DashboardPage() {
         open={isDetailsOpen}
         onOpenChange={setIsDetailsOpen}
       />
-      <SettingsDialog 
-        open={shouldShowSettings} 
+      <SettingsDialog
+        open={shouldShowSettings}
         onOpenChange={(open) => {
           setShouldShowSettings(open)
           if (!open && isConfigured) {

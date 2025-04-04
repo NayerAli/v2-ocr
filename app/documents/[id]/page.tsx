@@ -8,7 +8,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useToast } from "@/hooks/use-toast"
-import { db } from "@/lib/indexed-db"
+import { db } from "@/lib/database"
 import type { ProcessingStatus, OCRResult } from "@/types"
 import { cn } from "@/lib/utils"
 import {
@@ -130,7 +130,7 @@ function FileNameDisplay({ filename }: { filename: string }) {
 
 function toArabicNumerals(num: number | string, language: Language): string {
   if (language !== 'ar' && language !== 'fa') return String(num)
-  
+
   const arabicNumerals = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩']
   return String(num).replace(/[0-9]/g, (d) => arabicNumerals[parseInt(d)])
 }
@@ -171,7 +171,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
   const getStatusDisplay = (status: string, currentPage?: number, totalPages?: number) => {
     switch (status) {
       case "processing":
-        return totalPages 
+        return totalPages
           ? tCount('processingPage', currentPage || 0, language)
           : t('processing', language)
       case "completed":
@@ -193,7 +193,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
 
     const container = imageContainerRef.current
     const image = imageRef.current
-    
+
     // Reset pan position when zooming to 100% or less
     if (newZoom <= 100) {
       setPanPosition({ x: 0, y: 0 })
@@ -377,7 +377,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
   // Handle image loading
   const handleImageRetry = (imageUrl: string | undefined) => {
     if (!imageUrl || isRetrying) return
-    
+
     setIsRetrying(true)
     setImageError(false)
     setImageLoaded(false)
@@ -401,7 +401,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
       toast({
         variant: "destructive",
         title: "Failed to Load",
-        description: retryCount >= 2 
+        description: retryCount >= 2
           ? "Multiple attempts failed. The image might be corrupted."
           : "Failed to load image. Please try again.",
       })
@@ -411,7 +411,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
 
   const handleCopyText = useCallback(async () => {
     if (!currentResult?.text || isCopying) return
-    
+
     try {
       setIsCopying(true)
       const copyTimeout = setTimeout(() => {
@@ -461,7 +461,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
       const timestamp = new Date().toLocaleString()
       const documentName = docStatus.filename || "document"
       const separator = "=".repeat(80)
-      
+
       const header = [
         separator,
         `Document: ${documentName}`,
@@ -495,7 +495,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
       clearTimeout(downloadTimeout)
-      
+
       toast({
         title: "Download Started",
         description: `Exporting all ${results.length} pages as a single text file with page separations.`,
@@ -579,10 +579,10 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
   // Memoize complex calculations
   const zoomPresets = useMemo(() => {
     if (!imageRef.current) return [25, 50, 75, 100, 125, 150, 200]
-    
+
     const fitZoom = calculateFitZoom('auto')
     const roundedFitZoom = Math.round(fitZoom)
-    
+
     return [
       Math.max(25, Math.round(fitZoom * 0.5)), // Half fit
       roundedFitZoom, // Fit to screen
@@ -676,7 +676,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
   // Add drag handlers
   const handleMouseDown = (e: React.MouseEvent) => {
     if (zoomLevel <= 100) return // Only enable dragging when zoomed in
-    
+
     const container = containerRef.current
     if (!container) return
 
@@ -724,7 +724,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
   // Update pan handlers
   const handlePanStart = (e: React.MouseEvent) => {
     if (!imageContainerRef.current || zoomLevel <= 100) return
-    
+
     e.preventDefault()
     setIsPanning(true)
     lastMousePosition.current = { x: e.clientX, y: e.clientY }
@@ -899,17 +899,17 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     return (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button 
-            variant="ghost" 
-            size="sm" 
+          <Button
+            variant="ghost"
+            size="sm"
             className="h-9 px-3 gap-2 font-normal"
           >
             <Keyboard className="h-4 w-4" />
             <span className="text-sm hidden sm:inline-block">{t('shortcuts', language)}</span>
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent 
-          align="end" 
+        <DropdownMenuContent
+          align="end"
           className="w-[280px] p-3"
           sideOffset={8}
         >
@@ -932,7 +932,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
                       <span className="text-muted-foreground">{shortcut.description}</span>
                       <div className="flex items-center gap-1">
                         {shortcut.key.split(" ").map((key, keyIdx) => (
-                          <kbd 
+                          <kbd
                             key={key}
                             className={cn(
                               "pointer-events-none inline-flex h-5 select-none items-center justify-center rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground",
@@ -973,8 +973,8 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
             <AlertTitle>Error</AlertTitle>
             <AlertDescription>{error}</AlertDescription>
           </Alert>
-          <Button 
-            variant="outline" 
+          <Button
+            variant="outline"
             onClick={() => window.location.reload()}
             className="w-full sm:w-auto"
           >
@@ -1005,8 +1005,8 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
                 This document&apos;s processing was cancelled. You may want to try processing it again.
               </p>
               <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-                <Button 
-                  variant="outline" 
+                <Button
+                  variant="outline"
                   onClick={() => router.push('/documents')}
                   className="w-full sm:w-auto"
                 >
@@ -1123,7 +1123,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
             {renderTextSizeControl()}
             <KeyboardShortcuts />
 
-            <Button 
+            <Button
               variant="ghost"
               size="sm"
               onClick={handleCopyText}
@@ -1143,7 +1143,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
               )}
             </Button>
 
-            <Button 
+            <Button
               variant="ghost"
               size="sm"
               onClick={handleDownload}
@@ -1196,7 +1196,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
             <div className="space-y-2">
               <h3 className="font-semibold">Failed to Load Preview</h3>
               <p className="text-sm text-muted-foreground">
-                {retryCount >= maxRetries 
+                {retryCount >= maxRetries
                   ? "Multiple attempts to load the image have failed. The file might be corrupted or temporarily unavailable."
                   : "The image preview couldn't be loaded. You can try again or continue with the extracted text."}
               </p>
@@ -1207,7 +1207,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
               )}
             </div>
             <div className="flex gap-2">
-              <Button 
+              <Button
                 variant={retryCount >= maxRetries ? "ghost" : "outline"}
                 size="sm"
                 onClick={() => handleImageRetry(imageUrl)}
@@ -1265,7 +1265,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
       >
         <Minus className="h-4 w-4" />
       </Button>
-      
+
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
@@ -1350,8 +1350,8 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
                       Use the navigation controls above to view the processed pages.
                     </p>
                     <div className="flex flex-col gap-3 sm:flex-row items-center justify-center">
-                      <Button 
-                        variant="outline" 
+                      <Button
+                        variant="outline"
                         size="sm"
                         onClick={() => router.push('/documents')}
                         className="w-full sm:w-auto"
@@ -1368,8 +1368,8 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
                       You may want to try processing it again.
                     </p>
                     <div className="flex flex-col gap-3 sm:flex-row items-center justify-center">
-                      <Button 
-                        variant="outline" 
+                      <Button
+                        variant="outline"
                         size="sm"
                         onClick={() => router.push('/documents')}
                         className="w-full sm:w-auto"
@@ -1412,7 +1412,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     const showLoadingState = !imageLoaded && !cachedImage
 
     return (
-      <div 
+      <div
         ref={imageContainerRef}
         className={cn(
           "relative w-full h-full",
@@ -1477,7 +1477,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     <div className="flex flex-col h-screen">
       {renderToolbar()}
       {renderControls()}
-      
+
       <div className="flex-1 overflow-hidden bg-muted/5">
         <div className="container h-full py-4">
           <div className="grid grid-cols-2 gap-6 h-full">
@@ -1487,7 +1487,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
                 <h2 className="text-sm font-medium text-center">Source Document</h2>
               </div>
               <div className="flex-1 relative">
-                <div 
+                <div
                   ref={containerRef}
                   className="absolute inset-0"
                   onMouseDown={handleMouseDown}
@@ -1549,8 +1549,8 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2">
           <div className="bg-background/95 backdrop-blur-sm supports-[backdrop-filter]:bg-background/60 shadow-lg rounded-full border px-3 py-1.5 flex items-center gap-3">
             <div className="relative group">
-              <Progress 
-                value={(currentPage / results.length) * 100} 
+              <Progress
+                value={(currentPage / results.length) * 100}
                 className="w-48 h-1.5 cursor-pointer relative z-10"
                 onClick={(e) => {
                   const newPage = calculatePageFromPosition(e.clientX, e.currentTarget)
@@ -1564,7 +1564,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
                     const tooltipWidth = tooltip.getBoundingClientRect().width
                     const maxOffset = e.currentTarget.offsetWidth - tooltipWidth
                     const offset = Math.max(0, Math.min(percentage * e.currentTarget.offsetWidth - tooltipWidth / 2, maxOffset))
-                    
+
                     // Update tooltip content and position
                     const pageSpan = tooltip.querySelector('[data-page]')
                     if (pageSpan) {

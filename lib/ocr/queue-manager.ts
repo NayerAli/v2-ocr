@@ -1,6 +1,6 @@
 import type { ProcessingStatus, OCRResult } from "@/types";
 import type { ProcessingSettings, UploadSettings } from "@/types/settings";
-import { db } from "../indexed-db";
+import { db } from "../database";
 import { FileProcessor } from "./file-processor";
 
 export class QueueManager {
@@ -13,7 +13,7 @@ export class QueueManager {
   private abortControllers: Map<string, AbortController> = new Map();
 
   constructor(
-    processingSettings: ProcessingSettings, 
+    processingSettings: ProcessingSettings,
     uploadSettings: UploadSettings,
     fileProcessor: FileProcessor
   ) {
@@ -118,10 +118,10 @@ export class QueueManager {
             // Find the result with the longest retry time
             const rateLimitedResult = results
               .filter(result => result.rateLimitInfo?.isRateLimited)
-              .sort((a, b) => 
+              .sort((a, b) =>
                 (b.rateLimitInfo?.retryAfter || 0) - (a.rateLimitInfo?.retryAfter || 0)
               )[0];
-            
+
             if (rateLimitedResult?.rateLimitInfo) {
               // Update the item with rate limit info
               item.rateLimitInfo = {
@@ -129,23 +129,43 @@ export class QueueManager {
                 retryAfter: rateLimitedResult.rateLimitInfo.retryAfter,
                 rateLimitStart: Date.now()
               };
-              
+
               console.log(`[Process] Rate limited for ${item.filename}. Retry after ${rateLimitedResult.rateLimitInfo.retryAfter}s`);
-              
+
               // If we have partial results, save them
               if (results.some(r => r.text && r.text.length > 0)) {
                 await db.saveResults(item.id, results);
                 item.progress = Math.floor((results.length / (item.totalPages || 1)) * 100);
               }
-              
+
               // Keep the item in processing state but with rate limit info
               await db.saveToQueue(item);
               return;
             }
           }
 
-          // Save results
-          await db.saveResults(item.id, results);
+          // Save results in batches to avoid memory issues with large PDFs
+          const isLargePDF = item.totalPages && item.totalPages > 100;
+          const BATCH_SIZE = isLargePDF ? 20 : 50; // Smaller batches for large PDFs
+
+          if (results.length > BATCH_SIZE) {
+            console.log(`[Process] Saving ${results.length} results in batches of ${BATCH_SIZE}`);
+
+            // Save results in batches
+            for (let i = 0; i < results.length; i += BATCH_SIZE) {
+              const batch = results.slice(i, i + BATCH_SIZE);
+              console.log(`[Process] Saving batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(results.length / BATCH_SIZE)} (${batch.length} results)`);
+              await db.saveResults(item.id, batch);
+
+              // Update progress
+              const savedCount = Math.min(i + BATCH_SIZE, results.length);
+              item.progress = Math.floor((savedCount / results.length) * 100);
+              await db.saveToQueue(item);
+            }
+          } else {
+            // Save all results at once for smaller PDFs
+            await db.saveResults(item.id, results);
+          }
 
           // Update status to completed
           item.status = "completed";
@@ -156,19 +176,19 @@ export class QueueManager {
           await db.saveToQueue(item);
         } catch (error) {
           console.error(`Error processing ${item.filename}:`, error);
-          
+
           if (error instanceof Error && (
-            error.name === "AbortError" || 
+            error.name === "AbortError" ||
             error.message === "Processing aborted"
           )) {
             console.log(`[Process] Processing aborted for ${item.filename}`);
             return;
           }
-          
+
           // Check if the error is related to rate limiting
-          const isRateLimitError = error instanceof Error && 
+          const isRateLimitError = error instanceof Error &&
             (error.message.includes("429") || error.message.includes("rate limit"));
-          
+
           if (isRateLimitError) {
             // Set a default retry time of 60 seconds if we can't extract it
             const retryAfter = 60;
@@ -181,7 +201,7 @@ export class QueueManager {
             await db.saveToQueue(item);
             return;
           }
-          
+
           item.status = "error";
           item.error = error instanceof Error ? error.message : "Unknown error occurred";
           item.endTime = Date.now();
@@ -200,15 +220,15 @@ export class QueueManager {
     // Check if there are more items to process
     const remainingItems = Array.from(this.queueMap.values())
       .filter(item => item.status === "queued");
-      
+
     // Check for rate-limited items that are ready to retry
     const rateLimitedItems = Array.from(this.queueMap.values())
-      .filter(item => 
-        item.status === "processing" && 
+      .filter(item =>
+        item.status === "processing" &&
         item.rateLimitInfo?.isRateLimited &&
         Date.now() >= (item.rateLimitInfo.rateLimitStart + (item.rateLimitInfo.retryAfter * 1000))
       );
-    
+
     // Reset rate-limited items to queued state if they're ready to retry
     if (rateLimitedItems.length > 0) {
       for (const item of rateLimitedItems) {
@@ -218,7 +238,7 @@ export class QueueManager {
         await db.saveToQueue(item);
       }
     }
-      
+
     if ((remainingItems.length > 0 || rateLimitedItems.length > 0) && !this.isPaused) {
       // Use setTimeout to prevent stack overflow with recursive calls
       setTimeout(() => this.processQueue(), 0);
@@ -263,7 +283,7 @@ export class QueueManager {
     status.progress = Math.min(status.progress || 0, 100);
     status.endTime = Date.now();
     status.error = "Processing cancelled by user";
-    
+
     // Clear any rate limit info if present
     if (status.rateLimitInfo) {
       status.rateLimitInfo = undefined;
@@ -296,4 +316,4 @@ export class QueueManager {
       file.name.toLowerCase().endsWith(type.toLowerCase())
     );
   }
-} 
+}

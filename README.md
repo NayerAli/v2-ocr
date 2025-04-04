@@ -5,7 +5,7 @@ A modern, efficient system for processing large volumes of documents through OCR
 ## ✨ Features
 
 - 📤 Drag-and-drop file uploads with real-time progress tracking
-- 🔄 Robust job queue management with IndexedDB storage
+- 🔄 Robust job queue management with Supabase database storage
 - 📊 Interactive dashboard with processing metrics
 - 🎯 Support for multiple OCR providers (Google Cloud Vision & Azure)
 - ⚙️ In-app OCR configuration with API key validation
@@ -50,7 +50,16 @@ npm install
 pnpm install
 ```
 
-3. Start the development server:
+3. Set up environment variables:
+   - Copy `.env.example` to `.env.local`
+   - Add your Supabase URL and anon key to `.env.local`
+
+```bash
+cp .env.example .env.local
+# Then edit .env.local with your Supabase credentials
+```
+
+4. Start the development server:
 ```bash
 npm run dev
 # or
@@ -60,6 +69,21 @@ pnpm dev
 Visit [http://localhost:3000](http://localhost:3000) to see the application.
 
 ## 🛠️ Configuration
+
+### Supabase Setup
+
+This application uses Supabase for data storage. You'll need to:
+
+1. Create a Supabase account at [supabase.com](https://supabase.com)
+2. Create a new project
+3. Create the necessary tables in your Supabase database:
+   - Option 1: Run the `supabase-fix.sql` script in the Supabase SQL Editor (recommended)
+   - Option 2: Run the `supabase-setup.sql` script in the Supabase SQL Editor
+   - Option 3: Manually create the following tables:
+     - `queue`: For storing document processing status
+     - `results`: For storing OCR results
+     - `metadata`: For storing application metadata
+4. Copy your project URL and anon key to your `.env.local` file
 
 ### OCR Provider Settings
 
@@ -115,7 +139,9 @@ Customize processing behavior with:
 │   └── constants.ts                            # Global constants and settings
 ├── hooks/                                      # Custom React hooks
 ├── lib/
-│   ├── indexed-db.ts                           # IndexedDB storage operations
+│   ├── database.ts                             # Database bridge module
+│   ├── supabase-client.ts                      # Supabase client configuration
+│   ├── supabase-db.ts                          # Supabase database operations
 │   ├── mock-ocr.ts
 │   └── processing-service.ts
 ├── store/
@@ -135,7 +161,7 @@ Customize processing behavior with:
 - **Framework**: Next.js 14.2.16
 - **UI Components**: Shadcn UI, Radix UI
 - **Styling**: Tailwind CSS
-- **Storage**: IndexedDB
+- **Storage**: Supabase
 - **Form Validation**: Zod
 - **State Management**: React Server Components + Zustand
 - **File Processing**: Built-in MIME type detection
