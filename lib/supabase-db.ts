@@ -9,6 +9,7 @@ interface CacheData {
 }
 
 // Helper function to convert snake_case to camelCase
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const snakeToCamel = (obj: any): any => {
   if (obj === null || typeof obj !== 'object') {
     return obj
@@ -22,10 +23,12 @@ const snakeToCamel = (obj: any): any => {
     const camelKey = key.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase())
     acc[camelKey] = snakeToCamel(obj[key])
     return acc
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   }, {} as any)
 }
 
 // Helper function to convert camelCase to snake_case
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const camelToSnake = (obj: any): any => {
   if (obj === null || typeof obj !== 'object') {
     return obj
@@ -60,10 +63,12 @@ const camelToSnake = (obj: any): any => {
     }
 
     return acc
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   }, {} as any)
 }
 
 // Convert ProcessingStatus from Supabase to application format
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mapToProcessingStatus = (item: any): ProcessingStatus => {
   const status = snakeToCamel(item)
 
@@ -79,6 +84,7 @@ const mapToProcessingStatus = (item: any): ProcessingStatus => {
 }
 
 // Convert OCRResult from Supabase to application format
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mapToOCRResult = (item: any): OCRResult => {
   const result = snakeToCamel(item)
   return result as OCRResult
@@ -275,6 +281,7 @@ class DatabaseService {
     }
 
     // Ensure dates are properly set and remove the file field
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { file, ...statusWithoutFile } = status
 
     const updatedStatus = {

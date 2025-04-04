@@ -185,7 +185,7 @@ export class FileProcessor {
           if (typeof window !== 'undefined' && window.gc) {
             try {
               window.gc();
-            } catch (e) {
+            } catch {
               // Ignore if gc is not available
             }
           }
@@ -271,7 +271,7 @@ export class FileProcessor {
         if (page && typeof page.cleanup === 'function') {
           page.cleanup();
         }
-      } catch (error) {
+      } catch {
         // Ignore cleanup errors
       }
 

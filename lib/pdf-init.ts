@@ -46,7 +46,11 @@ export async function initializePDFJS() {
 
     // Store the parameters for later use
     if (typeof window !== 'undefined') {
-      (window as any).pdfJsParams = params;
+      // Define a type for the extended window object
+      interface ExtendedWindow extends Window {
+        pdfJsParams?: typeof params;
+      }
+      (window as ExtendedWindow).pdfJsParams = params;
     }
 
     // Test PDF.js initialization with proper error handling

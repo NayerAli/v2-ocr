@@ -8,7 +8,7 @@ export class GoogleVisionProvider implements OCRProvider {
     this.settings = settings;
   }
 
-  async processImage(base64Data: string, signal: AbortSignal, fileType?: string): Promise<OCRResult> {
+  async processImage(base64Data: string, signal: AbortSignal, /* fileType?: string */): Promise<OCRResult> {
     const startTime = Date.now();
 
     const response = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${this.settings.apiKey}`, {
@@ -70,7 +70,7 @@ export class GoogleVisionProvider implements OCRProvider {
   }
 
   // Google Vision API doesn't support direct PDF processing
-  canProcessPdfDirectly(fileSize: number, pageCount?: number): boolean {
+  canProcessPdfDirectly(/* fileSize: number, pageCount?: number */): boolean {
     return false;
   }
-} 
+}

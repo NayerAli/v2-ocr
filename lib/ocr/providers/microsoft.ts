@@ -11,12 +11,12 @@ export class MicrosoftVisionProvider implements OCRProvider {
     this.rateLimiter = rateLimiter;
   }
 
-  async processImage(base64Data: string, signal: AbortSignal, fileType?: string): Promise<OCRResult> {
+  async processImage(base64Data: string, signal: AbortSignal, /* fileType?: string */): Promise<OCRResult> {
     const startTime = Date.now();
 
     try {
       await this.rateLimiter.waitIfLimited();
-      
+
       // Check if cancelled after rate limit wait
       if (signal.aborted) {
         console.log(`[Process] Processing aborted`);
@@ -102,7 +102,7 @@ export class MicrosoftVisionProvider implements OCRProvider {
   }
 
   // Microsoft Vision API doesn't support direct PDF processing
-  canProcessPdfDirectly(fileSize: number, pageCount?: number): boolean {
+  canProcessPdfDirectly(/* fileSize: number, pageCount?: number */): boolean {
     return false;
   }
-} 
+}

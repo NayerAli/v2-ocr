@@ -1,4 +1,4 @@
-import type { ProcessingStatus, OCRResult } from "@/types";
+import type { ProcessingStatus } from "@/types";
 import type { ProcessingSettings, UploadSettings } from "@/types/settings";
 import { db } from "../database";
 import { FileProcessor } from "./file-processor";

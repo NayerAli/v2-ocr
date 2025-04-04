@@ -16,7 +16,16 @@ export async function loadPDF(file: File) {
     const arrayBuffer = await file.arrayBuffer()
 
     // Get any parameters from initialization
-    const pdfJsParams = typeof window !== 'undefined' ? (window as any).pdfJsParams || {} : {};
+    // Define a type for the extended window object
+    interface ExtendedWindow extends Window {
+      pdfJsParams?: {
+        disableRange?: boolean;
+        disableStream?: boolean;
+        disableAutoFetch?: boolean;
+        isEvalSupported?: boolean;
+      };
+    }
+    const pdfJsParams = typeof window !== 'undefined' ? ((window as ExtendedWindow).pdfJsParams || {}) : {};
 
     // Load the PDF with optimized parameters
     const pdf = await pdfjsLib.getDocument({
