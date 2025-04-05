@@ -45,6 +45,16 @@ CREATE TABLE IF NOT EXISTS public.metadata (
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
 
+-- Create the settings table
+CREATE TABLE IF NOT EXISTS public.settings (
+    id TEXT PRIMARY KEY,
+    category TEXT NOT NULL,
+    data JSONB NOT NULL,
+    is_editable BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+
 -- Create indexes for better performance
 CREATE INDEX IF NOT EXISTS idx_queue_status ON public.queue(status);
 CREATE INDEX IF NOT EXISTS idx_queue_created_at ON public.queue(created_at);
@@ -54,6 +64,7 @@ CREATE INDEX IF NOT EXISTS idx_results_document_id ON public.results(document_id
 ALTER TABLE public.queue ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.results ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.metadata ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.settings ENABLE ROW LEVEL SECURITY;
 
 -- Create policies to allow all operations for authenticated users
 CREATE POLICY "Allow all operations for authenticated users" ON public.queue
@@ -65,6 +76,9 @@ CREATE POLICY "Allow all operations for authenticated users" ON public.results
 CREATE POLICY "Allow all operations for authenticated users" ON public.metadata
     FOR ALL USING (auth.role() = 'authenticated');
 
+CREATE POLICY "Allow all operations for authenticated users" ON public.settings
+    FOR ALL USING (auth.role() = 'authenticated');
+
 -- Create policies to allow read operations for anonymous users
 CREATE POLICY "Allow read for anonymous users" ON public.queue
     FOR SELECT USING (auth.role() = 'anon');
@@ -73,6 +87,9 @@ CREATE POLICY "Allow read for anonymous users" ON public.results
     FOR SELECT USING (auth.role() = 'anon');
 
 CREATE POLICY "Allow read for anonymous users" ON public.metadata
+    FOR SELECT USING (auth.role() = 'anon');
+
+CREATE POLICY "Allow read for anonymous users" ON public.settings
     FOR SELECT USING (auth.role() = 'anon');
 
 -- Create policies to allow insert/update operations for anonymous users
@@ -94,6 +111,12 @@ CREATE POLICY "Allow insert for anonymous users" ON public.metadata
 CREATE POLICY "Allow update for anonymous users" ON public.metadata
     FOR UPDATE USING (auth.role() = 'anon');
 
+CREATE POLICY "Allow insert for anonymous users" ON public.settings
+    FOR INSERT WITH CHECK (auth.role() = 'anon');
+
+CREATE POLICY "Allow update for anonymous users" ON public.settings
+    FOR UPDATE USING (auth.role() = 'anon');
+
 -- Create policies to allow delete operations for anonymous users
 CREATE POLICY "Allow delete for anonymous users" ON public.queue
     FOR DELETE USING (auth.role() = 'anon');
@@ -102,4 +125,7 @@ CREATE POLICY "Allow delete for anonymous users" ON public.results
     FOR DELETE USING (auth.role() = 'anon');
 
 CREATE POLICY "Allow delete for anonymous users" ON public.metadata
+    FOR DELETE USING (auth.role() = 'anon');
+
+CREATE POLICY "Allow delete for anonymous users" ON public.settings
     FOR DELETE USING (auth.role() = 'anon');

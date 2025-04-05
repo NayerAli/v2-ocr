@@ -14,6 +14,14 @@ export class FileProcessor {
     this.ocrProvider = ocrProvider;
   }
 
+  /**
+   * Update processing settings
+   */
+  updateProcessingSettings(settings: ProcessingSettings): void {
+    console.log('[FileProcessor] Updating processing settings:', settings);
+    this.processingSettings = settings;
+  }
+
   async processFile(status: ProcessingStatus, signal: AbortSignal): Promise<OCRResult[]> {
     if (!status.file) throw new Error("No file to process");
     console.log(`[Process] Starting ${status.filename}`);

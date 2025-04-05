@@ -129,6 +129,32 @@ export interface Database {
           created_at?: string
         }
       }
+      settings: {
+        Row: {
+          id: string
+          category: string
+          data: Json
+          is_editable: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id: string
+          category: string
+          data: Json
+          is_editable?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          category?: string
+          data?: Json
+          is_editable?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+      }
     }
     Views: {
       [_ in never]: never

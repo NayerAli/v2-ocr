@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Loader2, AlertCircle, Eye, EyeOff } from "lucide-react"
+import { Loader2, AlertCircle, Eye, EyeOff, Lock, Server } from "lucide-react"
 import { useSettings } from "@/store/settings"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -16,8 +16,9 @@ import { useToast } from "@/hooks/use-toast"
 import { cn } from "@/lib/utils"
 import { db } from "@/lib/database"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
-import type { DatabaseStats } from "@/types/settings"
+import type { DatabaseStats, ProcessingSettings } from "@/types/settings"
 import { useLanguage } from "@/hooks/use-language"
+import { useServerSettings } from "@/hooks/use-server-settings"
 import { t, type Language } from "@/lib/i18n/translations"
 
 interface SettingsDialogProps {
@@ -42,12 +43,32 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const [isValid, setIsValid] = useState<boolean | null>(null)
   const [activeTab, setActiveTab] = useState("ocr")
   const { language } = useLanguage()
+  const { processingSettings: serverProcessingSettings, isLoading: isLoadingSettings, refreshSettings, error: settingsError } = useServerSettings()
 
   useEffect(() => {
     if (open) {
+      console.log('Settings dialog opened, refreshing stats and settings')
       refreshStats()
+      refreshSettings()
     }
-  }, [open])
+  }, [open, refreshSettings])
+
+  // Force refresh settings when the dialog is opened
+  useEffect(() => {
+    if (open) {
+      console.log('Settings dialog opened, forcing refresh of settings')
+      setTimeout(() => {
+        refreshSettings()
+      }, 500) // Small delay to ensure the dialog is fully rendered
+    }
+  }, [open, refreshSettings])
+
+  // Log server processing settings when they change
+  useEffect(() => {
+    if (serverProcessingSettings) {
+      console.log('Settings dialog: Server processing settings updated:', serverProcessingSettings)
+    }
+  }, [serverProcessingSettings])
 
   const handleValidateApiKey = async () => {
     setIsValidating(true)
@@ -266,73 +287,152 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
               </TabsContent>
 
               <TabsContent value="processing" className="space-y-4 mt-0 mb-6">
-                <div className="space-y-3">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="max-concurrent-jobs" className="text-sm">📚 {t('parallelProcessing', language)}</Label>
-                    <p className="text-xs text-muted-foreground">{t('parallelProcessingDescription', language)}</p>
-                    <Input
-                      id="max-concurrent-jobs"
-                      type="number"
-                      min={1}
-                      max={10}
-                      value={settings.processing.maxConcurrentJobs}
-                      onChange={(e) => settings.updateProcessingSettings({ maxConcurrentJobs: parseInt(e.target.value) })}
-                    />
+                <div className="flex items-center justify-between mb-4 p-3 bg-muted/50 rounded-md border border-muted">
+                  <div className="flex items-center gap-2">
+                    <Server className="h-4 w-4 text-primary" />
+                    <span className="font-medium">{t('serverManagedSettings', language) || 'Server-Managed Settings'}</span>
                   </div>
-
-                  <div className="space-y-1.5">
-                    <Label htmlFor="pages-per-chunk" className="text-sm">📄 {t('pagesPerBatch', language)}</Label>
-                    <p className="text-xs text-muted-foreground">{t('pagesPerBatchDescription', language)}</p>
-                    <Input
-                      id="pages-per-chunk"
-                      type="number"
-                      min={1}
-                      max={50}
-                      value={settings.processing.pagesPerChunk}
-                      onChange={(e) => settings.updateProcessingSettings({ pagesPerChunk: parseInt(e.target.value) })}
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label htmlFor="concurrent-chunks" className="text-sm">🚀 {t('processingSpeed', language)}</Label>
-                    <p className="text-xs text-muted-foreground">{t('processingSpeedDescription', language)}</p>
-                    <Input
-                      id="concurrent-chunks"
-                      type="number"
-                      min={1}
-                      max={5}
-                      value={settings.processing.concurrentChunks}
-                      onChange={(e) => settings.updateProcessingSettings({ concurrentChunks: parseInt(e.target.value) })}
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label htmlFor="retry-attempts" className="text-sm">🔄 {t('autoRetry', language)}</Label>
-                    <p className="text-xs text-muted-foreground">{t('autoRetryDescription', language)}</p>
-                    <Input
-                      id="retry-attempts"
-                      type="number"
-                      min={0}
-                      max={5}
-                      value={settings.processing.retryAttempts}
-                      onChange={(e) => settings.updateProcessingSettings({ retryAttempts: parseInt(e.target.value) })}
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label htmlFor="retry-delay" className="text-sm">⏲️ {t('retryTiming', language)}</Label>
-                    <p className="text-xs text-muted-foreground">{t('retryTimingDescription', language)}</p>
-                    <Input
-                      id="retry-delay"
-                      type="number"
-                      min={100}
-                      max={5000}
-                      step={100}
-                      value={settings.processing.retryDelay}
-                      onChange={(e) => settings.updateProcessingSettings({ retryDelay: parseInt(e.target.value) })}
-                    />
+                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <Lock className="h-3 w-3" />
+                    <span>{t('readOnlySettings', language) || 'Read-only'}</span>
                   </div>
                 </div>
+
+                {isLoadingSettings && !serverProcessingSettings ? (
+                  <div className="flex items-center justify-center p-4">
+                    <div className="flex items-center space-x-2">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <p className="text-sm text-muted-foreground">{t('loadingSettings', language) || 'Loading settings...'}</p>
+                    </div>
+                  </div>
+                ) : settingsError ? (
+                  <Alert variant="destructive" className="mb-4">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertTitle>{t('settingsError', language) || 'Error Loading Settings'}</AlertTitle>
+                    <AlertDescription>
+                      {settingsError}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="mt-2"
+                        onClick={() => {
+                          console.log('Settings dialog: Retrying settings fetch')
+                          refreshSettings()
+                        }}
+                      >
+                        {t('retry', language) || 'Retry'}
+                      </Button>
+                    </AlertDescription>
+                  </Alert>
+                ) : !serverProcessingSettings ? (
+                  <Alert variant="destructive" className="mb-4">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertTitle>{t('settingsError', language) || 'Settings Not Available'}</AlertTitle>
+                    <AlertDescription>
+                      Settings could not be loaded from the server.
+                      <div className="flex flex-col gap-2 mt-2">
+                        <div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              console.log('Settings dialog: Retrying settings fetch')
+                              refreshSettings()
+                            }}
+                          >
+                            {t('retry', language) || 'Retry'}
+                          </Button>
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          If this error persists, the settings table might not exist in the database.
+                          Please check the server logs for more information.
+                        </div>
+                      </div>
+                    </AlertDescription>
+                  </Alert>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="max-concurrent-jobs" className="text-sm flex items-center gap-1">
+                        <Lock className="h-3 w-3 text-muted-foreground" />
+                        📚 {t('parallelProcessing', language)}
+                      </Label>
+                      <p className="text-xs text-muted-foreground">{t('parallelProcessingDescription', language)}</p>
+                      <Input
+                        id="max-concurrent-jobs"
+                        type="number"
+                        value={serverProcessingSettings?.maxConcurrentJobs || 2}
+                        disabled
+                        className="bg-muted cursor-not-allowed"
+                        aria-readonly="true"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label htmlFor="pages-per-chunk" className="text-sm flex items-center gap-1">
+                        <Lock className="h-3 w-3 text-muted-foreground" />
+                        📄 {t('pagesPerBatch', language)}
+                      </Label>
+                      <p className="text-xs text-muted-foreground">{t('pagesPerBatchDescription', language)}</p>
+                      <Input
+                        id="pages-per-chunk"
+                        type="number"
+                        value={serverProcessingSettings?.pagesPerChunk || 2}
+                        disabled
+                        className="bg-muted cursor-not-allowed"
+                        aria-readonly="true"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label htmlFor="concurrent-chunks" className="text-sm flex items-center gap-1">
+                        <Lock className="h-3 w-3 text-muted-foreground" />
+                        🚀 {t('processingSpeed', language)}
+                      </Label>
+                      <p className="text-xs text-muted-foreground">{t('processingSpeedDescription', language)}</p>
+                      <Input
+                        id="concurrent-chunks"
+                        type="number"
+                        value={serverProcessingSettings?.concurrentChunks || 1}
+                        disabled
+                        className="bg-muted cursor-not-allowed"
+                        aria-readonly="true"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label htmlFor="retry-attempts" className="text-sm flex items-center gap-1">
+                        <Lock className="h-3 w-3 text-muted-foreground" />
+                        🔄 {t('autoRetry', language)}
+                      </Label>
+                      <p className="text-xs text-muted-foreground">{t('autoRetryDescription', language)}</p>
+                      <Input
+                        id="retry-attempts"
+                        type="number"
+                        value={serverProcessingSettings?.retryAttempts || 2}
+                        disabled
+                        className="bg-muted cursor-not-allowed"
+                        aria-readonly="true"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label htmlFor="retry-delay" className="text-sm flex items-center gap-1">
+                        <Lock className="h-3 w-3 text-muted-foreground" />
+                        ⏲️ {t('retryTiming', language)}
+                      </Label>
+                      <p className="text-xs text-muted-foreground">{t('retryTimingDescription', language)}</p>
+                      <Input
+                        id="retry-delay"
+                        type="number"
+                        value={serverProcessingSettings?.retryDelay || 1000}
+                        disabled
+                        className="bg-muted cursor-not-allowed"
+                        aria-readonly="true"
+                      />
+                    </div>
+                  </div>
+                )}
               </TabsContent>
 
               <TabsContent value="upload" className="space-y-4 mt-0 mb-6">

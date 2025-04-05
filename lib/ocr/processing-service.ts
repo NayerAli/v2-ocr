@@ -4,6 +4,7 @@ import { AzureRateLimiter } from "./rate-limiter";
 import { createOCRProvider } from "./providers";
 import { FileProcessor } from "./file-processor";
 import { QueueManager } from "./queue-manager";
+import { getServerProcessingSettings } from "./server-settings";
 
 interface ServiceSettings {
   ocr: OCRSettings;
@@ -27,8 +28,29 @@ let serviceState: ProcessingServiceState | null = null;
  * Initialize the processing service components with the given settings
  */
 async function initializeService(state: ProcessingServiceState): Promise<void> {
+  // Fetch the latest processing settings from the server
+  try {
+    console.log('[ProcessingService] Fetching server-side processing settings...');
+    const serverProcessingSettings = await getServerProcessingSettings();
+
+    // Log the settings with a clear identifier
+    console.log('[ProcessingService] Received server-side processing settings:', JSON.stringify(serverProcessingSettings, null, 2));
+
+    // Update the processing settings with server-side values
+    state.processingSettings = serverProcessingSettings;
+
+    // Update components that depend on processing settings
+    state.fileProcessor.updateProcessingSettings(serverProcessingSettings);
+    state.queueManager.updateProcessingSettings(serverProcessingSettings);
+
+    console.log('[ProcessingService] Updated components with server-side processing settings');
+  } catch (error) {
+    console.error('[ProcessingService] Failed to fetch server-side processing settings:', error);
+    // Continue with existing settings if server fetch fails
+  }
+
   await state.queueManager.initializeQueue();
-  
+
   if (state.ocrSettings.apiKey) {
     state.queueManager.processQueue();
   }
@@ -45,7 +67,7 @@ function createServiceComponents(settings: ServiceSettings, rateLimiter: AzureRa
     settings.upload,
     fileProcessor
   );
-  
+
   return {
     queueManager,
     fileProcessor,
@@ -65,9 +87,9 @@ export function getProcessingService(settings: ServiceSettings) {
       azureRateLimiter,
       ...createServiceComponents(settings, azureRateLimiter)
     };
-    
+
     // Initialize asynchronously
-    initializeService(serviceState).catch(err => 
+    initializeService(serviceState).catch(err =>
       console.error('[ProcessingService] Initialization error:', err)
     );
   } else if (
@@ -81,13 +103,13 @@ export function getProcessingService(settings: ServiceSettings) {
       ...components,
       azureRateLimiter: serviceState.azureRateLimiter
     };
-    
+
     // Initialize with new settings
-    initializeService(serviceState).catch(err => 
+    initializeService(serviceState).catch(err =>
       console.error('[ProcessingService] Reinitialization error:', err)
     );
   }
-  
+
   // Return the public API
   return {
     /**
@@ -95,16 +117,16 @@ export function getProcessingService(settings: ServiceSettings) {
      */
     addToQueue: async (files: File[]): Promise<string[]> => {
       if (!serviceState) throw new Error('Service not initialized');
-      
+
       const ids = await serviceState.queueManager.addToQueue(files);
-      
+
       if (serviceState.ocrSettings.apiKey) {
         serviceState.queueManager.processQueue();
       }
-      
+
       return ids;
     },
-    
+
     /**
      * Pause the processing queue
      */
@@ -112,7 +134,7 @@ export function getProcessingService(settings: ServiceSettings) {
       if (!serviceState) throw new Error('Service not initialized');
       return serviceState.queueManager.pauseQueue();
     },
-    
+
     /**
      * Resume the processing queue
      */
@@ -120,7 +142,7 @@ export function getProcessingService(settings: ServiceSettings) {
       if (!serviceState) throw new Error('Service not initialized');
       return serviceState.queueManager.resumeQueue();
     },
-    
+
     /**
      * Cancel processing for a specific item
      */
@@ -128,7 +150,7 @@ export function getProcessingService(settings: ServiceSettings) {
       if (!serviceState) throw new Error('Service not initialized');
       return serviceState.queueManager.cancelProcessing(id);
     },
-    
+
     /**
      * Get the status of a specific processing item
      */
@@ -136,7 +158,7 @@ export function getProcessingService(settings: ServiceSettings) {
       if (!serviceState) throw new Error('Service not initialized');
       return serviceState.queueManager.getStatus(id);
     },
-    
+
     /**
      * Get the status of all processing items
      */
@@ -144,25 +166,25 @@ export function getProcessingService(settings: ServiceSettings) {
       if (!serviceState) throw new Error('Service not initialized');
       return serviceState.queueManager.getAllStatus();
     },
-    
+
     /**
      * Update service settings
      */
     updateSettings: (newSettings: ServiceSettings): void => {
       if (!serviceState) throw new Error('Service not initialized');
-      
+
       console.log('[ProcessingService] Updating settings:', newSettings);
-      
+
       const components = createServiceComponents(newSettings, serviceState.azureRateLimiter);
       serviceState = {
         ...components,
         azureRateLimiter: serviceState.azureRateLimiter
       };
-      
+
       // Initialize with new settings
-      initializeService(serviceState).catch(err => 
+      initializeService(serviceState).catch(err =>
         console.error('[ProcessingService] Settings update error:', err)
       );
     }
   };
-} 
+}

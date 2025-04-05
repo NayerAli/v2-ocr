@@ -22,6 +22,14 @@ export class QueueManager {
     this.fileProcessor = fileProcessor;
   }
 
+  /**
+   * Update processing settings
+   */
+  updateProcessingSettings(settings: ProcessingSettings): void {
+    console.log('[QueueManager] Updating processing settings:', settings);
+    this.processingSettings = settings;
+  }
+
   async initializeQueue() {
     const savedQueue = await db.getQueue();
     savedQueue.forEach((item) => {
