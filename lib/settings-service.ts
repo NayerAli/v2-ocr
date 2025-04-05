@@ -24,7 +24,7 @@ class SettingsService {
   private readonly CACHE_TTL = 60000 // 1 minute cache
 
   constructor() {
-    console.log('Settings service constructor called')
+    // Constructor
   }
 
   /**
@@ -32,15 +32,11 @@ class SettingsService {
    * This will create default settings if they don't exist
    */
   async initialize() {
-    console.log('Initialize method called')
-
     if (!isSupabaseConfigured()) {
-      console.error('Supabase not configured. Cannot initialize settings.')
       return
     }
 
     try {
-      console.log('Initializing settings service...')
 
       // Check if processing settings exist
       const { data: processingSettings, error } = await supabase
@@ -94,19 +90,14 @@ class SettingsService {
    * Get processing settings from Supabase
    */
   async getProcessingSettings(): Promise<ProcessingSettings> {
-    console.log('getProcessingSettings called')
-
     // Always clear the cache to ensure we get fresh settings
     this.cache.processing = null
 
     const now = Date.now()
 
     if (!isSupabaseConfigured()) {
-      console.error('Supabase not configured. Using default processing settings.')
       return DEFAULT_PROCESSING_SETTINGS
     }
-
-    console.log('Getting processing settings from database...')
 
     // Initialize settings if needed
     await this.initialize()
@@ -114,30 +105,22 @@ class SettingsService {
     try {
       // First, check if the settings table exists and has the correct schema
       try {
-        console.log('Checking if settings table exists...')
         const { data: tableCheck, error: tableError } = await supabase
           .from('settings')
           .select('id')
           .limit(1)
 
         if (tableError) {
-          console.error('Settings table error:', tableError)
           // Table might not exist, try to create it
-          console.log('Settings table might not exist, creating it...')
           await this.createSettingsTable()
-          console.log('Settings table created, returning default settings')
           return DEFAULT_PROCESSING_SETTINGS
-        } else {
-          console.log('Settings table exists:', tableCheck)
         }
       } catch (tableCheckError) {
-        console.error('Error checking settings table:', tableCheckError)
         return DEFAULT_PROCESSING_SETTINGS
       }
 
       // Now try to get the processing settings
       try {
-        console.log('Fetching processing settings from database...')
         const { data, error } = await supabase
           .from('settings')
           .select('value, data')
@@ -146,25 +129,17 @@ class SettingsService {
 
         if (error) {
           if (error.code === '42703') { // Column doesn't exist
-            console.error('Data column does not exist in settings table:', error)
             // Try to fix the table schema
-            console.log('Fixing settings table schema...')
             await this.fixSettingsTableSchema()
-            console.log('Settings table schema fixed, returning default settings')
             return DEFAULT_PROCESSING_SETTINGS
           } else {
-            console.error('Error fetching processing settings:', error)
             return DEFAULT_PROCESSING_SETTINGS
           }
         }
 
-        // Log the data we received from the database
-        console.log('Raw settings data from database:', data)
-
         // Check if we have data in the value column (prioritize value column)
         if (data && data.value && Object.keys(data.value).length > 0) {
           // Use value column if it exists and has content
-          console.log('Using value column for settings:', data.value)
           this.cache.processing = data.value as ProcessingSettings
           this.lastUpdate = now
           return data.value as ProcessingSettings
@@ -172,13 +147,11 @@ class SettingsService {
         // Check if we have data in the data column as fallback
         else if (data && data.data && Object.keys(data.data).length > 0) {
           // Use data column if it exists and has content
-          console.log('Using data column for settings:', data.data)
           this.cache.processing = data.data as ProcessingSettings
           this.lastUpdate = now
           return data.data as ProcessingSettings
         } else {
           // If no settings found, create default settings
-          console.log('No processing settings found, inserting defaults')
 
           // Get the next available ID
           const { data: maxIdData } = await supabase
@@ -380,29 +353,22 @@ class SettingsService {
    * This should only be called by admin users or server-side code
    */
   async updateProcessingSettings(settings: Partial<ProcessingSettings>): Promise<void> {
-    console.log('updateProcessingSettings called')
-
     if (!isSupabaseConfigured()) {
-      console.error('Supabase not configured. Cannot update processing settings.')
       return
     }
 
     try {
-      console.log('Updating processing settings:', settings)
-
       // Initialize settings if needed
       await this.initialize()
 
       // Get current settings
       const currentSettings = await this.getProcessingSettings()
-      console.log('Current settings before update:', currentSettings)
 
       // Update settings
       const updatedSettings = {
         ...currentSettings,
         ...settings
       }
-      console.log('Updated settings to save:', updatedSettings)
 
       // Save to Supabase - update both value and data fields for compatibility
       // But ensure value is the primary source of truth
@@ -416,17 +382,14 @@ class SettingsService {
         .eq('key', 'processing')
 
       if (error) {
-        console.error('Error updating processing settings:', error)
         return
       }
-
-      console.log('Processing settings updated successfully')
 
       // Update cache
       this.cache.processing = updatedSettings
       this.lastUpdate = Date.now()
     } catch (error) {
-      console.error('Error updating processing settings:', error)
+      // Silently handle errors
     }
   }
 }

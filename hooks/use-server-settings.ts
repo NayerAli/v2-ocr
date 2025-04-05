@@ -34,27 +34,26 @@ export function useServerSettings(): UseServerSettingsResult {
   // Cache TTL in milliseconds (5 minutes)
   const CACHE_TTL = 5 * 60 * 1000
 
-  const fetchProcessingSettings = useCallback(async (force = false) => {
-    console.log('fetchProcessingSettings called, force =', force)
+  // Use a ref to track if a fetch is in progress
+  const isFetchingRef = useRef(false)
 
-    // Skip if already loading
-    if (isLoading) {
-      console.log('Already loading, skipping fetch')
+  const fetchProcessingSettings = useCallback(async (force = false) => {
+    // Skip if already fetching (using ref to avoid stale state issues)
+    if (isFetchingRef.current) {
       return
     }
 
     // Skip if we've already fetched and it's not forced and cache is still valid
     const now = Date.now()
     if (!force && hasFetchedRef.current && processingSettings && (now - lastFetchTimeRef.current < CACHE_TTL)) {
-      console.log('Using cached settings, skipping fetch')
       return
     }
 
     try {
+      isFetchingRef.current = true
       setIsLoading(true)
       setError(null)
 
-      console.log('Client: Fetching processing settings from API')
       const response = await fetch('/api/settings/processing')
 
       if (!response.ok) {
@@ -62,21 +61,17 @@ export function useServerSettings(): UseServerSettingsResult {
       }
 
       const data = await response.json()
-      console.log('Client: Received response from API:', data)
 
       if (data.settings) {
-        console.log('Client: Using settings from API response:', data.settings)
         setProcessingSettings(data.settings)
         hasFetchedRef.current = true
         lastFetchTimeRef.current = now
       } else if (data.error) {
         // If there's an error but default settings are provided
-        console.log('Client: Error in API response, using default settings:', data.error)
         setProcessingSettings(DEFAULT_PROCESSING_SETTINGS)
         setError(data.error)
       } else {
         // Fallback to default settings
-        console.log('Client: No settings in API response, using default settings')
         setProcessingSettings(DEFAULT_PROCESSING_SETTINGS)
       }
     } catch (err) {
@@ -86,21 +81,20 @@ export function useServerSettings(): UseServerSettingsResult {
       setProcessingSettings(DEFAULT_PROCESSING_SETTINGS)
     } finally {
       setIsLoading(false)
+      isFetchingRef.current = false
     }
   }, [isLoading, processingSettings])
 
   useEffect(() => {
-    console.log('Initial fetch of processing settings')
-    fetchProcessingSettings(true) // Force initial fetch
+    // Force initial fetch
+    fetchProcessingSettings(true)
 
-    // Set up a polling interval (every 30 seconds)
+    // Set up a polling interval (every 60 seconds - increased to reduce frequency)
     const intervalId = setInterval(() => {
-      console.log('Polling for processing settings')
       fetchProcessingSettings()
-    }, 30000)
+    }, 60000)
 
     return () => {
-      console.log('Clearing processing settings interval')
       clearInterval(intervalId)
     }
   }, [fetchProcessingSettings])
@@ -110,9 +104,7 @@ export function useServerSettings(): UseServerSettingsResult {
     isLoading,
     error,
     refreshSettings: async () => {
-      console.log('Client: Forcing refresh of processing settings')
       await fetchProcessingSettings(true)
-      console.log('Client: Processing settings refreshed')
     }
   }
 }

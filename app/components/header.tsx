@@ -1,6 +1,7 @@
 "use client"
 
 import { Moon, Sun, Settings, LayoutDashboard, FileText, Languages } from "lucide-react"
+import { UserButton } from "@/components/auth/user-button"
 import { useTheme } from "next-themes"
 import { usePathname } from "next/navigation"
 import Link from "next/link"
@@ -37,26 +38,26 @@ export function Header() {
   const { language, setLanguage } = useLanguage()
 
   const languages = [
-    { 
-      code: 'en' as const, 
+    {
+      code: 'en' as const,
       name: 'English',
       flag: '🇺🇸',
       label: 'English'
     },
-    { 
-      code: 'fr' as const, 
+    {
+      code: 'fr' as const,
       name: 'Français',
       flag: '🇫🇷',
       label: 'Français'
     },
-    { 
-      code: 'ar' as const, 
+    {
+      code: 'ar' as const,
       name: 'العربية',
       flag: '🇦🇪',
       label: 'العربية'
     },
-    { 
-      code: 'fa' as const, 
+    {
+      code: 'fa' as const,
       name: 'فارسی',
       flag: '🇮🇷',
       label: 'فارسی'
@@ -70,8 +71,8 @@ export function Header() {
         <div className="flex h-16 items-center">
           {/* Left Section: Logo */}
           <div className="flex shrink-0 items-center">
-            <Link 
-              href="/" 
+            <Link
+              href="/"
               className="flex items-center gap-2.5 rounded-lg hover:opacity-80 transition-opacity"
             >
               <div className="bg-primary px-3 py-1.5 rounded-md text-primary-foreground font-semibold text-sm">
@@ -90,8 +91,8 @@ export function Header() {
                   href={item.href}
                   className={cn(
                     "flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors",
-                    pathname === item.href 
-                      ? "bg-secondary text-secondary-foreground shadow-sm" 
+                    pathname === item.href
+                      ? "bg-secondary text-secondary-foreground shadow-sm"
                       : "text-muted-foreground hover:bg-secondary/70 hover:text-secondary-foreground"
                   )}
                 >
@@ -104,6 +105,8 @@ export function Header() {
 
           {/* Right Section: Actions */}
           <div className="flex items-center gap-3 ml-auto">
+            <UserButton />
+            <div className="h-6 w-px bg-border/80 hidden sm:block" />
             <Button
               variant="ghost"
               size="sm"
@@ -116,9 +119,9 @@ export function Header() {
             <div className="h-6 w-px bg-border/80 hidden sm:block" />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
+                <Button
+                  variant="ghost"
+                  size="sm"
                   className="h-8 px-2 hover:bg-secondary/80"
                 >
                   <Languages className="h-4 w-4 mr-2 text-muted-foreground" />
@@ -169,8 +172,8 @@ export function Header() {
                 href={item.href}
                 className={cn(
                   "flex items-center justify-center gap-2 py-3 text-sm font-medium transition-colors",
-                  pathname === item.href 
-                    ? "bg-secondary/50 text-secondary-foreground" 
+                  pathname === item.href
+                    ? "bg-secondary/50 text-secondary-foreground"
                     : "text-muted-foreground hover:bg-secondary/20 hover:text-foreground"
                 )}
               >

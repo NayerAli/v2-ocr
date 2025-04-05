@@ -18,8 +18,28 @@ export class FileProcessor {
    * Update processing settings
    */
   updateProcessingSettings(settings: ProcessingSettings): void {
-    console.log('[FileProcessor] Updating processing settings:', settings);
     this.processingSettings = settings;
+  }
+
+  /**
+   * Check if we have a valid OCR provider with an API key
+   */
+  hasValidOCRProvider(): boolean {
+    // Check if the OCR provider has a valid API key
+    if (!this.ocrProvider) {
+      console.log('[DEBUG] No OCR provider available');
+      return false;
+    }
+
+    // Check if the provider has an API key
+    // We need to access the settings property which might be private
+    // @ts-ignore - Accessing private property for debugging
+    const apiKey = this.ocrProvider.settings?.apiKey;
+
+    const isValid = !!apiKey && apiKey.length > 0;
+    console.log('[DEBUG] OCR provider API key is valid:', isValid);
+
+    return isValid;
   }
 
   async processFile(status: ProcessingStatus, signal: AbortSignal): Promise<OCRResult[]> {

@@ -1,6 +1,22 @@
-import { supabase, isSupabaseConfigured } from './supabase-client'
+import { getUser } from './auth'
 import type { ProcessingStatus, OCRResult } from '@/types'
 import type { DatabaseStats } from '@/types/settings'
+import { getSupabaseClient } from './supabase/singleton-client'
+
+// Get the singleton Supabase client
+const supabase = getSupabaseClient()
+
+// Check if Supabase is configured
+function isSupabaseConfigured(): boolean {
+  console.log('[DEBUG] Checking Supabase configuration');
+  console.log('[DEBUG] NEXT_PUBLIC_SUPABASE_URL:', process.env.NEXT_PUBLIC_SUPABASE_URL ? 'Present' : 'Missing');
+  console.log('[DEBUG] NEXT_PUBLIC_SUPABASE_ANON_KEY:', process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ? 'Present' : 'Missing');
+
+  const isConfigured = !!process.env.NEXT_PUBLIC_SUPABASE_URL && !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  console.log('[DEBUG] Supabase is configured:', isConfigured);
+
+  return isConfigured;
+}
 
 interface CacheData {
   queue: ProcessingStatus[]
@@ -70,7 +86,9 @@ const camelToSnake = (obj: any): any => {
 // Convert ProcessingStatus from Supabase to application format
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mapToProcessingStatus = (item: any): ProcessingStatus => {
+  console.log('[DEBUG] mapToProcessingStatus called with item:', item.id, item.filename);
   const status = snakeToCamel(item)
+  console.log('[DEBUG] After snakeToCamel conversion:', status.id, status.filename);
 
   // Convert string dates to Date objects
   if (status.createdAt && typeof status.createdAt === 'string') {
@@ -80,6 +98,7 @@ const mapToProcessingStatus = (item: any): ProcessingStatus => {
     status.updatedAt = new Date(status.updatedAt)
   }
 
+  console.log('[DEBUG] Final status object:', status.id, status.filename, status.status);
   return status as ProcessingStatus
 }
 
@@ -113,6 +132,8 @@ class DatabaseService {
       console.error('Supabase not configured. Cannot get database stats.')
       return { totalDocuments: 0, totalResults: 0, dbSize: 0 }
     }
+
+    // Use the existing Supabase client
 
     // Get queue count
     const { count: queueCount, error: queueError } = await supabase
@@ -169,6 +190,8 @@ class DatabaseService {
       return 0
     }
 
+    // Use the existing Supabase client
+
     const cutoffDate = new Date()
     cutoffDate.setDate(cutoffDate.getDate() - retentionPeriod)
     const cutoffDateStr = cutoffDate.toISOString()
@@ -219,6 +242,8 @@ class DatabaseService {
       return
     }
 
+    // Use the existing Supabase client
+
     if (!type || type === 'all') {
       await supabase.from('queue').delete().neq('id', 'placeholder')
       await supabase.from('results').delete().neq('id', 'placeholder')
@@ -243,78 +268,125 @@ class DatabaseService {
   }
 
   async getQueue(): Promise<ProcessingStatus[]> {
+    console.log('[DEBUG] supabase-db.getQueue called');
     const now = Date.now()
 
     // Return cached results if within TTL
     if (this.cache.queue.length > 0 && now - this.lastUpdate < this.CACHE_TTL) {
+      console.log('[DEBUG] Returning cached queue, items:', this.cache.queue.length);
       return this.cache.queue
     }
 
     if (!isSupabaseConfigured()) {
-      console.error('Supabase not configured. Cannot get queue.')
+      console.error('[DEBUG] Supabase not configured. Cannot get queue.')
       return []
     }
 
-    const { data, error } = await supabase
+    // Get the current user
+    console.log('[DEBUG] Getting current user');
+    const user = await getUser()
+    console.log('[DEBUG] Current user:', user ? 'Authenticated' : 'Not authenticated');
+
+    // Use the existing Supabase client
+    console.log('[DEBUG] Building Supabase query');
+
+    // Build the query
+    let query = supabase
       .from('queue')
       .select('*')
-      .order('created_at', { ascending: false })
+
+    // If user is authenticated, filter by user_id or null (for backward compatibility)
+    if (user) {
+      console.log('[DEBUG] Adding user filter to query, user ID:', user.id);
+      query = query.or(`user_id.eq.${user.id},user_id.is.null`)
+    } else {
+      console.log('[DEBUG] No user filter applied to query');
+    }
+
+    // Order by created_at
+    query = query.order('created_at', { ascending: false })
+
+    // Execute the query
+    console.log('[DEBUG] Executing Supabase query');
+    const { data, error } = await query
 
     if (error) {
-      console.error('Error fetching queue:', error)
+      console.error('[DEBUG] Error fetching queue:', error)
       return []
     }
 
+    console.log('[DEBUG] Query successful, raw data items:', data ? data.length : 0);
     const queue = data.map(mapToProcessingStatus)
+    console.log('[DEBUG] Mapped queue items:', queue.length);
 
     // Update cache
     this.cache.queue = queue
     this.lastUpdate = now
+    console.log('[DEBUG] Cache updated with queue items');
 
     return queue
   }
 
   async saveToQueue(status: ProcessingStatus): Promise<void> {
+    console.log('[DEBUG] saveToQueue called with status:', status.id, status.filename, status.status);
+
     if (!isSupabaseConfigured()) {
-      console.error('Supabase not configured. Cannot save to queue.')
+      console.error('[DEBUG] Supabase not configured. Cannot save to queue.')
       return
     }
 
     // Ensure dates are properly set and remove the file field
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { file, ...statusWithoutFile } = status
+    console.log('[DEBUG] Removed file from status object');
+
+    // Get the current user
+    console.log('[DEBUG] Getting current user');
+    const user = await getUser()
+    console.log('[DEBUG] Current user:', user ? 'Authenticated' : 'Not authenticated');
+
+    // Use the existing Supabase client
 
     const updatedStatus = {
       ...statusWithoutFile,
       createdAt: status.createdAt instanceof Date ? status.createdAt : new Date(status.createdAt || Date.now()),
-      updatedAt: new Date()
+      updatedAt: new Date(),
+      // Add user_id if user is authenticated
+      user_id: user?.id || null
     }
+    console.log('[DEBUG] Created updated status object with dates and user_id');
 
     // Convert to snake_case for Supabase
     const snakeCaseStatus = camelToSnake(updatedStatus)
+    console.log('[DEBUG] Converted to snake_case for Supabase');
 
     // Add some debug logging
-    console.log('Saving to queue:', { id: updatedStatus.id, filename: updatedStatus.filename })
+    console.log('[DEBUG] Saving to queue:', { id: updatedStatus.id, filename: updatedStatus.filename, status: updatedStatus.status, user_id: updatedStatus.user_id })
 
     try {
       // Upsert to Supabase
-      const { error } = await supabase
+      console.log('[DEBUG] Executing Supabase upsert operation');
+      const { data, error } = await supabase
         .from('queue')
         .upsert(snakeCaseStatus)
         .select()
 
       if (error) {
-        console.error('Error saving to queue:', error)
+        console.error('[DEBUG] Error saving to queue:', error)
         return
       }
+
+      console.log('[DEBUG] Supabase upsert successful, returned data:', data ? data.length : 0);
     } catch (err) {
-      console.error('Exception saving to queue:', err)
+      console.error('[DEBUG] Exception saving to queue:', err)
       return
     }
 
     // Error handling is now inside the try/catch block
 
     // Update cache
+    console.log('[DEBUG] Updating local cache');
+    const oldQueueLength = this.cache.queue.length;
     this.cache.queue = this.cache.queue
       .filter(item => item.id !== status.id)
       .concat([updatedStatus])
@@ -323,6 +395,7 @@ class DatabaseService {
         const aTime = a.createdAt instanceof Date ? a.createdAt.getTime() : new Date(a.createdAt).getTime()
         return bTime - aTime
       })
+    console.log('[DEBUG] Cache updated, old length:', oldQueueLength, 'new length:', this.cache.queue.length);
   }
 
   async removeFromQueue(id: string) {
@@ -367,10 +440,24 @@ class DatabaseService {
       return []
     }
 
-    const { data, error } = await supabase
+    // Get the current user
+    const user = await getUser()
+
+    // Use the existing Supabase client
+
+    // Build the query
+    let query = supabase
       .from('results')
       .select('*')
       .eq('document_id', documentId)
+
+    // If user is authenticated, filter by user_id or null (for backward compatibility)
+    if (user) {
+      query = query.or(`user_id.eq.${user.id},user_id.is.null`)
+    }
+
+    // Execute the query
+    const { data, error } = await query
 
     if (error) {
       console.error('Error fetching results:', error)
@@ -391,10 +478,12 @@ class DatabaseService {
       return
     }
 
+    // Use the existing Supabase client
+
     // First, verify that the document exists in the queue table
     const { data: queueItem, error: queueError } = await supabase
       .from('queue')
-      .select('id')
+      .select('id, user_id')
       .eq('id', documentId)
       .single()
 
@@ -404,12 +493,17 @@ class DatabaseService {
       return
     }
 
+    // Get the current user
+    const user = await getUser()
+    const userId = user?.id || queueItem.user_id || null
+
     // Prepare results for Supabase
     const supabaseResults = results.map(result => {
       const preparedResult = {
         ...result,
         documentId,
-        id: result.id || crypto.randomUUID()
+        id: result.id || crypto.randomUUID(),
+        user_id: userId
       }
       return camelToSnake(preparedResult)
     })

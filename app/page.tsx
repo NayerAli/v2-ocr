@@ -57,11 +57,18 @@ export default function DashboardPage() {
 
   // Create processing service with current settings
   const processingService = useMemo(
-    () => getProcessingService({
-      ocr: settings.ocr,
-      processing: settings.processing,
-      upload: settings.upload
-    }),
+    () => {
+      console.log('[DEBUG] Creating processing service with settings:');
+      console.log('[DEBUG] OCR settings:', settings.ocr);
+      console.log('[DEBUG] Processing settings:', settings.processing);
+      console.log('[DEBUG] Upload settings:', settings.upload);
+
+      return getProcessingService({
+        ocr: settings.ocr,
+        processing: settings.processing,
+        upload: settings.upload
+      });
+    },
     [settings.ocr, settings.processing, settings.upload]
   )
 
@@ -77,17 +84,32 @@ export default function DashboardPage() {
     let isMounted = true
 
     const loadQueue = async (isInitialLoad = false) => {
-      if (!isInitialized) return
+      console.log('[DEBUG] loadQueue called, isInitialLoad:', isInitialLoad);
+      console.log('[DEBUG] isInitialized:', isInitialized);
+
+      if (!isInitialized) {
+        console.log('[DEBUG] Not initialized, skipping queue load');
+        return;
+      }
 
       try {
         if (isInitialLoad) {
-          setIsLoadingData(true)
+          console.log('[DEBUG] Initial load, setting loading state');
+          setIsLoadingData(true);
         }
 
         // Load queue first and update UI immediately
-        const queue = await db.getQueue()
-        if (!isMounted) return
-        setProcessingQueue(queue)
+        console.log('[DEBUG] Loading queue from database');
+        const queue = await db.getQueue();
+        console.log('[DEBUG] Queue loaded, items:', queue.length);
+
+        if (!isMounted) {
+          console.log('[DEBUG] Component unmounted, aborting update');
+          return;
+        }
+
+        console.log('[DEBUG] Updating processing queue state');
+        setProcessingQueue(queue);
 
         // Then load stats in the background
         const dbStats = await db.getDatabaseStats()
@@ -128,20 +150,37 @@ export default function DashboardPage() {
   }, [isInitialized])
 
   const handleFilesAccepted = async (files: File[]) => {
+    console.log('[DEBUG] handleFilesAccepted called with', files.length, 'files');
     try {
+      console.log('[DEBUG] Calling processingService.addToQueue');
       const ids = await processingService.addToQueue(files)
+      console.log('[DEBUG] processingService.addToQueue returned IDs:', ids);
+
+      console.log('[DEBUG] Getting status for each file');
       const newItems = await Promise.all(ids.map((id) => processingService.getStatus(id)))
-      setProcessingQueue((prev) => [...prev, ...newItems.filter((item): item is ProcessingStatus => !!item)])
+      console.log('[DEBUG] Got status for files:', newItems.length);
+
+      const validItems = newItems.filter((item): item is ProcessingStatus => !!item);
+      console.log('[DEBUG] Valid items:', validItems.length);
+
+      setProcessingQueue((prev) => {
+        console.log('[DEBUG] Previous queue length:', prev.length);
+        const newQueue = [...prev, ...validItems];
+        console.log('[DEBUG] New queue length:', newQueue.length);
+        return newQueue;
+      })
 
       const message = tCount('filesAddedDesc', files.length, language).replace(/\d+/g, num =>
         toArabicNumerals(num, language)
       )
 
+      console.log('[DEBUG] Showing toast notification');
       toast({
         title: t('filesAdded', language),
         description: message,
       })
     } catch (error) {
+      console.error('[DEBUG] Error in handleFilesAccepted:', error);
       toast({
         title: t('uploadError', language),
         description: error instanceof Error ? error.message : t(translationKeys.failedProcess, language),
@@ -258,6 +297,23 @@ export default function DashboardPage() {
 
         {/* Upload Section */}
         <div className="relative">
+          {isConfigured && !settings.ocr.apiKey && (
+            <Alert variant="destructive" className="mb-4">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>API Key Missing</AlertTitle>
+              <AlertDescription className="flex flex-col gap-2">
+                <p>You need to set an API key for the OCR service to work. Files will be uploaded but not processed.</p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShouldShowSettings(true)}
+                  className="self-start"
+                >
+                  Open Settings
+                </Button>
+              </AlertDescription>
+            </Alert>
+          )}
           <Card className={cn(
             "border-dashed transition-all duration-300",
             isDraggingOverPage && "ring-2 ring-primary shadow-lg"

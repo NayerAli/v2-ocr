@@ -27,6 +27,7 @@ export interface Database {
           created_at: string
           updated_at: string
           rate_limit_info: Json | null
+          user_id: string | null
         }
         Insert: {
           id: string
@@ -45,6 +46,7 @@ export interface Database {
           created_at?: string
           updated_at?: string
           rate_limit_info?: Json | null
+          user_id?: string | null
         }
         Update: {
           id?: string
@@ -63,6 +65,7 @@ export interface Database {
           created_at?: string
           updated_at?: string
           rate_limit_info?: Json | null
+          user_id?: string | null
         }
       }
       results: {
@@ -80,6 +83,7 @@ export interface Database {
           error: string | null
           rate_limit_info: Json | null
           created_at: string
+          user_id: string | null
         }
         Insert: {
           id: string
@@ -95,6 +99,7 @@ export interface Database {
           error?: string | null
           rate_limit_info?: Json | null
           created_at?: string
+          user_id?: string | null
         }
         Update: {
           id?: string
@@ -110,6 +115,7 @@ export interface Database {
           error?: string | null
           rate_limit_info?: Json | null
           created_at?: string
+          user_id?: string | null
         }
       }
       metadata: {
@@ -117,16 +123,19 @@ export interface Database {
           key: string
           value: Json
           created_at: string
+          user_id: string | null
         }
         Insert: {
           key: string
           value: Json
           created_at?: string
+          user_id?: string | null
         }
         Update: {
           key?: string
           value?: Json
           created_at?: string
+          user_id?: string | null
         }
       }
       settings: {

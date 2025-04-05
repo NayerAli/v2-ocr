@@ -26,7 +26,6 @@ export class QueueManager {
    * Update processing settings
    */
   updateProcessingSettings(settings: ProcessingSettings): void {
-    console.log('[QueueManager] Updating processing settings:', settings);
     this.processingSettings = settings;
   }
 
@@ -41,10 +40,14 @@ export class QueueManager {
   }
 
   async addToQueue(files: File[]): Promise<string[]> {
+    console.log('[DEBUG] addToQueue called with', files.length, 'files');
     const ids: string[] = [];
 
     for (const file of files) {
+      console.log('[DEBUG] Processing file:', file.name, 'type:', file.type, 'size:', file.size);
+
       if (!this.isFileValid(file)) {
+        console.log('[DEBUG] Invalid file:', file.name);
         throw new Error(`Invalid file: ${file.name}`);
       }
 
@@ -64,22 +67,45 @@ export class QueueManager {
         updatedAt: now
       };
 
+      console.log('[DEBUG] Adding file to queue:', file.name, 'with ID:', id);
       this.queueMap.set(id, status);
       await db.saveToQueue(status);
       ids.push(id);
+      console.log('[DEBUG] File added to queue:', file.name, 'with ID:', id);
     }
+
+    console.log('[DEBUG] Added', ids.length, 'files to queue with IDs:', ids);
 
     return ids;
   }
 
   async processQueue() {
-    if (this.isProcessing || this.isPaused) return;
+    console.log('[DEBUG] processQueue called, isProcessing:', this.isProcessing, 'isPaused:', this.isPaused);
+
+    // Check if we have a valid OCR provider
+    if (!this.fileProcessor.hasValidOCRProvider()) {
+      console.log('[DEBUG] No valid OCR provider available, cannot process queue');
+      return;
+    }
+
+    if (this.isProcessing || this.isPaused) {
+      console.log('[DEBUG] Queue already processing or paused, returning');
+      return;
+    }
+
     this.isProcessing = true;
+    console.log('[DEBUG] Setting isProcessing to true');
 
     try {
-      const queuedItems = Array.from(this.queueMap.values())
-        .filter(item => item.status === "queued")
-        .slice(0, this.processingSettings.maxConcurrentJobs); // Process multiple files concurrently
+      const allItems = Array.from(this.queueMap.values());
+      console.log('[DEBUG] All items in queue:', allItems.length);
+
+      const queuedItems = allItems
+        .filter(item => item.status === "queued");
+      console.log('[DEBUG] Queued items:', queuedItems.length);
+
+      const itemsToProcess = queuedItems.slice(0, this.processingSettings.maxConcurrentJobs);
+      console.log('[DEBUG] Items to process:', itemsToProcess.length, 'maxConcurrentJobs:', this.processingSettings.maxConcurrentJobs);
 
       const processingPromises = queuedItems.map(async (item) => {
         try {
@@ -224,10 +250,12 @@ export class QueueManager {
     }
 
     this.isProcessing = false;
+    console.log('[DEBUG] Setting isProcessing to false');
 
     // Check if there are more items to process
     const remainingItems = Array.from(this.queueMap.values())
       .filter(item => item.status === "queued");
+    console.log('[DEBUG] Remaining queued items:', remainingItems.length);
 
     // Check for rate-limited items that are ready to retry
     const rateLimitedItems = Array.from(this.queueMap.values())
@@ -236,11 +264,12 @@ export class QueueManager {
         item.rateLimitInfo?.isRateLimited &&
         Date.now() >= (item.rateLimitInfo.rateLimitStart + (item.rateLimitInfo.retryAfter * 1000))
       );
+    console.log('[DEBUG] Rate-limited items ready to retry:', rateLimitedItems.length);
 
     // Reset rate-limited items to queued state if they're ready to retry
     if (rateLimitedItems.length > 0) {
       for (const item of rateLimitedItems) {
-        console.log(`[Process] Rate limit period ended for ${item.filename}. Requeuing...`);
+        console.log(`[DEBUG] Rate limit period ended for ${item.filename}. Requeuing...`);
         item.status = "queued";
         item.rateLimitInfo = undefined;
         await db.saveToQueue(item);
@@ -248,8 +277,11 @@ export class QueueManager {
     }
 
     if ((remainingItems.length > 0 || rateLimitedItems.length > 0) && !this.isPaused) {
+      console.log('[DEBUG] More items to process, scheduling next processQueue call');
       // Use setTimeout to prevent stack overflow with recursive calls
       setTimeout(() => this.processQueue(), 0);
+    } else {
+      console.log('[DEBUG] No more items to process or queue is paused');
     }
   }
 

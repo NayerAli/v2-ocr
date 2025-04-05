@@ -28,13 +28,15 @@ let serviceState: ProcessingServiceState | null = null;
  * Initialize the processing service components with the given settings
  */
 async function initializeService(state: ProcessingServiceState): Promise<void> {
+  console.log('[DEBUG] Initializing processing service');
+  console.log('[DEBUG] Initial OCR settings:', state.ocrSettings);
+  console.log('[DEBUG] Initial processing settings:', state.processingSettings);
+
   // Fetch the latest processing settings from the server
   try {
-    console.log('[ProcessingService] Fetching server-side processing settings...');
+    console.log('[DEBUG] Fetching server processing settings');
     const serverProcessingSettings = await getServerProcessingSettings();
-
-    // Log the settings with a clear identifier
-    console.log('[ProcessingService] Received server-side processing settings:', JSON.stringify(serverProcessingSettings, null, 2));
+    console.log('[DEBUG] Server processing settings:', serverProcessingSettings);
 
     // Update the processing settings with server-side values
     state.processingSettings = serverProcessingSettings;
@@ -42,17 +44,25 @@ async function initializeService(state: ProcessingServiceState): Promise<void> {
     // Update components that depend on processing settings
     state.fileProcessor.updateProcessingSettings(serverProcessingSettings);
     state.queueManager.updateProcessingSettings(serverProcessingSettings);
-
-    console.log('[ProcessingService] Updated components with server-side processing settings');
+    console.log('[DEBUG] Updated components with server settings');
   } catch (error) {
-    console.error('[ProcessingService] Failed to fetch server-side processing settings:', error);
+    console.log('[DEBUG] Error fetching server settings:', error);
     // Continue with existing settings if server fetch fails
   }
 
+  console.log('[DEBUG] Initializing queue');
   await state.queueManager.initializeQueue();
+  console.log('[DEBUG] Queue initialized');
 
-  if (state.ocrSettings.apiKey) {
+  // Check if we have a valid OCR provider with an API key
+  const hasValidProvider = state.fileProcessor.hasValidOCRProvider();
+
+  if (hasValidProvider) {
+    console.log('[DEBUG] Valid OCR provider found, processing queue');
     state.queueManager.processQueue();
+  } else {
+    console.log('[DEBUG] No valid OCR provider found, skipping queue processing');
+    console.log('[DEBUG] OCR settings:', state.ocrSettings);
   }
 }
 
@@ -81,7 +91,10 @@ function createServiceComponents(settings: ServiceSettings, rateLimiter: AzureRa
  * Get or create the processing service instance
  */
 export function getProcessingService(settings: ServiceSettings) {
+  console.log('[DEBUG] getProcessingService called with settings:', settings);
+
   if (!serviceState) {
+    console.log('[DEBUG] No existing service state, creating new instance');
     const azureRateLimiter = new AzureRateLimiter();
     serviceState = {
       azureRateLimiter,
@@ -89,14 +102,19 @@ export function getProcessingService(settings: ServiceSettings) {
     };
 
     // Initialize asynchronously
-    initializeService(serviceState).catch(err =>
-      console.error('[ProcessingService] Initialization error:', err)
-    );
+    console.log('[DEBUG] Initializing service asynchronously');
+    initializeService(serviceState).catch(err => {
+      console.error('[DEBUG] Processing service initialization error:', err);
+    });
   } else if (
     JSON.stringify(serviceState.ocrSettings) !== JSON.stringify(settings.ocr) ||
     JSON.stringify(serviceState.processingSettings) !== JSON.stringify(settings.processing) ||
     JSON.stringify(serviceState.uploadSettings) !== JSON.stringify(settings.upload)
   ) {
+    console.log('[DEBUG] Settings changed, updating service');
+    console.log('[DEBUG] Old OCR settings:', serviceState.ocrSettings);
+    console.log('[DEBUG] New OCR settings:', settings.ocr);
+
     // Update settings if they've changed
     const components = createServiceComponents(settings, serviceState.azureRateLimiter);
     serviceState = {
@@ -105,9 +123,12 @@ export function getProcessingService(settings: ServiceSettings) {
     };
 
     // Initialize with new settings
-    initializeService(serviceState).catch(err =>
-      console.error('[ProcessingService] Reinitialization error:', err)
-    );
+    console.log('[DEBUG] Reinitializing service with new settings');
+    initializeService(serviceState).catch(err => {
+      console.error('[DEBUG] Processing service reinitialization error:', err);
+    });
+  } else {
+    console.log('[DEBUG] Using existing service instance, settings unchanged');
   }
 
   // Return the public API
@@ -116,12 +137,26 @@ export function getProcessingService(settings: ServiceSettings) {
      * Add files to the processing queue
      */
     addToQueue: async (files: File[]): Promise<string[]> => {
-      if (!serviceState) throw new Error('Service not initialized');
+      console.log('[DEBUG] Processing service addToQueue called with', files.length, 'files');
 
+      if (!serviceState) {
+        console.log('[DEBUG] Service not initialized');
+        throw new Error('Service not initialized');
+      }
+
+      console.log('[DEBUG] Calling queueManager.addToQueue');
       const ids = await serviceState.queueManager.addToQueue(files);
+      console.log('[DEBUG] queueManager.addToQueue returned IDs:', ids);
 
-      if (serviceState.ocrSettings.apiKey) {
+      // Check if we have a valid OCR provider with an API key
+      const hasValidProvider = serviceState.fileProcessor.hasValidOCRProvider();
+
+      if (hasValidProvider) {
+        console.log('[DEBUG] Valid OCR provider found, calling processQueue');
         serviceState.queueManager.processQueue();
+      } else {
+        console.log('[DEBUG] No valid OCR provider found, skipping processQueue');
+        console.log('[DEBUG] OCR settings:', serviceState.ocrSettings);
       }
 
       return ids;

@@ -63,11 +63,9 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     }
   }, [open, refreshSettings])
 
-  // Log server processing settings when they change
+  // Update UI when server processing settings change
   useEffect(() => {
-    if (serverProcessingSettings) {
-      console.log('Settings dialog: Server processing settings updated:', serverProcessingSettings)
-    }
+    // No action needed, UI will update automatically
   }, [serverProcessingSettings])
 
   const handleValidateApiKey = async () => {
@@ -143,6 +141,15 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
 
             <div className="px-1">
               <TabsContent value="ocr" className="space-y-4 mt-0 mb-6">
+                {!settings.ocr.apiKey && (
+                  <Alert variant="destructive" className="mb-4">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertTitle>API Key Missing</AlertTitle>
+                    <AlertDescription>
+                      You need to set an API key for the OCR service to work. Files will be uploaded but not processed until you add a valid API key.
+                    </AlertDescription>
+                  </Alert>
+                )}
                 <div className="space-y-3">
                   <div className="space-y-1.5">
                     <Label htmlFor="provider" className="text-sm">🤖 {t('textRecognitionService', language)}</Label>
@@ -315,10 +322,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                         variant="outline"
                         size="sm"
                         className="mt-2"
-                        onClick={() => {
-                          console.log('Settings dialog: Retrying settings fetch')
-                          refreshSettings()
-                        }}
+                        onClick={() => refreshSettings()}
                       >
                         {t('retry', language) || 'Retry'}
                       </Button>
@@ -335,10 +339,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => {
-                              console.log('Settings dialog: Retrying settings fetch')
-                              refreshSettings()
-                            }}
+                            onClick={() => refreshSettings()}
                           >
                             {t('retry', language) || 'Retry'}
                           </Button>

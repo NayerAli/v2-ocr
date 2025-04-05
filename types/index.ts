@@ -17,6 +17,7 @@ export interface OCRResult {
   imageUrl?: string
   boundingBox?: BoundingBox
   error?: string
+  user_id?: string
   rateLimitInfo?: {
     isRateLimited: boolean
     retryAfter: number
@@ -42,6 +43,7 @@ export interface ProcessingStatus {
   results?: OCRResult[]
   createdAt: Date
   updatedAt: Date
+  user_id?: string
   rateLimitInfo?: {
     isRateLimited: boolean
     retryAfter: number
