@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { FileText, Upload, CheckCircle, AlertCircle, ArrowRight, Clock } from "lucide-react"
+import { FileText, Upload, CheckCircle, AlertCircle, ArrowRight, Clock, LogIn } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { FileUpload } from "./components/file-upload"
 import { SettingsDialog } from "./components/settings-dialog"
@@ -22,6 +22,8 @@ import { DocumentList } from "./components/document-list"
 import { SupabaseError } from "./components/supabase-error"
 import { useLanguage } from "@/hooks/use-language"
 import { t, tCount, translationKeys, type Language } from "@/lib/i18n/translations"
+import { useAuth } from "@/components/auth/auth-provider"
+import Link from "next/link"
 
 interface DashboardStats {
   totalProcessed: number
@@ -43,6 +45,7 @@ export default function DashboardPage() {
   const { toast } = useToast()
   const { language } = useLanguage()
   const { isInitialized, isConfigured, shouldShowSettings, setShouldShowSettings } = useSettingsInit()
+  const { user, isLoading: isAuthLoading } = useAuth()
   const [processingQueue, setProcessingQueue] = useState<ProcessingStatus[]>([])
   const [isDraggingOverPage, setIsDraggingOverPage] = useState(false)
   const [isLoadingData, setIsLoadingData] = useState(true)
@@ -86,9 +89,17 @@ export default function DashboardPage() {
     const loadQueue = async (isInitialLoad = false) => {
       console.log('[DEBUG] loadQueue called, isInitialLoad:', isInitialLoad);
       console.log('[DEBUG] isInitialized:', isInitialized);
+      console.log('[DEBUG] isAuthenticated:', !!user);
 
       if (!isInitialized) {
         console.log('[DEBUG] Not initialized, skipping queue load');
+        return;
+      }
+
+      // Skip loading queue if user is not authenticated
+      if (!user && !isAuthLoading) {
+        console.log('[DEBUG] User not authenticated, skipping queue load');
+        setIsLoadingData(false);
         return;
       }
 
@@ -147,7 +158,7 @@ export default function DashboardPage() {
       isMounted = false
       clearInterval(interval)
     }
-  }, [isInitialized])
+  }, [isInitialized, user, isAuthLoading])
 
   const handleFilesAccepted = async (files: File[]) => {
     console.log('[DEBUG] handleFilesAccepted called with', files.length, 'files');
@@ -297,43 +308,71 @@ export default function DashboardPage() {
 
         {/* Upload Section */}
         <div className="relative">
-          {isConfigured && !settings.ocr.apiKey && (
-            <Alert variant="destructive" className="mb-4">
-              <AlertCircle className="h-4 w-4" />
-              <AlertTitle>API Key Missing</AlertTitle>
-              <AlertDescription className="flex flex-col gap-2">
-                <p>You need to set an API key for the OCR service to work. Files will be uploaded but not processed.</p>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShouldShowSettings(true)}
-                  className="self-start"
-                >
-                  Open Settings
-                </Button>
-              </AlertDescription>
-            </Alert>
-          )}
-          <Card className={cn(
-            "border-dashed transition-all duration-300",
-            isDraggingOverPage && "ring-2 ring-primary shadow-lg"
-          )}>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Upload className={cn(
-                  "h-5 w-5 transition-colors duration-300",
-                  isDraggingOverPage ? "text-primary" : "text-primary/80"
-                )} />
-                {t('uploadDocuments', language)}
-              </CardTitle>
-              <CardDescription>
-                {t('uploadDescription', language)}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <FileUpload
-                onFilesAccepted={handleFilesAccepted}
-                processingQueue={processingQueue}
+          {!user && !isAuthLoading ? (
+            // Login card for unauthenticated users
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <LogIn className="h-5 w-5" />
+                  Login Required
+                </CardTitle>
+                <CardDescription>
+                  Please login to view your documents and upload new files.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col items-center justify-center py-8">
+                <div className="flex flex-col items-center justify-center space-y-4 max-w-md text-center">
+                  <p className="text-muted-foreground">
+                    You need to be logged in to access your documents and upload new files.
+                  </p>
+                  <Button asChild className="mt-4">
+                    <Link href="/auth/login">
+                      Login to Your Account
+                    </Link>
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
+            // Upload card for authenticated users
+            <>
+              {isConfigured && !settings.ocr.apiKey && (
+                <Alert variant="destructive" className="mb-4">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertTitle>API Key Missing</AlertTitle>
+                  <AlertDescription className="flex flex-col gap-2">
+                    <p>You need to set an API key for the OCR service to work. Files will be uploaded but not processed.</p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShouldShowSettings(true)}
+                      className="self-start"
+                    >
+                      Open Settings
+                    </Button>
+                  </AlertDescription>
+                </Alert>
+              )}
+              <Card className={cn(
+                "border-dashed transition-all duration-300",
+                isDraggingOverPage && "ring-2 ring-primary shadow-lg"
+              )}>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Upload className={cn(
+                      "h-5 w-5 transition-colors duration-300",
+                      isDraggingOverPage ? "text-primary" : "text-primary/80"
+                    )} />
+                    {t('uploadDocuments', language)}
+                  </CardTitle>
+                  <CardDescription>
+                    {t('uploadDescription', language)}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <FileUpload
+                    onFilesAccepted={handleFilesAccepted}
+                    processingQueue={processingQueue}
                 onPause={async () => {
                   await processingService.pauseQueue()
                   toast({
@@ -358,12 +397,15 @@ export default function DashboardPage() {
                 onDragStateChange={setIsDraggingOverPage}
                 language={language}
               />
-            </CardContent>
-          </Card>
+                </CardContent>
+              </Card>
+            </>
+          )}
         </div>
 
-        {/* Stats Grid */}
-        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+        {/* Stats Grid - Only show for authenticated users */}
+        {user && !isAuthLoading && (
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
           {renderStatsCard(
             t('totalDocuments', language),
             <FileText className="h-4 w-4 text-muted-foreground" />,
@@ -424,9 +466,11 @@ export default function DashboardPage() {
             </>
           )}
         </div>
+        )}
 
-        {/* Recent Documents */}
-        <Card>
+        {/* Recent Documents - Only show for authenticated users */}
+        {user && !isAuthLoading && (
+          <Card>
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
               <div>
@@ -468,7 +512,8 @@ export default function DashboardPage() {
               />
             )}
           </CardContent>
-        </Card>
+          </Card>
+        )}
       </div>
 
       <DocumentDetailsDialog

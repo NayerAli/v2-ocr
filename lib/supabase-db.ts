@@ -335,15 +335,15 @@ class DatabaseService {
       return
     }
 
+    // Get the current user
+    console.log('[DEBUG] Getting current user for saveToQueue');
+    const user = await getUser()
+    console.log('[DEBUG] Current user for saveToQueue:', user ? 'Authenticated' : 'Not authenticated');
+
     // Ensure dates are properly set and remove the file field
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { file, ...statusWithoutFile } = status
     console.log('[DEBUG] Removed file from status object');
-
-    // Get the current user
-    console.log('[DEBUG] Getting current user');
-    const user = await getUser()
-    console.log('[DEBUG] Current user:', user ? 'Authenticated' : 'Not authenticated');
 
     // Use the existing Supabase client
 
@@ -399,36 +399,61 @@ class DatabaseService {
   }
 
   async removeFromQueue(id: string) {
+    console.log('[DEBUG] removeFromQueue called for id:', id);
+
     if (!isSupabaseConfigured()) {
-      console.error('Supabase not configured. Cannot remove from queue.')
+      console.error('[DEBUG] Supabase not configured. Cannot remove from queue.')
       return
     }
 
-    // Delete from results first
-    const { error: resultsError } = await supabase
-      .from('results')
-      .delete()
-      .eq('document_id', id)
+    // Get the current user
+    const user = await getUser()
+    console.log('[DEBUG] Current user for removeFromQueue:', user ? 'Authenticated' : 'Not authenticated');
 
-    if (resultsError) {
-      console.error('Error removing results:', resultsError)
+    if (!user) {
+      console.error('[DEBUG] User not authenticated. Cannot remove from queue.')
+      return
     }
 
-    // Then delete from queue
-    const { error: queueError } = await supabase
-      .from('queue')
-      .delete()
-      .eq('id', id)
+    try {
+      // Delete from results first
+      console.log('[DEBUG] Deleting results for document:', id);
+      const { error: resultsError } = await supabase
+        .from('results')
+        .delete()
+        .eq('document_id', id)
+        .eq('user_id', user.id) // Add user_id filter
 
-    if (queueError) {
-      console.error('Error removing from queue:', queueError)
+      if (resultsError) {
+        console.error('[DEBUG] Error removing results:', resultsError)
+      } else {
+        console.log('[DEBUG] Results deleted successfully');
+      }
+
+      // Then delete from queue
+      console.log('[DEBUG] Deleting queue item:', id);
+      const { error: queueError } = await supabase
+        .from('queue')
+        .delete()
+        .eq('id', id)
+        .eq('user_id', user.id) // Add user_id filter
+
+      if (queueError) {
+        console.error('[DEBUG] Error removing from queue:', queueError)
+      } else {
+        console.log('[DEBUG] Queue item deleted successfully');
+      }
+
+      // Invalidate cache
+      this.lastUpdate = 0
+      this.cache.queue = []
+      this.cache.results.delete(id)
+      this.cache.stats = null
+
+      console.log('[DEBUG] Cache invalidated');
+    } catch (error) {
+      console.error('[DEBUG] Exception in removeFromQueue:', error);
     }
-
-    // Invalidate cache
-    this.lastUpdate = 0
-    this.cache.queue = []
-    this.cache.results.delete(id)
-    this.cache.stats = null
   }
 
   async getResults(documentId: string): Promise<OCRResult[]> {

@@ -22,6 +22,13 @@ export class FileProcessor {
   }
 
   /**
+   * Update OCR provider
+   */
+  updateOCRProvider(provider: OCRProvider): void {
+    this.ocrProvider = provider;
+  }
+
+  /**
    * Check if we have a valid OCR provider with an API key
    */
   hasValidOCRProvider(): boolean {
@@ -35,9 +42,18 @@ export class FileProcessor {
     // We need to access the settings property which might be private
     // @ts-ignore - Accessing private property for debugging
     const apiKey = this.ocrProvider.settings?.apiKey;
+    // @ts-ignore - Accessing private property for debugging
+    const useSystemKey = this.ocrProvider.settings?.useSystemKey;
 
+    // Simplified check: if there's an API key with length > 0, it's valid
     const isValid = !!apiKey && apiKey.length > 0;
-    console.log('[DEBUG] OCR provider API key is valid:', isValid);
+
+    console.log('[DEBUG] OCR provider API key check:', {
+      isValid,
+      apiKeyPresent: !!apiKey,
+      apiKeyLength: apiKey ? apiKey.length : 0,
+      useSystemKey: !!useSystemKey
+    });
 
     return isValid;
   }

@@ -69,6 +69,9 @@ User data is stored in the following tables:
 1. `auth.users` - Managed by Supabase Auth
 2. `public.user_profiles` - Custom user profile data
 3. `public.user_settings` - User-specific settings
+4. `public.queue` - User-specific document queue (with user_id column)
+5. `public.results` - User-specific OCR results (with user_id column)
+6. `public.metadata` - User-specific metadata (with user_id column)
 
 ## Row Level Security (RLS)
 

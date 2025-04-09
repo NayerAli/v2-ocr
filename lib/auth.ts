@@ -9,10 +9,22 @@ const supabase = getSupabaseClient()
  */
 export async function getSession(): Promise<Session | null> {
   try {
-    const { data } = await supabase.auth.getSession()
+    const { data, error } = await supabase.auth.getSession()
+
+    if (error) {
+      console.error('Error getting session:', error.message)
+      return null
+    }
+
+    if (data.session) {
+      console.log('Session found for user:', data.session.user.email)
+    } else {
+      console.log('No session found')
+    }
+
     return data.session
   } catch (error) {
-    // Silently handle auth errors (expected when not logged in)
+    console.error('Exception getting session:', error)
     return null
   }
 }
@@ -22,10 +34,22 @@ export async function getSession(): Promise<Session | null> {
  */
 export async function getUser(): Promise<User | null> {
   try {
-    const { data } = await supabase.auth.getUser()
+    const { data, error } = await supabase.auth.getUser()
+
+    if (error) {
+      console.error('Error getting user:', error.message)
+      return null
+    }
+
+    if (data.user) {
+      console.log('User found:', data.user.email)
+    } else {
+      console.log('No user found')
+    }
+
     return data.user
   } catch (error) {
-    // Silently handle auth errors (expected when not logged in)
+    console.error('Exception getting user:', error)
     return null
   }
 }

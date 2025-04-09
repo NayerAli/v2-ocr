@@ -22,6 +22,7 @@ interface DocumentListProps {
   onShowDetails: (doc: ProcessingStatus) => void
   onDownload: (id: string) => void
   onDelete: (id: string) => void
+  onCancel?: (id: string) => void
   variant?: "table" | "grid"
   showHeader?: boolean
   isLoading?: boolean
@@ -35,13 +36,13 @@ function formatDate(date: number | Date, language: Language): string {
     hour: '2-digit',
     minute: '2-digit'
   } as const
-  
+
   const formatted = new Date(date).toLocaleString(
     language === 'ar' ? 'ar-EG' : language === 'fa' ? 'fa-IR' : undefined,
     options
   )
-  
-  return language === 'ar' || language === 'fa' 
+
+  return language === 'ar' || language === 'fa'
     ? formatted.replace(/[0-9]/g, d => ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'][parseInt(d)])
     : formatted
 }
@@ -72,7 +73,7 @@ function FileNameDisplay({ filename }: { filename: string }) {
 
 function toArabicNumerals(num: number | string, language: Language): string {
   if (language !== 'ar' && language !== 'fa') return String(num)
-  
+
   const arabicNumerals = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩']
   return String(num).replace(/[0-9]/g, (d) => arabicNumerals[parseInt(d)])
 }
@@ -102,11 +103,12 @@ function getStatusIcon(status: string) {
   }
 }
 
-export function DocumentList({ 
-  documents, 
-  onShowDetails, 
-  onDownload, 
-  onDelete, 
+export function DocumentList({
+  documents,
+  onShowDetails,
+  onDownload,
+  onDelete,
+  onCancel,
   variant = "table",
   isLoading = false
 }: DocumentListProps) {
@@ -143,15 +145,15 @@ export function DocumentList({
       ))
       return `${t('resumingIn', language)} ${toArabicNumerals(remainingTime, language)}s`
     }
-    
+
     if (doc.status === "processing") {
       return `${t('processing', language)} ${toArabicNumerals(doc.currentPage || 0, language)}/${toArabicNumerals(doc.totalPages || 0, language)}`
     }
-    
+
     if (doc.status === "cancelled" && doc.currentPage && doc.currentPage > 0) {
       return `${t('cancelled', language)} (${toArabicNumerals(doc.currentPage, language)} ${t('processed', language)})`
     }
-    
+
     return t(doc.status, language)
   }
 
@@ -232,8 +234,8 @@ export function DocumentList({
     return (
       <div className="space-y-4">
         {documents.map((doc) => (
-          <div 
-            key={doc.id} 
+          <div
+            key={doc.id}
             className={cn(
               "flex flex-col gap-3 p-4 rounded-lg border bg-card transition-colors",
               canViewDocument(doc) && "hover:bg-accent/5 cursor-pointer"
@@ -284,7 +286,7 @@ export function DocumentList({
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <div>
-                                  <DropdownMenuItem 
+                                  <DropdownMenuItem
                                     onClick={() => onDownload(doc.id)}
                                     disabled={true}
                                     className="opacity-50 cursor-not-allowed"
@@ -306,8 +308,16 @@ export function DocumentList({
                           </DropdownMenuItem>
                         )
                       )}
-                      <DropdownMenuItem 
-                        className="text-destructive focus:text-destructive" 
+                      {doc.status === 'processing' && onCancel && (
+                        <DropdownMenuItem
+                          onClick={() => onCancel(doc.id)}
+                        >
+                          <Pause className="h-4 w-4 mr-2" />
+                          {t('cancel', language) || 'Cancel'}
+                        </DropdownMenuItem>
+                      )}
+                      <DropdownMenuItem
+                        className="text-destructive focus:text-destructive"
                         onClick={() => onDelete(doc.id)}
                       >
                         <Trash2 className="h-4 w-4 mr-2" />
@@ -340,7 +350,7 @@ export function DocumentList({
         </TableHeader>
         <TableBody>
           {documents.map((doc) => (
-            <TableRow 
+            <TableRow
               key={doc.id}
               className={cn(
                 canViewDocument(doc) && "hover:bg-accent/5 cursor-pointer"
@@ -405,7 +415,7 @@ export function DocumentList({
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <div>
-                                  <DropdownMenuItem 
+                                  <DropdownMenuItem
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       onDownload(doc.id);
@@ -433,8 +443,8 @@ export function DocumentList({
                           </DropdownMenuItem>
                         )
                       )}
-                      <DropdownMenuItem 
-                        className="text-destructive focus:text-destructive" 
+                      <DropdownMenuItem
+                        className="text-destructive focus:text-destructive"
                         onClick={(e) => {
                           e.stopPropagation();
                           onDelete(doc.id);
@@ -453,4 +463,4 @@ export function DocumentList({
       </Table>
     </div>
   )
-} 
+}

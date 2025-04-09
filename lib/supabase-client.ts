@@ -23,8 +23,19 @@ if (!hasCredentials) {
 // Create the Supabase client with a fallback URL if not configured
 // This prevents the 'Invalid URL' error but the client won't work without proper credentials
 const fallbackUrl = 'http://localhost:8000' // This is just a placeholder
+
+// Configure the Supabase client with proper auth settings
 export const supabase = hasCredentials
-  ? createClient<Database>(supabaseUrl, supabaseKey)
+  ? createClient<Database>(supabaseUrl, supabaseKey, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+        // Use cookies for session storage to ensure server-side authentication works
+        storageKey: 'sb-auth-token',
+        flowType: 'pkce'
+      }
+    })
   : createClient<Database>(fallbackUrl, 'fallback-key')
 
 // Helper function to check if Supabase is properly configured

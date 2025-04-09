@@ -1,14 +1,17 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAuth } from '@/components/auth/auth-provider'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
-import { AlertCircle, CheckCircle2, Loader2 } from 'lucide-react'
+import { AlertCircle, CheckCircle2, Loader2, Settings } from 'lucide-react'
 import { supabase } from '@/lib/supabase-client'
+import { useUserSettings } from '@/hooks/use-user-settings'
+import { useSettings } from '@/store/settings'
+import Link from 'next/link'
 
 export default function ProfilePage() {
   const { user, isLoading } = useAuth()
@@ -17,6 +20,15 @@ export default function ProfilePage() {
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const [isUpdating, setIsUpdating] = useState(false)
+  const { fetchUserSettings, isLoading: isLoadingUserSettings } = useUserSettings()
+  const settings = useSettings()
+
+  // Load user settings when the component mounts
+  useEffect(() => {
+    if (user) {
+      fetchUserSettings()
+    }
+  }, [user, fetchUserSettings])
 
   const handleUpdatePassword = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -38,11 +50,11 @@ export default function ProfilePage() {
     try {
       setIsUpdating(true)
       const { error } = await supabase.auth.updateUser({ password })
-      
+
       if (error) {
         throw error
       }
-      
+
       setSuccess('Password updated successfully')
       setPassword('')
       setConfirmPassword('')
@@ -103,6 +115,43 @@ export default function ProfilePage() {
                     Your email address is used for login and notifications
                   </p>
                 </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>OCR Settings</CardTitle>
+              <CardDescription>Your OCR provider and settings</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {isLoadingUserSettings ? (
+                  <div className="flex items-center space-x-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <p className="text-sm text-muted-foreground">Loading settings...</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label>OCR Provider</Label>
+                      <div className="flex items-center space-x-2 border rounded-md p-2">
+                        <div className="flex-1">
+                          <p className="font-medium">{settings.ocr.provider}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {settings.ocr.apiKey ? 'API Key configured' : 'No API Key configured'}
+                          </p>
+                        </div>
+                        <Link href="/settings">
+                          <Button variant="outline" size="sm">
+                            <Settings className="h-4 w-4 mr-2" />
+                            Configure
+                          </Button>
+                        </Link>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>

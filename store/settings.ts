@@ -9,6 +9,7 @@ const defaultSettings: Omit<SettingsState, 'updateOCRSettings' | 'updateProcessi
     apiKey: "",
     region: "",
     language: CONFIG.DEFAULT_LANGUAGE,
+    useSystemKey: true, // Use system API key by default
   },
   processing: {
     maxConcurrentJobs: 1,
@@ -62,7 +63,7 @@ export const useSettings = create<SettingsState>()(
         return (state) => {
           if (state) {
             // Ensure all required fields exist after rehydration
-            const hasAllFields = state.ocr && state.processing && state.upload && 
+            const hasAllFields = state.ocr && state.processing && state.upload &&
                                state.display && state.database
             if (!hasAllFields) {
               // Reset to defaults if any required field is missing

@@ -16,10 +16,13 @@ import { useToast } from "@/hooks/use-toast"
 import { cn } from "@/lib/utils"
 import { db } from "@/lib/database"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
-import type { DatabaseStats, ProcessingSettings } from "@/types/settings"
+import type { DatabaseStats, ProcessingSettings, OCRSettings, UploadSettings, DisplaySettings } from "@/types/settings"
 import { useLanguage } from "@/hooks/use-language"
 import { useServerSettings } from "@/hooks/use-server-settings"
 import { t, type Language } from "@/lib/i18n/translations"
+import { userSettingsService } from "@/lib/user-settings-service"
+import { useAuth } from "@/components/auth/auth-provider"
+import { useUserSettings } from "@/hooks/use-user-settings"
 
 interface SettingsDialogProps {
   open: boolean
@@ -44,14 +47,47 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const [activeTab, setActiveTab] = useState("ocr")
   const { language } = useLanguage()
   const { processingSettings: serverProcessingSettings, isLoading: isLoadingSettings, refreshSettings, error: settingsError } = useServerSettings()
+  const { user } = useAuth()
+  const { isLoading: isLoadingUserSettings, fetchUserSettings, updateUserSettings } = useUserSettings()
 
+  // Load user-specific settings when the dialog opens
   useEffect(() => {
     if (open) {
-      console.log('Settings dialog opened, refreshing stats and settings')
+      console.log('[DEBUG] Settings dialog opened, refreshing stats and settings')
       refreshStats()
       refreshSettings()
+
+      // Load user-specific settings if user is authenticated
+      if (user) {
+        console.log('[DEBUG] User is authenticated, fetching user settings')
+        fetchUserSettings()
+      } else {
+        console.log('[DEBUG] No authenticated user, using default settings')
+      }
     }
-  }, [open, refreshSettings])
+  }, [open, refreshSettings, user, fetchUserSettings])
+
+  // Save settings to database when they change
+  useEffect(() => {
+    // Don't save settings when the dialog is first opened
+    if (!open || !user) return
+
+    // Save settings to database
+    const saveSettings = async () => {
+      console.log('[DEBUG] Saving settings to database')
+      await updateUserSettings({
+        ocr: settings.ocr,
+        processing: settings.processing,
+        upload: settings.upload,
+        display: settings.display
+      })
+    }
+
+    // Use a debounce to avoid saving too frequently
+    const timeoutId = setTimeout(saveSettings, 1000)
+
+    return () => clearTimeout(timeoutId)
+  }, [open, user, settings.ocr, settings.processing, settings.upload, settings.display, updateUserSettings])
 
   // Force refresh settings when the dialog is opened
   useEffect(() => {
@@ -75,12 +111,17 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
 
     try {
       let result;
+      // If using system key, use the default API key from environment
+      const apiKeyToValidate = settings.ocr.useSystemKey !== false
+        ? process.env.NEXT_PUBLIC_DEFAULT_OCR_API_KEY || ""
+        : settings.ocr.apiKey;
+
       if (settings.ocr.provider === "google") {
-        result = await validateGoogleApiKey(settings.ocr.apiKey);
+        result = await validateGoogleApiKey(apiKeyToValidate);
       } else if (settings.ocr.provider === "microsoft") {
-        result = await validateMicrosoftApiKey(settings.ocr.apiKey, settings.ocr.region || "");
+        result = await validateMicrosoftApiKey(apiKeyToValidate, settings.ocr.region || "");
       } else if (settings.ocr.provider === "mistral") {
-        result = await validateMistralApiKey(settings.ocr.apiKey);
+        result = await validateMistralApiKey(apiKeyToValidate);
       }
 
       if (!result) {
@@ -94,12 +135,16 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
         toast({
           variant: "destructive",
           title: t('apiValidationFailed', language),
-          description: result.error,
+          description: settings.ocr.useSystemKey !== false
+            ? "System API key validation failed: " + result.error
+            : result.error,
         })
       } else {
         toast({
           title: t('apiValidationSuccess', language),
-          description: t('apiConfigValid', language),
+          description: settings.ocr.useSystemKey !== false
+            ? "System API key is valid and working correctly."
+            : t('apiConfigValid', language),
         })
       }
     } catch (error) {
@@ -180,6 +225,36 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                   <div className="space-y-1.5">
                     <Label htmlFor="api-key" className="text-sm">🔑 {t('accessKey', language)}</Label>
                     <p className="text-xs text-muted-foreground">{t('accessKeyDescription', language)}</p>
+
+                    <Alert className="mb-2">
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertTitle>System API Key Available</AlertTitle>
+                      <AlertDescription>
+                        You can use our system API key or add your own. If you leave this field empty, the system API key will be used.
+                      </AlertDescription>
+                    </Alert>
+
+                    <div className="flex items-center gap-2 mb-2">
+                      <input
+                        type="checkbox"
+                        id="use-system-key"
+                        checked={settings.ocr.useSystemKey !== false}
+                        onChange={(e) => {
+                          settings.updateOCRSettings({
+                            useSystemKey: e.target.checked,
+                            // Clear API key if using system key
+                            apiKey: e.target.checked ? '' : settings.ocr.apiKey
+                          })
+                          setIsValid(null)
+                          setValidationError(null)
+                        }}
+                        className="h-4 w-4 rounded border-gray-300"
+                      />
+                      <Label htmlFor="use-system-key" className="text-sm cursor-pointer">
+                        Use system API key
+                      </Label>
+                    </div>
+
                     <div className="flex flex-col sm:flex-row gap-2">
                       <div className="relative flex-1">
                         <Input
@@ -187,12 +262,17 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                           type={showApiKey ? "text" : "password"}
                           value={settings.ocr.apiKey}
                           onChange={(e) => {
-                            settings.updateOCRSettings({ apiKey: e.target.value })
+                            settings.updateOCRSettings({
+                              apiKey: e.target.value,
+                              // If user enters an API key, disable system key
+                              useSystemKey: e.target.value.length === 0
+                            })
                             setIsValid(null)
                             setValidationError(null)
                           }}
-                          placeholder={t('enterApiKey', language)}
+                          placeholder={settings.ocr.useSystemKey !== false ? "Using system API key" : t('enterApiKey', language)}
                           className="pr-10 font-mono text-sm"
+                          disabled={settings.ocr.useSystemKey !== false}
                         />
                         <Button
                           type="button"
@@ -200,6 +280,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                           size="icon"
                           className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
                           onClick={() => setShowApiKey(!showApiKey)}
+                          disabled={settings.ocr.useSystemKey !== false}
                         >
                           {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                           <span className="sr-only">
@@ -211,7 +292,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                         onClick={handleValidateApiKey}
                         disabled={
                           isValidating ||
-                          !settings.ocr.apiKey ||
+                          (!settings.ocr.apiKey && settings.ocr.useSystemKey === false) ||
                           (settings.ocr.provider === "microsoft" && !settings.ocr.region)
                         }
                         className="whitespace-nowrap"

@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useMemo, useCallback } from "react"
 import Link from "next/link"
-import { Search, Filter, Upload } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { Search, Filter, Upload, LogIn } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -15,10 +16,15 @@ import { cn } from "@/lib/utils"
 import { useSettingsInit } from "@/hooks/use-settings-init"
 import { useLanguage } from "@/hooks/use-language"
 import { t } from "@/lib/i18n/translations"
+import { useAuth } from "@/components/auth/auth-provider"
+import { AuthCheck } from "@/components/auth/auth-check"
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 
 export default function DocumentsPage() {
   const { isInitialized } = useSettingsInit()
   const { language } = useLanguage()
+  const { user } = useAuth()
+  const router = useRouter()
   const [documents, setDocuments] = useState<ProcessingStatus[]>([])
   const [isLoadingData, setIsLoadingData] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
@@ -33,35 +39,42 @@ export default function DocumentsPage() {
     setIsDetailsOpen(true)
   }, [])
 
+  // Load documents when initialized
+  useEffect(() => {
+    if (!isInitialized) return
+
+    console.log('Documents page: Initialized, loading documents for user')
+    setIsLoadingData(true)
+
+    db.getQueue().then(queue => {
+      console.log('Documents page: Documents loaded:', queue.length)
+      setDocuments(queue)
+      setIsLoadingData(false)
+    }).catch(error => {
+      console.error('Error loading documents:', error)
+      setIsLoadingData(false)
+    })
+  }, [isInitialized])
+
   useEffect(() => {
     let isSubscribed = true
-    const loadDocuments = async (isInitialLoad = false) => {
+
+    // Setup polling for document updates
+    const loadDocuments = async () => {
       if (!isInitialized) return
 
       try {
-        // Only show loading state on initial load
-        if (isInitialLoad) {
-          setIsLoadingData(true)
-        }
-
         const queue = await db.getQueue()
         if (isSubscribed) {
           setDocuments(queue)
         }
       } catch (error) {
         console.error("Error loading documents:", error)
-      } finally {
-        if (isSubscribed && isInitialLoad) {
-          setIsLoadingData(false)
-        }
       }
     }
 
-    // Initial load with loading state
-    loadDocuments(true)
-
     // Setup polling without loading state
-    const interval = setInterval(() => loadDocuments(false), 3000)
+    const interval = setInterval(() => loadDocuments(), 3000)
 
     return () => {
       isSubscribed = false
@@ -102,9 +115,74 @@ export default function DocumentsPage() {
   }, [])
 
   const handleDelete = useCallback(async (id: string) => {
-    await db.removeFromQueue(id)
-    setDocuments((prev) => prev.filter((doc) => doc.id !== id))
-  }, [])
+    try {
+      console.log('[DEBUG] Deleting document:', id);
+
+      // Get the document status
+      const doc = documents.find(d => d.id === id);
+
+      // If the document is processing, cancel it first
+      if (doc && doc.status === 'processing') {
+        console.log('[DEBUG] Canceling processing before delete');
+        const cancelResponse = await fetch(`/api/queue/${id}/cancel`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (!cancelResponse.ok) {
+          console.error('[DEBUG] Failed to cancel processing:', await cancelResponse.text());
+        }
+      }
+
+      // Delete the document
+      const deleteResponse = await fetch(`/api/queue/${id}/delete`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!deleteResponse.ok) {
+        console.error('[DEBUG] Failed to delete document:', await deleteResponse.text());
+        return;
+      }
+
+      // Update the UI
+      setDocuments((prev) => prev.filter((doc) => doc.id !== id));
+      console.log('[DEBUG] Document deleted successfully');
+    } catch (error) {
+      console.error('[DEBUG] Error deleting document:', error);
+    }
+  }, [documents])
+
+  const handleCancel = useCallback(async (id: string) => {
+    try {
+      console.log('[DEBUG] Canceling processing for document:', id);
+
+      const cancelResponse = await fetch(`/api/queue/${id}/cancel`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!cancelResponse.ok) {
+        console.error('[DEBUG] Failed to cancel processing:', await cancelResponse.text());
+        return;
+      }
+
+      // Update the document status in the UI
+      setDocuments(prev => prev.map(doc =>
+        doc.id === id ? { ...doc, status: 'cancelled' } : doc
+      ));
+
+      console.log('[DEBUG] Processing canceled successfully');
+    } catch (error) {
+      console.error('[DEBUG] Error canceling processing:', error);
+    }
+  }, []);
 
   const handleDownload = useCallback(async (id: string) => {
     const results = await db.getResults(id)
@@ -123,6 +201,7 @@ export default function DocumentsPage() {
   }, [])
 
   return (
+    <AuthCheck>
     <div className="space-y-8">
       <SupabaseError />
       <div className="flex items-center justify-between">
@@ -195,6 +274,7 @@ export default function DocumentsPage() {
         onShowDetails={handleShowDetails}
         onDownload={handleDownload}
         onDelete={handleDelete}
+        onCancel={handleCancel}
         isLoading={isLoadingData}
       />
 
@@ -204,6 +284,7 @@ export default function DocumentsPage() {
         onOpenChange={setIsDetailsOpen}
       />
     </div>
+    </AuthCheck>
   )
 }
 

@@ -29,6 +29,13 @@ export class QueueManager {
     this.processingSettings = settings;
   }
 
+  /**
+   * Update upload settings
+   */
+  updateUploadSettings(settings: UploadSettings): void {
+    this.uploadSettings = settings;
+  }
+
   async initializeQueue() {
     const savedQueue = await db.getQueue();
     savedQueue.forEach((item) => {

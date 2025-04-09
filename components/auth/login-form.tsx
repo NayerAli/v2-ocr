@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { useAuth } from './auth-provider'
@@ -17,14 +17,25 @@ export function LoginForm() {
   const { signIn, isLoading } = useAuth()
   const searchParams = useSearchParams()
   const registered = searchParams.get('registered')
+  const errorParam = searchParams.get('error')
+  const redirectTo = searchParams.get('redirect')
+
+  // Set error from URL parameter if present
+  useEffect(() => {
+    if (errorParam) {
+      setError(decodeURIComponent(errorParam))
+    }
+  }, [errorParam])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
 
     try {
-      await signIn(email, password)
+      console.log('Login Form: Attempting to sign in with redirect to:', redirectTo || '/')
+      await signIn(email, password, redirectTo || '/')
     } catch (err: any) {
+      console.error('Login Form: Sign in error:', err)
       setError(err.message || 'Failed to sign in')
     }
   }

@@ -5,6 +5,7 @@ import { createOCRProvider } from "./providers";
 import { FileProcessor } from "./file-processor";
 import { QueueManager } from "./queue-manager";
 import { getServerProcessingSettings } from "./server-settings";
+import { userSettingsService } from "@/lib/user-settings-service";
 
 interface ServiceSettings {
   ocr: OCRSettings;
@@ -32,22 +33,51 @@ async function initializeService(state: ProcessingServiceState): Promise<void> {
   console.log('[DEBUG] Initial OCR settings:', state.ocrSettings);
   console.log('[DEBUG] Initial processing settings:', state.processingSettings);
 
-  // Fetch the latest processing settings from the server
+  // Try to load user-specific settings first
   try {
-    console.log('[DEBUG] Fetching server processing settings');
-    const serverProcessingSettings = await getServerProcessingSettings();
-    console.log('[DEBUG] Server processing settings:', serverProcessingSettings);
+    console.log('[DEBUG] Fetching user-specific settings');
+    const userOCRSettings = await userSettingsService.getOCRSettings();
+    const userProcessingSettings = await userSettingsService.getProcessingSettings();
+    const userUploadSettings = await userSettingsService.getUploadSettings();
 
-    // Update the processing settings with server-side values
-    state.processingSettings = serverProcessingSettings;
+    console.log('[DEBUG] User OCR settings:', userOCRSettings);
+    console.log('[DEBUG] User processing settings:', userProcessingSettings);
+
+    // Update the settings with user-specific values
+    state.ocrSettings = userOCRSettings;
+    state.processingSettings = userProcessingSettings;
+    state.uploadSettings = userUploadSettings;
+
+    // Create a new OCR provider with the user's settings
+    const ocrProvider = createOCRProvider(userOCRSettings, state.azureRateLimiter);
+    state.fileProcessor.updateOCRProvider(ocrProvider);
 
     // Update components that depend on processing settings
-    state.fileProcessor.updateProcessingSettings(serverProcessingSettings);
-    state.queueManager.updateProcessingSettings(serverProcessingSettings);
-    console.log('[DEBUG] Updated components with server settings');
+    state.fileProcessor.updateProcessingSettings(userProcessingSettings);
+    state.queueManager.updateProcessingSettings(userProcessingSettings);
+    state.queueManager.updateUploadSettings(userUploadSettings);
+
+    console.log('[DEBUG] Updated components with user settings');
   } catch (error) {
-    console.log('[DEBUG] Error fetching server settings:', error);
-    // Continue with existing settings if server fetch fails
+    console.log('[DEBUG] Error fetching user settings:', error);
+
+    // Fall back to server settings if user settings fail
+    try {
+      console.log('[DEBUG] Fetching server processing settings');
+      const serverProcessingSettings = await getServerProcessingSettings();
+      console.log('[DEBUG] Server processing settings:', serverProcessingSettings);
+
+      // Update the processing settings with server-side values
+      state.processingSettings = serverProcessingSettings;
+
+      // Update components that depend on processing settings
+      state.fileProcessor.updateProcessingSettings(serverProcessingSettings);
+      state.queueManager.updateProcessingSettings(serverProcessingSettings);
+      console.log('[DEBUG] Updated components with server settings');
+    } catch (serverError) {
+      console.log('[DEBUG] Error fetching server settings:', serverError);
+      // Continue with existing settings if server fetch fails
+    }
   }
 
   console.log('[DEBUG] Initializing queue');
