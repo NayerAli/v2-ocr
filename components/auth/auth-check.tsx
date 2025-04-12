@@ -23,11 +23,11 @@ export function AuthCheck({ children, redirectTo = '/auth/login' }: AuthCheckPro
   useEffect(() => {
     const verifyAuth = async () => {
       try {
-        console.log('AuthCheck: Verifying authentication...')
+        // Verify authentication
 
         // First check the auth context
         if (user) {
-          console.log('AuthCheck: User found in context:', user.email)
+          // User found in context
           setIsAuthenticated(true)
           setIsVerifying(false)
           return
@@ -35,18 +35,35 @@ export function AuthCheck({ children, redirectTo = '/auth/login' }: AuthCheckPro
 
         // If no user in context, check with Supabase directly
         if (!isLoading) {
-          console.log('AuthCheck: No user in context, checking with Supabase')
+          // No user in context, check with Supabase directly
           const { data, error } = await supabase.auth.getSession()
 
           if (error) {
-            console.error('AuthCheck: Error getting session:', error.message)
+            console.error('[DEBUG] AuthCheck: Error getting session:', error.message)
             setIsAuthenticated(false)
           } else if (data.session) {
-            console.log('AuthCheck: Session found for user:', data.session.user.email)
+            // Session found
             setIsAuthenticated(true)
           } else {
-            console.log('AuthCheck: No session found')
-            setIsAuthenticated(false)
+            // No session found from Supabase
+            // Try to refresh the session
+            try {
+              const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession()
+
+              if (refreshError) {
+                console.error('[DEBUG] AuthCheck: Error refreshing session:', refreshError.message)
+                setIsAuthenticated(false)
+              } else if (refreshData.session) {
+                console.log('[DEBUG] AuthCheck: Session refreshed for user:', refreshData.session.user.email)
+                setIsAuthenticated(true)
+              } else {
+                console.log('[DEBUG] AuthCheck: No session after refresh attempt')
+                setIsAuthenticated(false)
+              }
+            } catch (refreshException) {
+              console.error('[DEBUG] AuthCheck: Exception refreshing session:', refreshException)
+              setIsAuthenticated(false)
+            }
           }
 
           setIsVerifying(false)

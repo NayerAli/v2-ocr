@@ -17,8 +17,8 @@ export async function middleware(req: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       auth: {
-        persistSession: false,
-        autoRefreshToken: false,
+        persistSession: true,
+        autoRefreshToken: true,
         detectSessionInUrl: false
       },
       global: {
@@ -28,6 +28,8 @@ export async function middleware(req: NextRequest) {
       }
     }
   )
+
+  console.log('Middleware: Created Supabase client with URL:', process.env.NEXT_PUBLIC_SUPABASE_URL)
 
   // Get the session from cookies and Supabase
   let session = null
@@ -46,6 +48,8 @@ export async function middleware(req: NextRequest) {
       const authCookies = cookies.filter(c =>
         c.startsWith('sb-auth-token=') ||
         c.startsWith('sb-localhost-auth-token=') ||
+        c.startsWith('sb-localhost:8000-auth-token=') ||
+        c.startsWith('sb-uvhjupgcggyuopxbirnp-auth-token=') ||
         c.includes('-auth-token=')
       )
 

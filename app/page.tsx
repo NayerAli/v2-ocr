@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button"
 import { FileText, Upload, CheckCircle, AlertCircle, ArrowRight, Clock, LogIn } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { FileUpload } from "./components/file-upload"
-import { SettingsDialog } from "./components/settings-dialog"
 import type { ProcessingStatus } from "@/types"
 import { useSettings } from "@/store/settings"
 import { useSettingsInit } from "@/hooks/use-settings-init"
@@ -44,7 +43,7 @@ export default function DashboardPage() {
   const settings = useSettings()
   const { toast } = useToast()
   const { language } = useLanguage()
-  const { isInitialized, isConfigured, shouldShowSettings, setShouldShowSettings } = useSettingsInit()
+  const { isInitialized, isConfigured } = useSettingsInit()
   const { user, isLoading: isAuthLoading } = useAuth()
   const [processingQueue, setProcessingQueue] = useState<ProcessingStatus[]>([])
   const [isDraggingOverPage, setIsDraggingOverPage] = useState(false)
@@ -298,7 +297,7 @@ export default function DashboardPage() {
             <AlertTitle>{t('configureRequired', language)}</AlertTitle>
             <AlertDescription className="mt-2">
               <p className="mb-2">{t('configureMessage', language)}</p>
-              <Button variant="secondary" size="sm" onClick={() => setShouldShowSettings(true)}>
+              <Button variant="secondary" size="sm" onClick={() => router.push('/settings')}>
                 {t('configureSettings', language)}
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
@@ -345,7 +344,7 @@ export default function DashboardPage() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => setShouldShowSettings(true)}
+                      onClick={() => router.push('/settings')}
                       className="self-start"
                     >
                       Open Settings
@@ -520,15 +519,6 @@ export default function DashboardPage() {
         document={selectedDocument}
         open={isDetailsOpen}
         onOpenChange={setIsDetailsOpen}
-      />
-      <SettingsDialog
-        open={shouldShowSettings}
-        onOpenChange={(open) => {
-          setShouldShowSettings(open)
-          if (!open && isConfigured) {
-            router.refresh()
-          }
-        }}
       />
     </div>
   )

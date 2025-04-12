@@ -11,6 +11,7 @@ export function getSupabaseClient() {
 
     console.log('Creating Supabase client with URL:', supabaseUrl ? 'URL provided' : 'URL missing');
 
+    // Create client with appropriate configuration
     supabaseClient = createClient<Database>(
       supabaseUrl,
       supabaseKey,

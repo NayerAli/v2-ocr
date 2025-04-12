@@ -6,7 +6,6 @@ import { useTheme } from "next-themes"
 import { usePathname } from "next/navigation"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
-import { SettingsDialog } from "./settings-dialog"
 import { useState } from "react"
 import { cn } from "@/lib/utils"
 import {
@@ -34,7 +33,6 @@ const navigation = [
 export function Header() {
   const { theme, setTheme } = useTheme()
   const pathname = usePathname()
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const { language, setLanguage } = useLanguage()
 
   const languages = [
@@ -106,16 +104,7 @@ export function Header() {
           {/* Right Section: Actions */}
           <div className="flex items-center gap-3 ml-auto">
             <UserButton />
-            <div className="h-6 w-px bg-border/80 hidden sm:block" />
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setIsSettingsOpen(true)}
-              className="gap-2 h-9"
-            >
-              <Settings className="h-4 w-4 shrink-0" />
-              <span className="hidden sm:inline-block">{t('settings', language)}</span>
-            </Button>
+
             <div className="h-6 w-px bg-border/80 hidden sm:block" />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -185,7 +174,7 @@ export function Header() {
         </nav>
       </div>
 
-      <SettingsDialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen} />
+      {/* Settings now has its own page */}
     </header>
   )
 }

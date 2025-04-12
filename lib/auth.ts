@@ -1,14 +1,15 @@
 import type { User, Session } from '@supabase/supabase-js'
 import { getSupabaseClient } from './supabase/singleton-client'
 
-// Get the singleton Supabase client
-const supabase = getSupabaseClient()
-
 /**
  * Get the current user session
  */
 export async function getSession(): Promise<Session | null> {
   try {
+    // Get the singleton Supabase client
+    const supabase = getSupabaseClient()
+
+    // Try to get the session from Supabase
     const { data, error } = await supabase.auth.getSession()
 
     if (error) {
@@ -18,11 +19,11 @@ export async function getSession(): Promise<Session | null> {
 
     if (data.session) {
       console.log('Session found for user:', data.session.user.email)
+      return data.session
     } else {
       console.log('No session found')
+      return null
     }
-
-    return data.session
   } catch (error) {
     console.error('Exception getting session:', error)
     return null
@@ -34,6 +35,14 @@ export async function getSession(): Promise<Session | null> {
  */
 export async function getUser(): Promise<User | null> {
   try {
+    // First try to get the session
+    const session = await getSession()
+    if (session?.user) {
+      return session.user
+    }
+
+    // If no session, try to get the user directly
+    const supabase = getSupabaseClient()
     const { data, error } = await supabase.auth.getUser()
 
     if (error) {
@@ -41,13 +50,7 @@ export async function getUser(): Promise<User | null> {
       return null
     }
 
-    if (data.user) {
-      console.log('User found:', data.user.email)
-    } else {
-      console.log('No user found')
-    }
-
-    return data.user
+    return data.user || null
   } catch (error) {
     console.error('Exception getting user:', error)
     return null

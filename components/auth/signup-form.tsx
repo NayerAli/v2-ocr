@@ -35,7 +35,15 @@ export function SignupForm() {
     try {
       await signUp(email, password)
     } catch (err: any) {
-      setError(err.message || 'Failed to sign up')
+      console.error('Signup form error:', err)
+      // Handle specific error messages
+      if (err.message.includes('already exists')) {
+        setError('An account with this email already exists. Please sign in instead.')
+      } else if (err.message.includes('valid email')) {
+        setError('Please enter a valid email address')
+      } else {
+        setError(err.message || 'Failed to sign up. Please try again.')
+      }
     }
   }
 

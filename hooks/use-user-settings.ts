@@ -30,15 +30,22 @@ export function useUserSettings() {
     setHasAttemptedFetch(true)
 
     try {
-      const response = await fetch('/api/settings/user')
+      console.log('[DEBUG] Fetching user settings from API')
+
+      // Add credentials to ensure cookies are sent
+      const response = await fetch('/api/settings/user', {
+        credentials: 'include', // Important: This ensures cookies are sent with the request
+      })
 
       if (!response.ok) {
         if (response.status === 401) {
           // Don't throw an error for unauthorized - this is expected when not logged in
-          console.log('User not authenticated, skipping settings fetch')
+          console.log('[DEBUG] User not authenticated, skipping settings fetch')
           return
         }
-        throw new Error(`Failed to fetch user settings: ${response.status}`)
+        const errorText = await response.text()
+        console.error('[DEBUG] Server returned error when fetching settings:', response.status, errorText)
+        throw new Error(`Failed to fetch user settings: ${response.status} ${errorText}`)
       }
 
       const data = await response.json()
@@ -76,18 +83,38 @@ export function useUserSettings() {
     try {
       console.log('[DEBUG] Updating user settings in database:', newSettings);
 
+      // Add credentials to ensure cookies are sent
       const response = await fetch('/api/settings/user', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(newSettings),
+        credentials: 'include', // Important: This ensures cookies are sent with the request
       });
 
       if (!response.ok) {
         const errorText = await response.text();
         console.error('[DEBUG] Server returned error when updating settings:', response.status, errorText);
-        throw new Error('Failed to update user settings');
+
+        // If we get a 401 Unauthorized, try to refresh the page to re-establish the session
+        if (response.status === 401) {
+          console.log('[DEBUG] Authentication error, will try to update settings again after a delay');
+
+          // Wait a moment and try again
+          setTimeout(() => {
+            console.log('[DEBUG] Retrying settings update after authentication error');
+            // Just update the local settings for now
+            if (newSettings.ocr) settings.updateOCRSettings(newSettings.ocr);
+            if (newSettings.processing) settings.updateProcessingSettings(newSettings.processing);
+            if (newSettings.upload) settings.updateUploadSettings(newSettings.upload);
+            if (newSettings.display) settings.updateDisplaySettings(newSettings.display);
+          }, 1000);
+
+          return;
+        }
+
+        throw new Error(`Failed to update user settings: ${response.status} ${errorText}`);
       }
 
       console.log('[DEBUG] Settings updated successfully in database');

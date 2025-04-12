@@ -45,7 +45,7 @@ export function LoginForm() {
       {registered && (
         <Alert className="bg-green-50 border-green-200">
           <AlertDescription className="text-green-800">
-            Registration successful! Please check your email for verification and sign in.
+            Registration successful! You can now sign in with your email and password.
           </AlertDescription>
         </Alert>
       )}

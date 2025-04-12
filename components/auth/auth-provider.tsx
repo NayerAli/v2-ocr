@@ -195,16 +195,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signUp = async (email: string, password: string) => {
     try {
       setIsLoading(true)
-      const { error } = await supabase.auth.signUp({ email, password })
+      console.log('[DEBUG] Auth Provider: Attempting to sign up user:', email)
 
-      if (error) {
-        throw error
+      // Use our custom API endpoint to create the user without email confirmation
+      const response = await fetch('/api/auth/signup', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email, password }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        console.error('[DEBUG] Auth Provider: API signup error:', data.error)
+        throw new Error(data.error || 'Failed to create user')
       }
 
-      // Redirect to login page after successful signup
-      router.push('/auth/login?registered=true')
+      console.log('[DEBUG] Auth Provider: User created successfully:', data.user.id)
+
+      // Now sign in with the created user
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email,
+        password
+      })
+
+      if (signInError) {
+        console.error('[DEBUG] Auth Provider: Auto sign-in failed after signup:', signInError.message)
+        // Even if sign-in fails, the account was created, so redirect to login
+        router.push('/auth/login?registered=true')
+        return
+      }
+
+      console.log('[DEBUG] Auth Provider: Auto sign-in successful after signup')
+      router.push('/')
     } catch (error) {
-      console.error('Error signing up:', error)
+      console.error('[DEBUG] Auth Provider: Error signing up:', error)
       throw error
     } finally {
       setIsLoading(false)

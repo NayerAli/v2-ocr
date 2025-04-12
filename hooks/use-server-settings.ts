@@ -86,18 +86,14 @@ export function useServerSettings(): UseServerSettingsResult {
   }, [isLoading, processingSettings])
 
   useEffect(() => {
-    // Force initial fetch
+    // Force initial fetch only once
     fetchProcessingSettings(true)
 
-    // Set up a polling interval (every 60 seconds - increased to reduce frequency)
-    const intervalId = setInterval(() => {
-      fetchProcessingSettings()
-    }, 60000)
-
-    return () => {
-      clearInterval(intervalId)
-    }
-  }, [fetchProcessingSettings])
+    // No polling interval - we'll only refresh when explicitly requested
+    // This avoids unnecessary API calls
+    return () => {}
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   return {
     processingSettings: processingSettings || DEFAULT_PROCESSING_SETTINGS,
