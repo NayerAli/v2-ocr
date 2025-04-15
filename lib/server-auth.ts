@@ -6,6 +6,7 @@ import { createClient } from '@supabase/supabase-js'
 import type { User, Session } from '@supabase/supabase-js'
 import type { Database } from '@/types/supabase'
 import { cookies } from 'next/headers'
+import { debugLog, debugError, middlewareLog, prodLog } from './log'
 
 /**
  * Create a Supabase client for server-side use
@@ -36,9 +37,12 @@ export function createServerSupabaseClient() {
       )
     }
 
-    console.log('Server-Auth: Found cookies:', allCookies.map(c => c.name))
-    if (authCookie) {
-      console.log('Server-Auth: Using auth cookie:', authCookie.name)
+    // These logs will only show in development
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('Server-Auth: Found cookies:', allCookies.map(c => c.name))
+      if (authCookie) {
+        console.log('Server-Auth: Using auth cookie:', authCookie.name)
+      }
     }
 
     if (authCookie) {
@@ -51,11 +55,11 @@ export function createServerSupabaseClient() {
           authToken = authData.access_token
         }
       } catch (parseError) {
-        console.error('Server-Auth: Error parsing cookie value:', parseError)
+        debugError('Server-Auth: Error parsing cookie value:', parseError)
       }
     }
   } catch (e) {
-    console.error('Server: Error extracting auth token from cookie:', e)
+    debugError('Server: Error extracting auth token from cookie:', e)
   }
 
   // Create the Supabase client
@@ -95,12 +99,12 @@ export async function getServerSession(): Promise<Session | null> {
     const { data, error } = await supabase.auth.getSession()
 
     if (error) {
-      console.error('[Server] Error getting session:', error.message)
+      debugError('[Server] Error getting session:', error.message)
       return null
     }
 
     if (data.session) {
-      console.log('[Server] Session found for user:', data.session.user.email)
+      middlewareLog('debug', '[Server] Session found for user:', data.session.user.email)
       return data.session
     }
 
@@ -122,33 +126,46 @@ export async function getServerSession(): Promise<Session | null> {
         )
       }
 
-      console.log('[Server-Auth] Found cookies:', allCookies.map(c => c.name))
+      // Only log in development
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('[Server-Auth] Found cookies:', allCookies.map(c => c.name))
+      }
 
       if (authCookie) {
-        console.log('[Server-Auth] Found auth cookie, attempting to parse')
+        // Only log in development
+        if (process.env.NODE_ENV !== 'production') {
+          console.log('[Server-Auth] Found auth cookie, attempting to parse')
+        }
+
         const cookieValue = decodeURIComponent(authCookie.value)
         const authData = JSON.parse(cookieValue)
 
         if (authData.access_token) {
-          console.log('[Server-Auth] Manually parsed auth token from cookie')
+          // Only log in development
+          if (process.env.NODE_ENV !== 'production') {
+            console.log('[Server-Auth] Manually parsed auth token from cookie')
+          }
 
           // Verify the token
           const { data: userData, error: userError } = await supabase.auth.getUser(authData.access_token)
 
           if (!userError && userData?.user) {
-            console.log('[Server-Auth] Manually verified user from token:', userData.user.email)
+            // Only log in development
+            if (process.env.NODE_ENV !== 'production') {
+              console.log('[Server-Auth] Manually verified user from token:', userData.user.email)
+            }
             return { user: userData.user, ...authData } as Session
           }
         }
       }
     } catch {
-      console.error('[Server-Auth] Error parsing auth cookie')
+      debugError('[Server-Auth] Error parsing auth cookie')
     }
 
-    console.log('[Server-Auth] No session found')
+    middlewareLog('debug', '[Server-Auth] No session found')
     return null
   } catch {
-    console.error('[Server-Auth] Exception getting session')
+    debugError('[Server-Auth] Exception getting session')
     return null
   }
 }
@@ -169,19 +186,19 @@ export async function getServerUser(): Promise<User | null> {
     const { data, error } = await supabase.auth.getUser()
 
     if (error) {
-      console.error('[Server] Error getting user:', error.message)
+      debugError('[Server] Error getting user:', error.message)
       return null
     }
 
     if (data.user) {
-      console.log('[Server] User found:', data.user.email)
+      middlewareLog('debug', '[Server] User found:', data.user.email)
       return data.user
     }
 
-    console.log('[Server] No user found')
+    middlewareLog('debug', '[Server] No user found')
     return null
   } catch {
-    console.error('[Server] Exception getting user')
+    debugError('[Server] Exception getting user')
     return null
   }
 }

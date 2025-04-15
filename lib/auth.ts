@@ -1,5 +1,6 @@
 import type { User, Session } from '@supabase/supabase-js'
 import { getSupabaseClient } from './supabase/singleton-client'
+import { debugLog, debugError } from './log'
 
 /**
  * Get the current user session
@@ -13,19 +14,19 @@ export async function getSession(): Promise<Session | null> {
     const { data, error } = await supabase.auth.getSession()
 
     if (error) {
-      console.error('Error getting session:', error.message)
+      debugError('Error getting session:', error.message)
       return null
     }
 
     if (data.session) {
-      console.log('Session found for user:', data.session.user.email)
+      debugLog('Session found for user:', data.session.user.email)
       return data.session
     } else {
-      console.log('No session found')
+      debugLog('No session found')
       return null
     }
   } catch (error) {
-    console.error('Exception getting session:', error)
+    debugError('Exception getting session:', error)
     return null
   }
 }
@@ -46,13 +47,13 @@ export async function getUser(): Promise<User | null> {
     const { data, error } = await supabase.auth.getUser()
 
     if (error) {
-      console.error('Error getting user:', error.message)
+      debugError('Error getting user:', error.message)
       return null
     }
 
     return data.user || null
   } catch (error) {
-    console.error('Exception getting user:', error)
+    debugError('Exception getting user:', error)
     return null
   }
 }

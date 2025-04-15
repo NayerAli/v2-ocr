@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useSettings } from '@/store/settings'
+import { debugLog } from '@/lib/log'
 
 interface UseSettingsInitResult {
   isInitialized: boolean
@@ -19,18 +20,18 @@ export function useSettingsInit(): UseSettingsInitResult {
 
   // Only log in development mode and not too frequently
   if (process.env.NODE_ENV === 'development' && Math.random() < 0.05) {
-    console.log('[DEBUG] useSettingsInit - OCR settings:', settings.ocr);
-    console.log('[DEBUG] useSettingsInit - isConfigured:', isConfigured);
+    debugLog('[DEBUG] useSettingsInit - OCR settings:', settings.ocr);
+    debugLog('[DEBUG] useSettingsInit - isConfigured:', isConfigured);
   }
 
   // Handle initial settings check
   useEffect(() => {
     // Only log in development mode and not on every render
     if (process.env.NODE_ENV === 'development' && !hasCheckedSettings) {
-      console.log('[DEBUG] useSettingsInit - Initial settings check');
-      console.log('[DEBUG] useSettingsInit - hasCheckedSettings:', hasCheckedSettings);
-      console.log('[DEBUG] useSettingsInit - apiKey:', settings.ocr.apiKey ? 'Present' : 'Missing');
-      console.log('[DEBUG] useSettingsInit - provider:', settings.ocr.provider);
+      debugLog('[DEBUG] useSettingsInit - Initial settings check');
+      debugLog('[DEBUG] useSettingsInit - hasCheckedSettings:', hasCheckedSettings);
+      debugLog('[DEBUG] useSettingsInit - apiKey:', settings.ocr.apiKey ? 'Present' : 'Missing');
+      debugLog('[DEBUG] useSettingsInit - provider:', settings.ocr.provider);
     }
 
     // Skip if we've already checked
@@ -46,7 +47,7 @@ export function useSettingsInit(): UseSettingsInitResult {
 
     // No longer need to show settings dialog as we have a dedicated page
     if (process.env.NODE_ENV === 'development' && !hasCheckedSettings) {
-      console.log('[DEBUG] useSettingsInit - Settings check complete');
+      debugLog('[DEBUG] useSettingsInit - Settings check complete');
     }
   }, [settings.ocr.apiKey, settings.ocr.provider, settings.ocr.region, hasCheckedSettings])
 
@@ -55,9 +56,9 @@ export function useSettingsInit(): UseSettingsInitResult {
     if (hasCheckedSettings) {
       // Only log in development mode and very infrequently
       if (process.env.NODE_ENV === 'development' && Math.random() < 0.01) {
-        console.log('[DEBUG] useSettingsInit - Settings changed, rechecking');
-        console.log('[DEBUG] useSettingsInit - apiKey:', settings.ocr.apiKey ? 'Present' : 'Missing');
-        console.log('[DEBUG] useSettingsInit - provider:', settings.ocr.provider);
+        debugLog('[DEBUG] useSettingsInit - Settings changed, rechecking');
+        debugLog('[DEBUG] useSettingsInit - apiKey:', settings.ocr.apiKey ? 'Present' : 'Missing');
+        debugLog('[DEBUG] useSettingsInit - provider:', settings.ocr.provider);
       }
 
       const hasValidSettings = Boolean(settings.ocr.apiKey &&

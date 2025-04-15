@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import type { User, Session } from '@supabase/supabase-js'
 import { getSupabaseClient } from '@/lib/supabase/singleton-client'
+import { debugLog, debugError, prodError } from '@/lib/log'
 
 type AuthContextType = {
   user: User | null
@@ -33,7 +34,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const { data, error } = await supabase.auth.getSession()
 
         if (error) {
-          console.error('Auth Provider: Error getting session:', error.message)
+          debugError('Auth Provider: Error getting session:', error.message)
           setSession(null)
           setUser(null)
           setIsLoading(false)
@@ -44,25 +45,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(data.session?.user ?? null)
 
         if (data.session?.user) {
-          console.log('Auth Provider: User authenticated:', data.session.user.email)
-          console.log('Auth Provider: Session expires at:', new Date(data.session.expires_at! * 1000).toLocaleString())
+          debugLog('Auth Provider: User authenticated:', data.session.user.email)
+          debugLog('Auth Provider: Session expires at:', new Date(data.session.expires_at! * 1000).toLocaleString())
         } else {
-          console.log('Auth Provider: No authenticated user')
+          debugLog('Auth Provider: No authenticated user')
 
           // Try to refresh the session
-          console.log('Auth Provider: Attempting to refresh session')
+          debugLog('Auth Provider: Attempting to refresh session')
           const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession()
 
           if (refreshError) {
-            console.error('Auth Provider: Error refreshing session:', refreshError.message)
+            debugError('Auth Provider: Error refreshing session:', refreshError.message)
           } else if (refreshData.session) {
-            console.log('Auth Provider: Session refreshed for user:', refreshData.session.user.email)
+            debugLog('Auth Provider: Session refreshed for user:', refreshData.session.user.email)
             setSession(refreshData.session)
             setUser(refreshData.session.user)
           }
         }
       } catch (error) {
-        console.error('Auth Provider: Exception getting session:', error)
+        debugError('Auth Provider: Exception getting session:', error)
         setSession(null)
         setUser(null)
       } finally {
@@ -75,27 +76,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
-        console.log('Auth Provider: Auth state changed:', event)
+        debugLog('Auth Provider: Auth state changed:', event)
 
         if (event === 'SIGNED_IN') {
-          console.log('Auth Provider: User signed in:', session?.user?.email)
+          debugLog('Auth Provider: User signed in:', session?.user?.email)
           setSession(session)
           setUser(session?.user ?? null)
         } else if (event === 'SIGNED_OUT') {
-          console.log('Auth Provider: User signed out')
+          debugLog('Auth Provider: User signed out')
           setSession(null)
           setUser(null)
           router.push('/auth/login')
         } else if (event === 'TOKEN_REFRESHED') {
-          console.log('Auth Provider: Token refreshed for user:', session?.user?.email)
+          debugLog('Auth Provider: Token refreshed for user:', session?.user?.email)
           setSession(session)
           setUser(session?.user ?? null)
         } else if (event === 'USER_UPDATED') {
-          console.log('Auth Provider: User updated:', session?.user?.email)
+          debugLog('Auth Provider: User updated:', session?.user?.email)
           setSession(session)
           setUser(session?.user ?? null)
         } else {
-          console.log('Auth Provider: Other auth event:', event)
+          debugLog('Auth Provider: Other auth event:', event)
           setSession(session)
           setUser(session?.user ?? null)
         }
@@ -112,7 +113,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signIn = async (email: string, password: string, redirectTo: string = '/') => {
     try {
       setIsLoading(true)
-      console.log('Auth Provider: Attempting to sign in:', email)
+      debugLog('Auth Provider: Attempting to sign in:', email)
 
       // Sign in with password
       const { data, error } = await supabase.auth.signInWithPassword({
@@ -127,13 +128,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       })
 
       if (error) {
-        console.error('Auth Provider: Sign in error:', error.message)
+        debugError('Auth Provider: Sign in error:', error.message)
         throw error
       }
 
       if (data?.user) {
-        console.log('Auth Provider: Sign in successful for user:', data.user.email)
-        console.log('Auth Provider: Session established:', !!data.session)
+        debugLog('Auth Provider: Sign in successful for user:', data.user.email)
+        debugLog('Auth Provider: Session established:', !!data.session)
 
         // Set the session and user in state
         setSession(data.session)
@@ -141,8 +142,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         // Log session details
         if (data.session) {
-          console.log('Auth Provider: Session expires at:', new Date(data.session.expires_at! * 1000).toLocaleString())
-          console.log('Auth Provider: Access token:', data.session.access_token ? 'Present' : 'Missing')
+          debugLog('Auth Provider: Session expires at:', new Date(data.session.expires_at! * 1000).toLocaleString())
+          debugLog('Auth Provider: Access token:', data.session.access_token ? 'Present' : 'Missing')
 
           // Manually set the cookie to ensure it's available for server-side requests
           // This is a critical step to ensure the middleware can detect the session
@@ -162,32 +163,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               document.cookie = `sb-${projectId}-auth-token=${encodeURIComponent(cookieValue)};path=/;max-age=${60 * 60 * 24 * 7};SameSite=Lax`
             }
 
-            console.log('Auth Provider: Cookies manually set')
+            debugLog('Auth Provider: Cookies manually set')
           }
 
           // Verify the session was stored
           if (typeof window !== 'undefined') {
             const localStorageKeys = Object.keys(localStorage)
-            console.log('Auth Provider: LocalStorage keys:', localStorageKeys)
+            debugLog('Auth Provider: LocalStorage keys:', localStorageKeys)
 
             // Check if we can retrieve the session again
             const { data: sessionData } = await supabase.auth.getSession()
-            console.log('Auth Provider: Session verification:', !!sessionData.session)
+            debugLog('Auth Provider: Session verification:', !!sessionData.session)
           }
         }
 
-        console.log('Auth Provider: Redirecting to:', redirectTo)
+        debugLog('Auth Provider: Redirecting to:', redirectTo)
 
         // Force a small delay to ensure the session is properly established
         setTimeout(() => {
           router.push(redirectTo)
         }, 1000)
       } else {
-        console.error('Auth Provider: Sign in returned no user')
+        debugError('Auth Provider: Sign in returned no user')
         throw new Error('Sign in failed - no user returned')
       }
     } catch (error) {
-      console.error('Auth Provider: Error signing in:', error)
+      debugError('Auth Provider: Error signing in:', error)
       throw error
     } finally {
       setIsLoading(false)
@@ -197,7 +198,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signUp = async (email: string, password: string) => {
     try {
       setIsLoading(true)
-      console.log('[DEBUG] Auth Provider: Attempting to sign up user:', email)
+      debugLog('[DEBUG] Auth Provider: Attempting to sign up user:', email)
 
       // Use our custom API endpoint to create the user without email confirmation
       const response = await fetch('/api/auth/signup', {
@@ -211,11 +212,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const data = await response.json()
 
       if (!response.ok) {
-        console.error('[DEBUG] Auth Provider: API signup error:', data.error)
+        debugError('[DEBUG] Auth Provider: API signup error:', data.error)
         throw new Error(data.error || 'Failed to create user')
       }
 
-      console.log('[DEBUG] Auth Provider: User created successfully:', data.user.id)
+      debugLog('[DEBUG] Auth Provider: User created successfully:', data.user.id)
 
       // Now sign in with the created user
       const { error: signInError } = await supabase.auth.signInWithPassword({
@@ -224,16 +225,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       })
 
       if (signInError) {
-        console.error('[DEBUG] Auth Provider: Auto sign-in failed after signup:', signInError.message)
+        debugError('[DEBUG] Auth Provider: Auto sign-in failed after signup:', signInError.message)
         // Even if sign-in fails, the account was created, so redirect to login
         router.push('/auth/login?registered=true')
         return
       }
 
-      console.log('[DEBUG] Auth Provider: Auto sign-in successful after signup')
+      debugLog('[DEBUG] Auth Provider: Auto sign-in successful after signup')
       router.push('/')
     } catch (error) {
-      console.error('[DEBUG] Auth Provider: Error signing up:', error)
+      debugError('[DEBUG] Auth Provider: Error signing up:', error)
       throw error
     } finally {
       setIsLoading(false)
@@ -251,7 +252,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       router.push('/auth/login')
     } catch (error) {
-      console.error('Error signing out:', error)
+      debugError('Error signing out:', error)
       throw error
     } finally {
       setIsLoading(false)
@@ -269,7 +270,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         throw error
       }
     } catch (error) {
-      console.error('Error resetting password:', error)
+      debugError('Error resetting password:', error)
       throw error
     } finally {
       setIsLoading(false)

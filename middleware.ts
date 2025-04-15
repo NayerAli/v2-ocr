@@ -1,13 +1,14 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { debugLog, debugError, prodLog, middlewareLog } from '@/lib/log'
 
 // This function can be marked `async` if using `await` inside
 export async function middleware(req: NextRequest) {
   // Create a response object
   const res = NextResponse.next()
 
-  // Log the request URL for debugging
+  // Always log the request URL in all environments
   console.log('Middleware: Processing request for URL:', req.nextUrl.pathname)
 
   // Create a temporary Supabase client for middleware
@@ -29,7 +30,10 @@ export async function middleware(req: NextRequest) {
     }
   )
 
-  console.log('Middleware: Created Supabase client with URL:', process.env.NEXT_PUBLIC_SUPABASE_URL)
+  // Only log in development
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('Middleware: Created Supabase client with URL:', process.env.NEXT_PUBLIC_SUPABASE_URL)
+  }
 
   // Get the session from cookies and Supabase
   let session = null
@@ -42,7 +46,10 @@ export async function middleware(req: NextRequest) {
     if (cookieHeader !== 'No cookies') {
       const cookies = cookieHeader.split(';').map(c => c.trim())
       const cookieNames = cookies.map(c => c.split('=')[0])
-      console.log('Middleware: Parsed cookies:', cookieNames)
+      // Only log in development
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('Middleware: Parsed cookies:', cookieNames)
+      }
 
       // Look for Supabase auth cookies
       const authCookieNames = cookies
@@ -56,7 +63,10 @@ export async function middleware(req: NextRequest) {
         .map(c => c.split('=')[0])
 
       if (authCookieNames.length > 0) {
-        console.log('Middleware: Found auth cookies:', authCookieNames)
+        // Only log in development
+        if (process.env.NODE_ENV !== 'production') {
+          console.log('Middleware: Found auth cookies:', authCookieNames)
+        }
       }
     }
 
@@ -64,12 +74,18 @@ export async function middleware(req: NextRequest) {
     const { data, error } = await supabase.auth.getSession()
 
     if (error) {
-      console.error('Middleware: Error getting session:', error.message)
+      debugError('Middleware: Error getting session:', error.message)
     } else if (data?.session) {
       session = data.session
-      console.log('Middleware: Session found for user:', data.session.user.email)
+      // Only log in development
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('Middleware: Session found for user:', data.session.user.email)
+      }
     } else {
-      console.log('Middleware: No session found from Supabase')
+      // Only log in development
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('Middleware: No session found from Supabase')
+      }
 
       // If no session from Supabase, try to parse cookies manually as a fallback
       if (cookieHeader !== 'No cookies') {
@@ -84,26 +100,32 @@ export async function middleware(req: NextRequest) {
               const authData = JSON.parse(cookieValue)
 
               if (authData.access_token) {
-                console.log('Middleware: Manually parsed auth token from cookie')
+                // Only log in development
+                if (process.env.NODE_ENV !== 'production') {
+                  console.log('Middleware: Manually parsed auth token from cookie')
+                }
 
                 // Verify the token
                 const { data: userData, error: userError } = await supabase.auth.getUser(authData.access_token)
 
                 if (!userError && userData?.user) {
                   session = { user: userData.user, ...authData }
-                  console.log('Middleware: Manually verified user from token:', userData.user.email)
+                  // Only log in development
+                  if (process.env.NODE_ENV !== 'production') {
+                    console.log('Middleware: Manually verified user from token:', userData.user.email)
+                  }
                   break
                 }
               }
             } catch (e) {
-              console.error(`Middleware: Error parsing ${cookieName} cookie`)
+              debugError(`Middleware: Error parsing ${cookieName} cookie`)
             }
           }
         }
       }
     }
   } catch (e) {
-    console.error('Middleware: Exception getting session:', e)
+    debugError('Middleware: Exception getting session:', e)
   }
 
   // Check auth condition based on route
@@ -121,6 +143,7 @@ export async function middleware(req: NextRequest) {
   // Check if the route is an auth route
   const isAuthRoute = authRoutes.some(route => url === route)
 
+  // Always log route checks in all environments
   console.log('Middleware: Route check -', {
     url,
     isProtectedRoute,
@@ -130,7 +153,10 @@ export async function middleware(req: NextRequest) {
 
   // If accessing a protected route without a session, redirect to login
   if (isProtectedRoute && !session) {
-    console.log('Middleware: Redirecting to login from protected route:', url)
+    // Only log in development
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('Middleware: Redirecting to login from protected route:', url)
+    }
     const redirectUrl = new URL('/auth/login', req.url)
     redirectUrl.searchParams.set('redirect', url)
 
@@ -142,7 +168,10 @@ export async function middleware(req: NextRequest) {
 
   // If accessing auth routes with a session, redirect to home
   if (isAuthRoute && session) {
-    console.log('Middleware: Redirecting to home from auth route:', url)
+    // Only log in development
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('Middleware: Redirecting to home from auth route:', url)
+    }
     const response = NextResponse.redirect(new URL('/', req.url))
     response.headers.set('Cache-Control', 'no-store, max-age=0')
     return response

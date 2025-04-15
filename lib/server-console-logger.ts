@@ -3,6 +3,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { serverLog, serverError } from './log'
 
 /**
  * Log API request details to console
@@ -24,10 +25,10 @@ export function logApiRequestToConsole(
       .filter(([key]) => !['cookie', 'authorization'].includes(key.toLowerCase()))
   )
 
-  console.log(`[SERVER-API] ${timestamp} [${requestId}] ${method} ${url}`)
+  serverLog(requestId, `${method} ${url}`)
 
   if (params && Object.keys(params).length > 0) {
-    console.log(`[SERVER-API] ${timestamp} [${requestId}] Params:`, params)
+    serverLog(requestId, `Params:`, params)
   }
 }
 
@@ -41,8 +42,7 @@ export function logApiResponseToConsole(
   status: number,
   duration: number
 ) {
-  const timestamp = new Date().toISOString()
-  console.log(`[SERVER-API] ${timestamp} [${requestId}] ${method} ${url} - ${status} in ${duration}ms`)
+  serverLog(requestId, `${method} ${url} - ${status} in ${duration}ms`)
 }
 
 /**
@@ -63,11 +63,8 @@ export function withConsoleApiLogging(handler: (req: NextRequest) => Promise<Nex
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const params = Object.fromEntries(searchParams.entries())
 
-    // Get current timestamp
-    const timestamp = new Date().toISOString()
-
     // Log the request
-    console.log(`[SERVER-API] ${timestamp} [${requestId}] ${method} ${pathname}`)
+    serverLog(requestId, `${method} ${pathname}`)
 
     const startTime = Date.now()
 
@@ -78,11 +75,8 @@ export function withConsoleApiLogging(handler: (req: NextRequest) => Promise<Nex
       // Calculate duration
       const duration = Date.now() - startTime
 
-      // Get current timestamp for response
-      const responseTimestamp = new Date().toISOString()
-
       // Log the response
-      console.log(`[SERVER-API] ${responseTimestamp} [${requestId}] ${method} ${pathname} - ${response.status} in ${duration}ms`)
+      serverLog(requestId, `${method} ${pathname} - ${response.status} in ${duration}ms`)
 
       return response
     } catch (error: unknown) {
@@ -90,11 +84,8 @@ export function withConsoleApiLogging(handler: (req: NextRequest) => Promise<Nex
       // Calculate duration
       const duration = Date.now() - startTime
 
-      // Get current timestamp for error
-      const errorTimestamp = new Date().toISOString()
-
       // Log error
-      console.error(`[SERVER-API] ${errorTimestamp} [${requestId}] ${method} ${pathname} - ERROR in ${duration}ms:`, errorMessage)
+      serverError(requestId, `${method} ${pathname} - ERROR in ${duration}ms:`, errorMessage)
 
       // Return a 500 error response
       return NextResponse.json(

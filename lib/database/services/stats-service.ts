@@ -4,7 +4,7 @@ import type { DatabaseStats } from '@/types/settings'
 import { supabase, isSupabaseConfigured } from '../utils'
 
 /**
- * Get database statistics
+ * Get database statistics directly from the database for the current user
  */
 export async function getDatabaseStats(): Promise<DatabaseStats> {
   if (!isSupabaseConfigured()) {
@@ -12,52 +12,129 @@ export async function getDatabaseStats(): Promise<DatabaseStats> {
     return { totalDocuments: 0, totalResults: 0, dbSize: 0 }
   }
 
-  // Get documents count
+  // Get documents count for the current user
   const { count: documentsCount, error: documentsError } = await supabase
     .from('documents')
     .select('*', { count: 'exact', head: true })
+    // Only count the current user's documents
+    .eq('user_id', (await supabase.auth.getUser()).data.user?.id)
 
   if (documentsError) {
     console.error('Error getting documents count:', documentsError)
     return { totalDocuments: 0, totalResults: 0, dbSize: 0 }
   }
 
-  // Get OCR results count
+  // Get OCR results count for the current user
   const { count: resultsCount, error: resultsError } = await supabase
     .from('ocr_results')
     .select('*', { count: 'exact', head: true })
+    // Only count the current user's OCR results
+    .eq('user_id', (await supabase.auth.getUser()).data.user?.id)
 
   if (resultsError) {
     console.error('Error getting results count:', resultsError)
     return { totalDocuments: 0, totalResults: 0, dbSize: 0 }
   }
 
-  // Get last cleared date
-  const { data: metadataData, error: metadataError } = await supabase
-    .from('metadata')
-    .select('*')
+  // Get last cleared date from system_metadata
+  let metadataData: any = null
+  let metadataError: any = null
+
+  const systemMetadataResult = await supabase
+    .from('system_metadata')
+    .select('value')
     .eq('key', 'lastCleared')
     .single()
 
-  let lastCleared: Date | undefined = undefined
-  if (!metadataError && metadataData) {
-    lastCleared = new Date(metadataData.value as string)
+  metadataData = systemMetadataResult.data
+  metadataError = systemMetadataResult.error
+
+  // If not found in system_metadata, try the metadata table as fallback
+  if (metadataError) {
+    const oldMetadataResult = await supabase
+      .from('metadata')
+      .select('value')
+      .eq('key', 'lastCleared')
+      .single()
+
+    if (!oldMetadataResult.error && oldMetadataResult.data) {
+      metadataData = oldMetadataResult.data
+      metadataError = null
+    }
   }
 
-  // Calculate approximate size (this is an estimation)
-  const estimatedSizePerRecord = 2 // KB
-  const estimatedSize = ((documentsCount || 0) + (resultsCount || 0)) * estimatedSizePerRecord / 1024 // Convert to MB
+  let lastCleared: Date | undefined = undefined
+  if (!metadataError && metadataData) {
+    // Parse the value from the jsonb field
+    const valueStr = typeof metadataData.value === 'string'
+      ? metadataData.value
+      : JSON.stringify(metadataData.value)
+    lastCleared = new Date(valueStr)
+  }
+
+  // Get the sum of file sizes for the current user using SQL function
+  const { data: fileSizeData, error: fileSizeError } = await supabase
+    .rpc('get_current_user_file_size')
+
+  let totalFileSize = 0
+  if (!fileSizeError && fileSizeData) {
+    totalFileSize = fileSizeData
+  } else {
+    // Fallback: manually sum file sizes if the RPC function doesn't exist
+    const { data: allFileSizes, error: allFileSizesError } = await supabase
+      .from('documents')
+      .select('file_size')
+      // Only get the current user's documents
+      .eq('user_id', (await supabase.auth.getUser()).data.user?.id)
+
+    if (!allFileSizesError && allFileSizes) {
+      totalFileSize = allFileSizes.reduce((sum, doc) => sum + (doc.file_size || 0), 0)
+    } else {
+      console.error('Error getting file sizes:', allFileSizesError || fileSizeError)
+    }
+  }
+
+  // Convert total file size from bytes to MB
+  const totalFileSizeMB = totalFileSize / (1024 * 1024)
+
+  // Get OCR results size for the current user using SQL function
+  const { data: ocrSizeData, error: ocrSizeError } = await supabase
+    .rpc('get_current_user_ocr_size')
+
+  let ocrResultsSizeMB = 0
+  if (!ocrSizeError && ocrSizeData) {
+    // Convert from bytes to MB
+    ocrResultsSizeMB = ocrSizeData / (1024 * 1024)
+  } else {
+    // Fallback: manually calculate OCR size if the RPC function doesn't exist
+    const { data: allOcrData, error: allOcrError } = await supabase
+      .from('ocr_results')
+      .select('text')
+      // Only get the current user's OCR results
+      .eq('user_id', (await supabase.auth.getUser()).data.user?.id)
+
+    if (!allOcrError && allOcrData) {
+      // Calculate size based on text length (1 character ≈ 1 byte in UTF-8 for basic Latin)
+      const totalTextSize = allOcrData.reduce((sum, result) => sum + (result.text?.length || 0), 0)
+      ocrResultsSizeMB = totalTextSize / (1024 * 1024)
+    } else {
+      console.error('Error getting OCR sizes:', allOcrError || ocrSizeError)
+    }
+  }
+
+  // Total size in MB
+  const totalSizeMB = totalFileSizeMB + ocrResultsSizeMB
 
   return {
     totalDocuments: documentsCount || 0,
     totalResults: resultsCount || 0,
-    dbSize: Math.round(estimatedSize),
+    dbSize: Math.round(totalSizeMB),
     lastCleared
   }
 }
 
 /**
- * Clean up old records
+ * Clean up old records for the current user
  */
 export async function cleanupOldRecords(retentionPeriod: number): Promise<number> {
   if (!isSupabaseConfigured()) {
@@ -65,14 +142,24 @@ export async function cleanupOldRecords(retentionPeriod: number): Promise<number
     return 0
   }
 
+  // Get the current user's ID
+  const { data: userData } = await supabase.auth.getUser()
+  const userId = userData.user?.id
+
+  if (!userId) {
+    console.error('No authenticated user found. Cannot cleanup old records.')
+    return 0
+  }
+
   const cutoffDate = new Date()
   cutoffDate.setDate(cutoffDate.getDate() - retentionPeriod)
   const cutoffDateStr = cutoffDate.toISOString()
 
-  // Find old records
+  // Find old records for the current user
   const { data: oldRecords, error: findError } = await supabase
     .from('documents')
     .select('id')
+    .eq('user_id', userId)
     .lt('created_at', cutoffDateStr)
 
   if (findError) {
@@ -110,7 +197,7 @@ export async function cleanupOldRecords(retentionPeriod: number): Promise<number
 }
 
 /**
- * Clear the database
+ * Clear the current user's data from the database
  */
 export async function clearDatabase(type?: 'documents' | 'ocr_results' | 'all'): Promise<void> {
   if (!isSupabaseConfigured()) {
@@ -118,11 +205,23 @@ export async function clearDatabase(type?: 'documents' | 'ocr_results' | 'all'):
     return
   }
 
+  // Get the current user's ID
+  const { data: userData } = await supabase.auth.getUser()
+  const userId = userData.user?.id
+
+  if (!userId) {
+    console.error('No authenticated user found. Cannot clear database.')
+    return
+  }
+
   if (!type || type === 'all') {
-    await supabase.from('documents').delete().neq('id', 'placeholder')
-    await supabase.from('ocr_results').delete().neq('id', 'placeholder')
+    // Only delete the current user's documents
+    await supabase.from('documents').delete().eq('user_id', userId)
+    // Only delete the current user's OCR results
+    await supabase.from('ocr_results').delete().eq('user_id', userId)
   } else {
-    await supabase.from(type).delete().neq('id', 'placeholder')
+    // Only delete the current user's data of the specified type
+    await supabase.from(type).delete().eq('user_id', userId)
   }
 
   // Update metadata

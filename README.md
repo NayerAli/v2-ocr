@@ -1,191 +1,146 @@
-# Bulk OCR Processing System 🔍
+# Bulk OCR Processing System
 
-A modern, efficient system for processing large volumes of documents through OCR (Optical Character Recognition), built with Next.js 14.2.16. Configure your preferred OCR provider (Google Cloud Vision or Azure Computer Vision) directly through the user interface.
+A modern, extensible, and efficient system for large-scale document OCR (Optical Character Recognition), built with Next.js 14, TypeScript, and Supabase. Supports Google Cloud Vision, Azure Computer Vision, and Mistral OCR providers, with a robust queue, real-time progress, and a responsive, accessible UI.
+
+---
 
 ## ✨ Features
 
-- 📤 Drag-and-drop file uploads with real-time progress tracking
-- 🔄 Robust job queue management with Supabase database storage
-- 📊 Interactive dashboard with processing metrics
-- 🎯 Support for multiple OCR providers (Google Cloud Vision & Azure)
-- ⚙️ In-app OCR configuration with API key validation
-- 🖼️ Advanced document viewer with:
-  - 🔍 Smooth zoom controls with presets
-  - 🖱️ Pan/drag functionality for zoomed images
-  - 📐 Fit-to-screen and reset zoom options
-  - 🔄 Responsive loading states
-  - 📱 Touch-friendly controls
-- 🔍 Support for PDF, JPEG, PNG, TIFF, and WebP formats
-- ⚡ Optimized batch processing with configurable concurrency
-- 🌐 Enhanced multilingual support with RTL text processing
-- 🔐 Secure API key management with visibility toggle
-- 🎨 Dark mode support with system theme detection
-- 💾 Efficient caching for improved performance
+- **Drag-and-drop uploads** with real-time progress
+- **Job queue management** (Supabase-backed, concurrent, resumable)
+- **Multi-provider OCR**: Google, Azure, Mistral (easy to extend)
+- **Advanced document viewer**: zoom, pan, fit-to-screen, RTL, touch support
+- **Batch & concurrent processing**: configurable for performance
+- **PDF, JPEG, PNG, TIFF, WebP** support
+- **In-app settings**: API keys, concurrency, language, batch size
+- **Secure API key management** (system/user keys, validation)
+- **Dark mode** (system-aware)
+- **Efficient caching** and optimized rendering
+- **Internationalization**: RTL, Arabic/Farsi numerals, language-aware UI
+- **Error handling**: user-friendly messages, robust logging, Zod validation
+- **Responsive, mobile-first UI** (Shadcn UI, Radix, Tailwind)
 
-## App Demo Video
-
-Below is a demo of the OCR Web App in action:
-![OCR Web App Demo](./public/demo_ocr_app.gif)
-
+---
 
 ## 🚀 Getting Started
 
 ### Prerequisites
-
-- Node.js 20.x or later
+- Node.js 20+
 - NPM or pnpm
 
 ### Installation
-
-1. Clone the repository:
 ```bash
 git clone https://github.com/NayerAli/v2-ocr
 cd v2-ocr
-```
-
-2. Install dependencies:
-```bash
-npm install
-# or
-pnpm install
-```
-
-3. Set up environment variables:
-   - Copy `.env.example` to `.env.local`
-   - Add your Supabase URL and anon key to `.env.local`
-
-```bash
+npm install # or pnpm install
 cp .env.example .env.local
-# Then edit .env.local with your Supabase credentials
+# Edit .env.local with your Supabase credentials
+npm run dev # or pnpm dev
 ```
+Visit [http://localhost:3000](http://localhost:3000)
 
-4. Start the development server:
-```bash
-npm run dev
-# or
-pnpm dev
-```
-
-Visit [http://localhost:3000](http://localhost:3000) to see the application.
+---
 
 ## 🛠️ Configuration
 
 ### Supabase Setup
-
-This application uses Supabase for data storage. You'll need to:
-
-1. Create a Supabase account at [supabase.com](https://supabase.com)
-2. Create a new project
-3. Create the necessary tables in your Supabase database:
-   - Option 1: Run the `supabase-fix.sql` script in the Supabase SQL Editor (recommended)
-   - Option 2: Run the `supabase-setup.sql` script in the Supabase SQL Editor
-   - Option 3: Manually create the following tables:
-     - `queue`: For storing document processing status
-     - `results`: For storing OCR results
-     - `metadata`: For storing application metadata
-4. Copy your project URL and anon key to your `.env.local` file
+- Create a project at [supabase.com](https://supabase.com)
+- Run `supabase-fix.sql` or `supabase-setup.sql` in the SQL Editor
+- Add your Supabase URL and anon key to `.env.local`
 
 ### OCR Provider Settings
+- Select provider (Google, Azure, Mistral)
+- Enter API key (system/user, with validation)
+- Configure Azure region, language, batch/concurrency
+- All settings are available in-app (Settings panel)
 
-Configure your OCR provider directly in the settings dialog:
-- Provider selection (Google Cloud Vision or Azure Computer Vision)
-- API key management with validation
-- Azure region configuration
-- Language preferences with RTL support
-- Batch processing options
-- Concurrent processing limits
-
-### Document Viewer Settings
-
-Customize the document viewing experience:
-- Zoom presets (25% to 200%)
-- Pan sensitivity
-- Fit-to-screen options
-- RTL text display preferences
-- Loading state customization
+### Document Viewer
+- Zoom (25–200%), pan, fit-to-screen, RTL, loading states
+- Touch and keyboard accessible
 
 ### Processing Options
+- Batch size (1–50 pages), concurrency (1–5 files)
+- Language detection, file format, queue management
 
-Customize processing behavior with:
-- Batch size (1-50 pages)
-- Concurrent processing (1-5 files)
-- Language detection
-- File format preferences
-- Queue management settings
+---
 
 ## 📁 Project Structure
 
 ```
 ├── app/
-│   ├── components/                             # App-specific components
-│   │   ├── analytics-panel.tsx                 # Dashboard analytics component
-│   │   ├── document-list.tsx                   # Document grid/list view
-│   │   ├── document-details-dialog.tsx         # Document info modal
-│   │   ├── file-upload.tsx                     # Drag-n-drop upload component
-│   │   ├── header.tsx                          # Main navigation header
-│   │   ├── settings-dialog.tsx                 # OCR configuration modal
-│   │   └── settings-panel.tsx                  # Settings management panel
-│   ├── documents/                              # Document-related pages
-│   │   └── [id]/                               # Dynamic document view route
-│   ├── fonts/
-│   ├── globals.css
-│   ├── layout.tsx
-│   └── page.tsx                                # Homepage
-├── components/                                 # Shared components
-│   ├── ui/                                     # Shadcn UI components
-│   ├── theme-provider.tsx                      # Dark/light theme provider
-│   └── toast.tsx                               # Toast notification wrapper
-├── config/
-│   └── constants.ts                            # Global constants and settings
-├── hooks/                                      # Custom React hooks
+│   ├── components/           # App-specific UI (file-upload, document-list, details-dialog, header, supabase-error)
+│   ├── documents/            # Document pages, dynamic [id] route for viewer
+│   ├── settings/             # In-app settings UI
+│   ├── api/                  # API routes (settings, auth, queue)
+│   ├── ...                   # Layout, global styles, etc.
+├── components/
+│   ├── ui/                   # Shadcn UI primitives
+│   ├── auth/                 # Auth provider, hooks
+│   ├── toast.tsx             # Toast notifications
+│   └── theme-provider.tsx    # Theme context
 ├── lib/
-│   ├── database.ts                             # Database bridge module
-│   ├── supabase-client.ts                      # Supabase client configuration
-│   ├── supabase-db.ts                          # Supabase database operations
-│   ├── mock-ocr.ts
-│   └── processing-service.ts
-├── store/
-├── types/
-│   └── index.ts
-├── .env
-├── Dockerfile
-├── components.json
-├── next.config.mjs
-├── package.json
-├── tailwind.config.ts
-└── tsconfig.json
+│   ├── ocr/                  # OCR pipeline (queue-manager, file-processor, providers/)
+│   ├── database/             # DB services (queue, results, document, stats)
+│   ├── ...                   # Supabase, utils, error handling, i18n
+├── types/                    # TypeScript interfaces (settings, supabase, OCR)
+├── store/                    # Zustand stores (settings, queue)
+├── hooks/                    # Custom hooks (settings, language, toast)
+├── config/                   # Static config/constants
+├── public/                   # Static assets
+├── ...                       # Dockerfile, Tailwind, Next config, etc.
 ```
-
-## 🔧 Technical Stack
-
-- **Framework**: Next.js 14.2.16
-- **UI Components**: Shadcn UI, Radix UI
-- **Styling**: Tailwind CSS
-- **Storage**: Supabase
-- **Form Validation**: Zod
-- **State Management**: React Server Components + Zustand
-- **File Processing**: Built-in MIME type detection
-- **Internationalization**: Enhanced RTL support
-- **Performance**: Client-side caching, optimized rendering
-
-## 📝 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-1. Fork the project
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
-
-## 📫 Support
-
-For support, please open an issue in the GitHub repository or contact the maintainers.
 
 ---
 
-Built with ❤️ using Next.js
+## 🧩 Core Logic & Architecture
+
+### 1. **OCR Pipeline**
+- **QueueManager**: Handles job queue, concurrency, pausing, resuming, cancellation, and status updates. Jobs are persisted in Supabase and processed in batches.
+- **FileProcessor**: Handles file type detection, PDF chunking, page rendering, and invokes the selected OCR provider. Supports direct PDF OCR (Mistral) or page-by-page fallback.
+- **Providers**: Each provider (Google, Azure, Mistral) implements a common interface. Easy to add new providers via `lib/ocr/providers/`.
+- **Rate Limiting**: Built-in for Azure/Mistral, with retry logic and UI feedback.
+
+### 2. **Database & State**
+- **Supabase**: Used for queue, results, user profiles, and settings. All queue actions are user-scoped.
+- **TypeScript interfaces**: All data models are typed (see `types/`).
+- **Zustand**: Used for local state (settings, queue) in client components.
+
+### 3. **UI & UX**
+- **React Server Components**: Used wherever possible for performance.
+- **Client Components**: Only for file uploads, drag-and-drop, and real-time queue updates.
+- **Shadcn UI, Radix, Tailwind**: For accessible, responsive, and theme-aware UI.
+- **Error Boundaries**: Used for unexpected errors; user-facing messages for expected errors.
+- **Internationalization**: RTL, Arabic/Farsi numerals, language-aware formatting.
+
+### 4. **Extensibility**
+- **Add new OCR providers**: Implement the `OCRProvider` interface in `lib/ocr/providers/` and register in `index.ts`.
+- **Custom settings**: Add to `types/settings.ts` and update the settings panel.
+- **API routes**: All server actions are modular and typed.
+
+---
+
+## 🔧 Technical Stack
+- **Framework**: Next.js 14 (App Router, RSC)
+- **UI**: Shadcn UI, Radix, Tailwind CSS
+- **Database**: Supabase (Postgres, Storage)
+- **Validation**: Zod
+- **State**: React Server Components, Zustand
+- **OCR**: Google, Azure, Mistral (extensible)
+- **TypeScript**: Strict, interface-first
+- **Testing**: (Add your preferred tools)
+
+---
+
+## 📝 License
+MIT — see [LICENSE](LICENSE)
+
+## 🤝 Contributing
+- Fork, branch, PRs welcome!
+- See code style and structure guidelines in this README
+
+## 📫 Support
+Open an issue or contact the maintainers.
+
+---
+
+Built with ❤️ using Next.js, TypeScript, and modern web best practices.

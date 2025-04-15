@@ -5,6 +5,7 @@
 import fs from 'fs'
 import path from 'path'
 import { NextRequest, NextResponse } from 'next/server'
+import { debugLog, debugError, prodError } from './log'
 
 // Configure log directory and file
 const LOG_DIR = process.env.LOG_DIR || 'logs'
@@ -14,10 +15,10 @@ const API_LOG_FILE = 'api-requests.log'
 try {
   if (!fs.existsSync(LOG_DIR)) {
     fs.mkdirSync(LOG_DIR, { recursive: true })
-    console.log(`Created log directory: ${LOG_DIR}`)
+    debugLog(`Created log directory: ${LOG_DIR}`)
   }
 } catch (error) {
-  console.error('Failed to create log directory:', error)
+  prodError('Failed to create log directory:', error)
 }
 
 // Create an empty log file if it doesn't exist
@@ -25,10 +26,10 @@ try {
   const logPath = path.join(LOG_DIR, API_LOG_FILE)
   if (!fs.existsSync(logPath)) {
     fs.writeFileSync(logPath, `Log file created at ${new Date().toISOString()}\n`)
-    console.log(`Created log file: ${logPath}`)
+    debugLog(`Created log file: ${logPath}`)
   }
 } catch (error) {
-  console.error('Failed to create log file:', error)
+  prodError('Failed to create log file:', error)
 }
 
 /**
@@ -94,24 +95,22 @@ function writeToLog(entry: string) {
     fs.appendFileSync(logPath, `${entry}\n`)
 
     // Log to console that we wrote to the file (only in development)
-    if (process.env.NODE_ENV === 'development') {
-      console.log(`[LOG] Wrote entry to ${logPath}`)
-    }
+    debugLog(`[LOG] Wrote entry to ${logPath}`)
   } catch (error) {
-    console.error('Failed to write to log file:', error)
+    prodError('Failed to write to log file:', error)
 
     // Try to create the directory and file again if they don't exist
     try {
       if (!fs.existsSync(LOG_DIR)) {
         fs.mkdirSync(LOG_DIR, { recursive: true })
-        console.log(`Created log directory: ${LOG_DIR}`)
+        debugLog(`Created log directory: ${LOG_DIR}`)
       }
 
       const logPath = path.join(LOG_DIR, API_LOG_FILE)
       fs.appendFileSync(logPath, `Log file recreated at ${new Date().toISOString()}\n${entry}\n`)
-      console.log(`Recreated log file and wrote entry: ${logPath}`)
+      debugLog(`Recreated log file and wrote entry: ${logPath}`)
     } catch (retryError) {
-      console.error('Failed to recreate log file:', retryError)
+      prodError('Failed to recreate log file:', retryError)
     }
   }
 }

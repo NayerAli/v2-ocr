@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from './auth-provider'
 import { supabase } from '@/lib/supabase-client'
+import { debugLog, debugError } from '@/lib/log'
 
 interface AuthCheckProps {
   children: React.ReactNode
@@ -39,7 +40,7 @@ export function AuthCheck({ children, redirectTo = '/auth/login' }: AuthCheckPro
           const { data, error } = await supabase.auth.getSession()
 
           if (error) {
-            console.error('[DEBUG] AuthCheck: Error getting session:', error.message)
+            debugError('[DEBUG] AuthCheck: Error getting session:', error.message)
             setIsAuthenticated(false)
           } else if (data.session) {
             // Session found
@@ -51,17 +52,17 @@ export function AuthCheck({ children, redirectTo = '/auth/login' }: AuthCheckPro
               const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession()
 
               if (refreshError) {
-                console.error('[DEBUG] AuthCheck: Error refreshing session:', refreshError.message)
+                debugError('[DEBUG] AuthCheck: Error refreshing session:', refreshError.message)
                 setIsAuthenticated(false)
               } else if (refreshData.session) {
-                console.log('[DEBUG] AuthCheck: Session refreshed for user:', refreshData.session.user.email)
+                debugLog('[DEBUG] AuthCheck: Session refreshed for user:', refreshData.session.user.email)
                 setIsAuthenticated(true)
               } else {
-                console.log('[DEBUG] AuthCheck: No session after refresh attempt')
+                debugLog('[DEBUG] AuthCheck: No session after refresh attempt')
                 setIsAuthenticated(false)
               }
             } catch (refreshException) {
-              console.error('[DEBUG] AuthCheck: Exception refreshing session:', refreshException)
+              debugError('[DEBUG] AuthCheck: Exception refreshing session:', refreshException)
               setIsAuthenticated(false)
             }
           }
@@ -69,7 +70,7 @@ export function AuthCheck({ children, redirectTo = '/auth/login' }: AuthCheckPro
           setIsVerifying(false)
         }
       } catch (error) {
-        console.error('AuthCheck: Error verifying authentication:', error)
+        debugError('AuthCheck: Error verifying authentication:', error)
         setIsAuthenticated(false)
         setIsVerifying(false)
       }
@@ -83,16 +84,16 @@ export function AuthCheck({ children, redirectTo = '/auth/login' }: AuthCheckPro
                           !!localStorage.getItem(`sb-${window.location.hostname}-auth-token`);
 
       if (hasAuthToken) {
-        console.log('AuthCheck: Auth token found in localStorage')
+        debugLog('AuthCheck: Auth token found in localStorage')
         // If we have a token but no user yet, wait for the auth state to update
         if (!user && isLoading) {
-          console.log('AuthCheck: Waiting for auth state to update...')
+          debugLog('AuthCheck: Waiting for auth state to update...')
         } else if (!user && !isLoading) {
-          console.log('AuthCheck: Auth token exists but no user, forcing refresh')
+          debugLog('AuthCheck: Auth token exists but no user, forcing refresh')
           // Force a refresh of the auth state
           supabase.auth.getSession().then(({ data }) => {
             if (data.session) {
-              console.log('AuthCheck: Session refreshed for user:', data.session.user.email)
+              debugLog('AuthCheck: Session refreshed for user:', data.session.user.email)
               setIsAuthenticated(true)
               setIsVerifying(false)
             }
@@ -105,7 +106,7 @@ export function AuthCheck({ children, redirectTo = '/auth/login' }: AuthCheckPro
   useEffect(() => {
     // Redirect if not authenticated and not still verifying
     if (!isVerifying && !isAuthenticated) {
-      console.log('AuthCheck: Not authenticated, redirecting to:', redirectTo)
+      debugLog('AuthCheck: Not authenticated, redirecting to:', redirectTo)
       const fullRedirectUrl = `${redirectTo}?redirect=${encodeURIComponent(window.location.pathname)}`
       router.push(fullRedirectUrl)
     }

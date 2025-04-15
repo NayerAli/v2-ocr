@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { withConsoleApiLogging } from '@/lib/server-console-logger'
+import { serverError } from '@/lib/log'
 
 /**
  * Wrapper for API routes to add logging and error handling
@@ -13,7 +14,7 @@ export function createApiHandler(handler: (req: NextRequest) => Promise<NextResp
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'
       // Log the error
-      console.error(`API Error: ${errorMessage}`)
+      serverError(undefined, `API Error: ${errorMessage}`)
 
       // Return a 500 error response
       return NextResponse.json(
