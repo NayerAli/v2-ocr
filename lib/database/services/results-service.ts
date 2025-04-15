@@ -2,6 +2,8 @@
 
 import { getUser } from '../../auth'
 import type { OCRResult } from '@/types'
+// camelToSnake is imported but not used in this file
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { supabase, isSupabaseConfigured, mapToOCRResult, camelToSnake } from '../utils'
 
 /**
@@ -89,13 +91,13 @@ export async function saveResults(documentId: string, results: OCRResult[]): Pro
       text: result.text || '',
       confidence: result.confidence || 0,
       language: result.language || 'en',
-      processing_time: processingTime || result.processing_time || 0,
-      page_number: pageNumber || result.page_number || 1,
-      total_pages: totalPages || result.total_pages || 1,
-      image_url: imageUrl || result.image_url || null,
-      bounding_box: boundingBox || result.bounding_box || null,
+      processing_time: processingTime || (result as unknown as Record<string, unknown>).processing_time as number || result.processingTime || 0,
+      page_number: pageNumber || (result as unknown as Record<string, unknown>).page_number as number || result.pageNumber || 1,
+      total_pages: totalPages || (result as unknown as Record<string, unknown>).total_pages as number || result.totalPages || 1,
+      image_url: imageUrl || (result as unknown as Record<string, unknown>).image_url as string || result.imageUrl || null,
+      bounding_box: boundingBox || (result as unknown as Record<string, unknown>).bounding_box as string || result.boundingBox || null,
       error: result.error || null,
-      provider: result.provider || 'unknown'
+      provider: (result as unknown as Record<string, unknown>).provider as string || 'unknown'
     }
     return preparedResult
   })
@@ -117,7 +119,7 @@ export async function saveResults(documentId: string, results: OCRResult[]): Pro
 
         const { error } = await supabase
           .from('ocr_results')
-          .upsert(batch, { onConflict: ['document_id', 'page_number', 'user_id'] });
+          .upsert(batch, { onConflict: 'document_id,page_number,user_id' });
 
         if (error) {
           console.error(`Error saving batch ${Math.floor(i / MAX_BATCH_SIZE) + 1}:`, error);
@@ -129,7 +131,7 @@ export async function saveResults(documentId: string, results: OCRResult[]): Pro
       // For smaller result sets, upsert all at once
       const { error } = await supabase
         .from('ocr_results')
-        .upsert(supabaseResults, { onConflict: ['document_id', 'page_number', 'user_id'] });
+        .upsert(supabaseResults, { onConflict: 'document_id,page_number,user_id' });
 
       if (error) {
         console.error('Error saving results:', error);

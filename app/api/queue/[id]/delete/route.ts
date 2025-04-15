@@ -1,17 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getUser } from '@/lib/auth'
 import { db } from '@/lib/database'
-import { processingService } from '@/lib/ocr/processing-service'
-import { createApiHandler } from '@/app/api/utils'
+import { getProcessingService } from '@/lib/ocr/processing-service'
+import { getDefaultSettings } from '@/lib/default-settings'
+// import { createApiHandler } from '@/app/api/utils'
 
 /**
  * DELETE /api/queue/:id/delete
  * Delete a document from the queue
  */
-export const DELETE = createApiHandler(async (
+export async function DELETE(
   request: NextRequest,
   { params }: { params: { id: string } }
-) => {
+) {
   try {
     // Get the document ID from the URL
     const id = params.id
@@ -54,6 +55,8 @@ export const DELETE = createApiHandler(async (
 
     // If the document is being processed, cancel it first
     if (document.status === 'processing') {
+      // Get processing service with default settings
+      const processingService = getProcessingService(getDefaultSettings())
       await processingService.cancelProcessing(id)
     }
 
@@ -68,4 +71,4 @@ export const DELETE = createApiHandler(async (
       { status: 500 }
     )
   }
-})
+}

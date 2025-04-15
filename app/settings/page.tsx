@@ -15,14 +15,15 @@ import { useToast } from "@/hooks/use-toast"
 import { cn } from "@/lib/utils"
 import { db } from "@/lib/database"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
-import type { DatabaseStats, ProcessingSettings, OCRSettings, UploadSettings, DisplaySettings } from "@/types/settings"
+import type { DatabaseStats } from "@/types/settings"
 import { useLanguage } from "@/hooks/use-language"
 import { useServerSettings } from "@/hooks/use-server-settings"
 import { t, type Language } from "@/lib/i18n/translations"
 import { useUserSettings } from "@/hooks/use-user-settings"
 import { useAuth } from "@/components/auth/auth-provider"
 import { AuthCheck } from "@/components/auth/auth-check"
-import { userSettingsService } from "@/lib/user-settings-service"
+// This import is not used in this component
+// import { userSettingsService } from "@/lib/user-settings-service"
 
 function toArabicNumerals(num: number | string, language: Language): string {
   if (language !== 'ar' && language !== 'fa') return String(num)
@@ -124,8 +125,8 @@ export default function SettingsPage() {
   const handleSaveSettings = async () => {
     if (!user) {
       toast({
-        title: t('settings.toast.error', language),
-        description: t('settings.toast.notLoggedIn', language),
+        title: t('error', language),
+        description: t('notLoggedIn', language) || 'You must be logged in to save settings',
         variant: 'destructive',
       })
       return
@@ -172,8 +173,8 @@ export default function SettingsPage() {
 
       // Show success toast
       toast({
-        title: t('settings.toast.success', language),
-        description: t('settings.toast.settingsSaved', language),
+        title: t('success', language) || 'Success',
+        description: t('settingsSaved', language) || 'Settings saved successfully',
       })
 
       // Refresh settings from server to ensure we have the latest data
@@ -183,8 +184,8 @@ export default function SettingsPage() {
 
       // Show error toast
       toast({
-        title: t('settings.toast.error', language),
-        description: t('settings.toast.saveFailed', language),
+        title: t('error', language),
+        description: t('saveFailed', language) || 'Failed to save settings',
         variant: 'destructive',
       })
     } finally {
@@ -292,7 +293,7 @@ export default function SettingsPage() {
             <AlertCircle className="h-4 w-4 text-yellow-600" />
             <AlertTitle className="text-yellow-800">Unsaved Changes</AlertTitle>
             <AlertDescription className="text-yellow-700">
-              You have unsaved changes. Click the "Save Changes" button to save your settings to the database.
+              You have unsaved changes. Click the &quot;Save Changes&quot; button to save your settings to the database.
             </AlertDescription>
           </Alert>
         )}

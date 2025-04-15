@@ -1,12 +1,13 @@
 "use client"
 
-import { Moon, Sun, Settings, LayoutDashboard, FileText, Languages } from "lucide-react"
+import { Moon, Sun, LayoutDashboard, FileText, Languages } from "lucide-react"
 import { UserButton } from "@/components/auth/user-button"
 import { useTheme } from "next-themes"
 import { usePathname } from "next/navigation"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
-import { useState } from "react"
+// useState is not used in this component
+// import { useState } from "react"
 import { cn } from "@/lib/utils"
 import {
   DropdownMenu,

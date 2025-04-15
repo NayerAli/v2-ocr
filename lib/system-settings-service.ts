@@ -28,7 +28,7 @@ interface UploadLimits {
 
 class SystemSettingsService {
   private supabase
-  private cache: Map<string, CachedData<any>>
+  private cache: Map<string, CachedData<ProcessingSettings | OCRDefaults | UploadLimits>>
   private cacheTTL: number
 
   constructor() {
@@ -46,7 +46,7 @@ class SystemSettingsService {
     const cachedSettings = this.cache.get(cacheKey)
 
     if (cachedSettings && cachedSettings.timestamp > Date.now() - this.cacheTTL) {
-      return cachedSettings.data
+      return cachedSettings.data as ProcessingSettings
     }
 
     // Default settings
@@ -135,7 +135,7 @@ class SystemSettingsService {
     const cachedSettings = this.cache.get(cacheKey)
 
     if (cachedSettings && cachedSettings.timestamp > Date.now() - this.cacheTTL) {
-      return cachedSettings.data
+      return cachedSettings.data as OCRDefaults
     }
 
     // Default settings
@@ -221,7 +221,7 @@ class SystemSettingsService {
     const cachedSettings = this.cache.get(cacheKey)
 
     if (cachedSettings && cachedSettings.timestamp > Date.now() - this.cacheTTL) {
-      return cachedSettings.data
+      return cachedSettings.data as UploadLimits
     }
 
     // Default settings

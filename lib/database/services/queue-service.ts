@@ -112,24 +112,31 @@ export async function saveToQueue(status: ProcessingStatus): Promise<void> {
   }
 
   // Map old field names to new field names if they exist
+  // Cast to handle legacy fields that might be present
+  const statusAny = statusWithoutFile as Record<string, unknown>;
+
   const mappedStatus = {
     ...statusWithoutFile,
     // Map size to fileSize if size exists and fileSize doesn't
-    fileSize: statusWithoutFile.fileSize || statusWithoutFile.size,
+    fileSize: statusWithoutFile.fileSize || (statusAny.size as number | undefined),
     // Map type to fileType if type exists and fileType doesn't
-    fileType: statusWithoutFile.fileType || statusWithoutFile.type,
+    fileType: statusWithoutFile.fileType || (statusAny.type as string | undefined),
     // Ensure storagePath is set
     storagePath: statusWithoutFile.storagePath || `${statusWithoutFile.id}${statusWithoutFile.fileType || '.unknown'}`,
     // Map startTime to processingStartedAt if startTime exists and processingStartedAt doesn't
     processingStartedAt: statusWithoutFile.processingStartedAt ||
-      (statusWithoutFile.startTime ? new Date(statusWithoutFile.startTime) : undefined),
+      (statusAny.startTime && typeof statusAny.startTime === 'string' || typeof statusAny.startTime === 'number' ?
+        new Date(statusAny.startTime as string | number) : undefined),
     // Map endTime to processingCompletedAt if endTime exists and processingCompletedAt doesn't
     processingCompletedAt: statusWithoutFile.processingCompletedAt ||
-      (statusWithoutFile.endTime ? new Date(statusWithoutFile.endTime) : undefined),
+      (statusAny.endTime && typeof statusAny.endTime === 'string' || typeof statusAny.endTime === 'number' ?
+        new Date(statusAny.endTime as string | number) : undefined),
   }
 
-  // Remove old fields that have been mapped
-  const { size, type, startTime, endTime, ...cleanedStatus } = mappedStatus
+  // Extract legacy fields that might be present but are no longer used
+  // We're explicitly ignoring these variables as they're extracted but not used
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { size, type, startTime, endTime, ...cleanedStatus } = mappedStatus as Record<string, unknown>
 
   const updatedStatus = {
     ...cleanedStatus,
@@ -151,7 +158,15 @@ export async function saveToQueue(status: ProcessingStatus): Promise<void> {
 
   // Add some debug logging
   if (shouldLog) {
-    console.log('[DEBUG] Saving to queue:', { id: updatedStatus.id, filename: updatedStatus.filename, status: updatedStatus.status, user_id: updatedStatus.user_id })
+    // Use a type assertion to access properties for logging purposes
+    const logData = {
+      status: updatedStatus.status,
+      user_id: updatedStatus.user_id,
+      // Access other properties safely with type assertion
+      id: (status as unknown as { id?: string })?.id,
+      filename: (status as unknown as { filename?: string })?.filename
+    }
+    console.log('[DEBUG] Saving to queue:', logData)
   }
 
   try {

@@ -107,7 +107,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       subscription.unsubscribe()
     }
-  }, [])
+  }, [router, supabase.auth])
 
   const signIn = async (email: string, password: string, redirectTo: string = '/') => {
     try {
@@ -117,11 +117,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Sign in with password
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
-        password,
-        options: {
-          // This ensures the cookie is set properly
-          redirectTo: `${window.location.origin}/auth/callback?redirect=${encodeURIComponent(redirectTo)}`
-        }
+        password
+      })
+
+      // Set up redirect after successful sign-in
+      await supabase.auth.setSession({
+        access_token: data?.session?.access_token || '',
+        refresh_token: data?.session?.refresh_token || ''
       })
 
       if (error) {

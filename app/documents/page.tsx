@@ -2,8 +2,9 @@
 
 import { useState, useEffect, useMemo, useCallback } from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
-import { Search, Filter, Upload, LogIn } from "lucide-react"
+// Router is not used in this component
+// import { useRouter } from "next/navigation"
+import { Search, Filter, Upload } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -16,15 +17,18 @@ import { cn } from "@/lib/utils"
 import { useSettingsInit } from "@/hooks/use-settings-init"
 import { useLanguage } from "@/hooks/use-language"
 import { t } from "@/lib/i18n/translations"
-import { useAuth } from "@/components/auth/auth-provider"
+// Auth hook is not directly used in this component
+// import { useAuth } from "@/components/auth/auth-provider"
 import { AuthCheck } from "@/components/auth/auth-check"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+// These UI components are not used in this file
+// import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 
 export default function DocumentsPage() {
   const { isInitialized } = useSettingsInit()
   const { language } = useLanguage()
-  const { user } = useAuth()
-  const router = useRouter()
+  // These variables are not used in this component
+  // const { user } = useAuth()
+  // const router = useRouter()
   const [documents, setDocuments] = useState<ProcessingStatus[]>([])
   const [isLoadingData, setIsLoadingData] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
@@ -85,8 +89,8 @@ export default function DocumentsPage() {
   const getSortedDocuments = useCallback((docs: ProcessingStatus[], sort: string, order: "asc" | "desc") => {
     return [...docs].sort((a, b) => {
       if (sort === "date") {
-        const aTime = a.startTime || 0
-        const bTime = b.startTime || 0
+        const aTime = a.processingStartedAt?.getTime() || a.createdAt?.getTime() || 0
+        const bTime = b.processingStartedAt?.getTime() || b.createdAt?.getTime() || 0
         return order === "desc" ? bTime - aTime : aTime - bTime
       }
       if (sort === "name") {
@@ -94,8 +98,8 @@ export default function DocumentsPage() {
       }
       if (sort === "size") {
         return order === "desc"
-          ? (b.size ?? 0) - (a.size ?? 0)
-          : (a.size ?? 0) - (b.size ?? 0)
+          ? (b.fileSize ?? 0) - (a.fileSize ?? 0)
+          : (a.fileSize ?? 0) - (b.fileSize ?? 0)
       }
       return 0
     })

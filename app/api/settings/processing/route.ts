@@ -33,7 +33,7 @@ export async function GET() {
 
     // Return the settings
     return NextResponse.json({ settings: finalSettings }, { headers })
-  } catch (error) {
+  } catch {
     // Return default settings if there's an error
     return NextResponse.json({
       settings: DEFAULT_SETTINGS,
@@ -64,7 +64,7 @@ export async function PUT(request: Request) {
     const updatedSettings = await settingsService.getProcessingSettings()
 
     return NextResponse.json({ settings: updatedSettings })
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: 'Failed to update processing settings' },
       { status: 500 }

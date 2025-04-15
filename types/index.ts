@@ -58,5 +58,6 @@ export interface OCRSettings {
   provider: 'google' | 'microsoft' | 'mistral'
   region?: string
   language?: string
+  useSystemKey?: boolean
 }
 

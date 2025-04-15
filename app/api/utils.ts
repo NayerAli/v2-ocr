@@ -10,10 +10,11 @@ export function createApiHandler(handler: (req: NextRequest) => Promise<NextResp
     try {
       // Call the original handler
       return await handler(req)
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
       // Log the error
-      console.error(`API Error: ${error.message || 'Unknown error'}`)
-      
+      console.error(`API Error: ${errorMessage}`)
+
       // Return a 500 error response
       return NextResponse.json(
         { error: 'Internal server error' },

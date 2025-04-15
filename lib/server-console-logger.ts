@@ -11,12 +11,14 @@ export function logApiRequestToConsole(
   req: NextRequest,
   method: string,
   url: string,
-  params?: any
+  params?: Record<string, unknown>
 ) {
   const timestamp = new Date().toISOString()
   const requestId = crypto.randomUUID().substring(0, 8)
 
   // Sanitize headers to remove sensitive information
+  // We're not using headers in this function, but keeping the code for future use
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const headers = Object.fromEntries(
     Array.from(req.headers.entries())
       .filter(([key]) => !['cookie', 'authorization'].includes(key.toLowerCase()))
@@ -57,6 +59,8 @@ export function withConsoleApiLogging(handler: (req: NextRequest) => Promise<Nex
 
     // Extract query parameters
     const { searchParams } = new URL(url)
+    // We're not using params in this function, but keeping the code for future use
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const params = Object.fromEntries(searchParams.entries())
 
     // Get current timestamp
@@ -81,7 +85,8 @@ export function withConsoleApiLogging(handler: (req: NextRequest) => Promise<Nex
       console.log(`[SERVER-API] ${responseTimestamp} [${requestId}] ${method} ${pathname} - ${response.status} in ${duration}ms`)
 
       return response
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
       // Calculate duration
       const duration = Date.now() - startTime
 
@@ -89,7 +94,7 @@ export function withConsoleApiLogging(handler: (req: NextRequest) => Promise<Nex
       const errorTimestamp = new Date().toISOString()
 
       // Log error
-      console.error(`[SERVER-API] ${errorTimestamp} [${requestId}] ${method} ${pathname} - ERROR in ${duration}ms:`, error.message || 'Unknown error')
+      console.error(`[SERVER-API] ${errorTimestamp} [${requestId}] ${method} ${pathname} - ERROR in ${duration}ms:`, errorMessage)
 
       // Return a 500 error response
       return NextResponse.json(

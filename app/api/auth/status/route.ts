@@ -12,28 +12,27 @@ export async function GET(request: NextRequest) {
     // Get the current user and session
     const user = await getUser()
     const session = await getSession()
-    
+
     // Get all cookies for debugging
     const cookieStore = cookies()
-    const allCookies = cookieStore.getAll().map(c => ({ 
-      name: c.name, 
-      value: c.name.includes('token') ? '[REDACTED]' : c.value 
+    const allCookies = cookieStore.getAll().map(c => ({
+      name: c.name,
+      value: c.name.includes('token') ? '[REDACTED]' : c.value
     }))
-    
+
     // Get the Supabase client
     const supabase = getSupabaseClient()
-    
+
     // Check if the session is valid
     const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
-    
+
     // Get the request headers for debugging
-    const headers = Object.fromEntries(
-      [...request.headers.entries()].map(([key, value]) => [
-        key, 
-        key.toLowerCase() === 'cookie' ? '[REDACTED]' : value
-      ])
-    )
-    
+    const headerEntries: [string, string][] = [];
+    request.headers.forEach((value, key) => {
+      headerEntries.push([key, key.toLowerCase() === 'cookie' ? '[REDACTED]' : value]);
+    });
+    const headers = Object.fromEntries(headerEntries)
+
     // Return the status information
     return NextResponse.json({
       authenticated: !!user,

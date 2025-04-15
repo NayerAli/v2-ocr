@@ -6,7 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { formatFileSize } from "@/lib/file-utils"
-import { cn } from "@/lib/utils"
+import { cn, isImageFile } from "@/lib/utils"
 import type { ProcessingStatus } from "@/types"
 import {
   Tooltip,
@@ -250,7 +250,7 @@ export function DocumentList({
               <div className="flex-1 truncate">
                 <p className="text-sm truncate">
                   <span className="inline-flex items-center gap-2">
-                    {doc.type?.startsWith('image/') ? (
+                    {isImageFile(doc.fileType, doc.filename) ? (
                       <ImageIcon className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                     ) : (
                       <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
@@ -259,7 +259,7 @@ export function DocumentList({
                   </span>
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  {formatFileSize(doc.size ?? 0, language)} • {toArabicNumerals(doc.totalPages || 0, language)} {t('pages', language)}
+                  {formatFileSize(doc.fileSize ?? 0, language)} • {toArabicNumerals(isImageFile(doc.fileType, doc.filename) ? 1 : doc.totalPages || 0, language)} {t('pages', language)}
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -363,7 +363,7 @@ export function DocumentList({
             >
               <TableCell>
                 <div className="flex items-center gap-2 max-w-[300px] sm:max-w-[400px] md:max-w-[500px]">
-                  {doc.type?.startsWith('image/') ? (
+                  {isImageFile(doc.fileType, doc.filename) ? (
                     <ImageIcon className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                   ) : (
                     <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
@@ -379,17 +379,17 @@ export function DocumentList({
               </TableCell>
               <TableCell className="text-center">
                 <span className="text-sm">
-                  {formatDate(doc.startTime || Date.now(), language)}
+                  {formatDate(doc.processingStartedAt?.getTime() || Date.now(), language)}
                 </span>
               </TableCell>
               <TableCell className="text-center">
                 <span className="text-sm">
-                  {toArabicNumerals(doc.totalPages || 0, language)}
+                  {toArabicNumerals(isImageFile(doc.fileType, doc.filename) ? 1 : doc.totalPages || 0, language)}
                 </span>
               </TableCell>
               <TableCell className="text-center">
                 <span className="text-sm">
-                  {formatFileSize(doc.size || 0, language)}
+                  {formatFileSize(doc.fileSize ?? 0, language)}
                 </span>
               </TableCell>
               <TableCell>

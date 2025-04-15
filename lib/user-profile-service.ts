@@ -10,7 +10,7 @@ interface UserProfile {
   avatar_url?: string
   organization?: string
   role: string
-  preferences: Record<string, any>
+  preferences: Record<string, unknown>
   created_at: string
   updated_at: string
 }
@@ -22,7 +22,7 @@ interface CachedData<T> {
 
 class UserProfileService {
   private supabase
-  private cache: Map<string, CachedData<any>>
+  private cache: Map<string, CachedData<UserProfile | UserProfile[]>>
   private cacheTTL: number
 
   constructor() {
@@ -54,7 +54,7 @@ class UserProfileService {
       const cachedProfile = this.cache.get(cacheKey)
 
       if (cachedProfile && cachedProfile.timestamp > Date.now() - this.cacheTTL) {
-        return cachedProfile.data
+        return cachedProfile.data as UserProfile
       }
 
       // Fetch from database
@@ -90,10 +90,10 @@ class UserProfileService {
   /**
    * Create a default profile for a user
    */
-  private async createDefaultProfile(user: any): Promise<UserProfile> {
+  private async createDefaultProfile(user: { id: string; email?: string | undefined }): Promise<UserProfile> {
     const defaultProfile = {
       id: user.id,
-      email: user.email,
+      email: user.email || '',
       full_name: '',
       avatar_url: '',
       organization: '',
@@ -299,7 +299,7 @@ class UserProfileService {
       const cachedProfiles = this.cache.get(cacheKey)
 
       if (cachedProfiles && cachedProfiles.timestamp > Date.now() - this.cacheTTL) {
-        return cachedProfiles.data
+        return cachedProfiles.data as UserProfile[]
       }
 
       // Fetch all profiles

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getUser } from '@/lib/auth'
 import { db } from '@/lib/database'
-import { processingService } from '@/lib/ocr/processing-service'
+import { getProcessingService } from '@/lib/ocr/processing-service'
+import { getDefaultSettings } from '@/lib/default-settings'
 
 /**
  * POST /api/queue/:id/cancel
@@ -50,6 +51,9 @@ export async function POST(
         { status: 403 }
       )
     }
+
+    // Get processing service with default settings
+    const processingService = getProcessingService(getDefaultSettings())
 
     // Cancel processing
     await processingService.cancelProcessing(id)

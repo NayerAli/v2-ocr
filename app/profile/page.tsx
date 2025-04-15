@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { AlertCircle, CheckCircle2, Loader2, Settings } from 'lucide-react'
 import { supabase } from '@/lib/supabase-client'
 import { useUserSettings } from '@/hooks/use-user-settings'
@@ -58,8 +58,9 @@ export default function ProfilePage() {
       setSuccess('Password updated successfully')
       setPassword('')
       setConfirmPassword('')
-    } catch (err: any) {
-      setError(err.message || 'Failed to update password')
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to update password'
+      setError(errorMessage)
     } finally {
       setIsUpdating(false)
     }

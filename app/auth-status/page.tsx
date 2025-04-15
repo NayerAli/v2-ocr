@@ -2,13 +2,14 @@
 
 import { useState, useEffect } from 'react'
 import { useAuth } from '@/components/auth/auth-provider'
+import { Session } from '@supabase/supabase-js'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { supabase } from '@/lib/supabase-client'
 
 export default function AuthStatusPage() {
   const { user, isLoading } = useAuth()
-  const [clientSession, setClientSession] = useState<any>(null)
+  const [clientSession, setClientSession] = useState<Session | null>(null)
   const [cookies, setCookies] = useState<string[]>([])
   const [isChecking, setIsChecking] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -16,23 +17,23 @@ export default function AuthStatusPage() {
   const checkClientAuth = async () => {
     setIsChecking(true)
     setError(null)
-    
+
     try {
       // Get session from Supabase
       const { data, error } = await supabase.auth.getSession()
-      
+
       if (error) {
         throw error
       }
-      
+
       setClientSession(data.session)
-      
+
       // Parse cookies
       if (typeof document !== 'undefined') {
         const cookieList = document.cookie.split(';').map(c => c.trim())
         setCookies(cookieList)
       }
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Error checking client auth:', err)
       setError('Failed to check client authentication')
     } finally {
@@ -62,7 +63,7 @@ export default function AuthStatusPage() {
       if (error) {
         throw error
       }
-      
+
       if (data.session) {
         // Manually set the cookie
         const cookieValue = JSON.stringify({
@@ -70,19 +71,19 @@ export default function AuthStatusPage() {
           refresh_token: data.session.refresh_token,
           expires_at: data.session.expires_at
         })
-        
+
         document.cookie = `sb-auth-token=${encodeURIComponent(cookieValue)};path=/;max-age=${60 * 60 * 24 * 7};SameSite=Lax`
-        
+
         // Also set the project-specific cookie
         const projectId = process.env.NEXT_PUBLIC_SUPABASE_URL?.split('//')[1]?.split('.')[0]
         if (projectId) {
           document.cookie = `sb-${projectId}-auth-token=${encodeURIComponent(cookieValue)};path=/;max-age=${60 * 60 * 24 * 7};SameSite=Lax`
         }
-        
+
         setClientSession(data.session)
         checkClientAuth()
       }
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Error refreshing session:', err)
       setError('Failed to refresh session')
     } finally {
@@ -97,7 +98,7 @@ export default function AuthStatusPage() {
   return (
     <div className="container py-8 space-y-8">
       <h1 className="text-3xl font-bold">Authentication Status</h1>
-      
+
       <div className="grid gap-6 md:grid-cols-2">
         <Card>
           <CardHeader>
@@ -124,7 +125,7 @@ export default function AuthStatusPage() {
             <Button onClick={() => window.location.reload()}>Refresh Page</Button>
           </CardFooter>
         </Card>
-        
+
         <Card>
           <CardHeader>
             <CardTitle>Supabase Session</CardTitle>
@@ -141,7 +142,7 @@ export default function AuthStatusPage() {
                 <p><strong>Session Found:</strong> Yes</p>
                 <p><strong>User ID:</strong> {clientSession.user.id}</p>
                 <p><strong>Email:</strong> {clientSession.user.email}</p>
-                <p><strong>Expires At:</strong> {new Date(clientSession.expires_at * 1000).toLocaleString()}</p>
+                <p><strong>Expires At:</strong> {clientSession.expires_at ? new Date(clientSession.expires_at * 1000).toLocaleString() : 'Unknown'}</p>
                 <p><strong>Access Token:</strong> {clientSession.access_token ? 'Present' : 'Missing'}</p>
               </div>
             ) : (
@@ -153,7 +154,7 @@ export default function AuthStatusPage() {
             <Button onClick={refreshSession} variant="outline">Refresh Session</Button>
           </CardFooter>
         </Card>
-        
+
         <Card>
           <CardHeader>
             <CardTitle>Browser Cookies</CardTitle>
@@ -183,16 +184,16 @@ export default function AuthStatusPage() {
           </CardFooter>
         </Card>
       </div>
-      
+
       {error && (
         <div className="bg-destructive/10 text-destructive p-4 rounded-md">
           {error}
         </div>
       )}
-      
+
       <div className="bg-muted p-4 rounded-md">
         <h2 className="text-lg font-semibold mb-2">Debug Information</h2>
-        <p className="text-sm mb-2">If you're having authentication issues, try these steps:</p>
+        <p className="text-sm mb-2">If you&apos;re having authentication issues, try these steps:</p>
         <ol className="list-decimal list-inside space-y-1 text-sm">
           <li>Check if cookies are being set properly</li>
           <li>Verify that the session is valid and not expired</li>

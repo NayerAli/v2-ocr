@@ -85,11 +85,16 @@ export class QueueManager {
       // Upload file to Supabase storage
       try {
         console.log('[DEBUG] Uploading file to storage:', file.name);
+        // We only care about the error, not the data
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         const { data: uploadData, error: uploadError } = await this.uploadFileToStorage(file, storagePath);
 
         if (uploadError) {
           console.error('[DEBUG] Error uploading file to storage:', uploadError);
-          throw new Error(`Failed to upload file: ${uploadError.message}`);
+          const errorMessage = typeof uploadError === 'object' && uploadError !== null && 'message' in uploadError
+            ? uploadError.message
+            : 'Unknown error';
+          throw new Error(`Failed to upload file: ${errorMessage}`);
         }
 
         console.log('[DEBUG] File uploaded successfully to storage');
@@ -390,7 +395,7 @@ export class QueueManager {
   /**
    * Upload a file to Supabase storage
    */
-  private async uploadFileToStorage(file: File, storagePath: string): Promise<{ data: any, error: any }> {
+  private async uploadFileToStorage(file: File, storagePath: string): Promise<{ data: unknown, error: unknown }> {
     console.log('[DEBUG] uploadFileToStorage called with file:', file.name, 'storagePath:', storagePath);
 
     try {

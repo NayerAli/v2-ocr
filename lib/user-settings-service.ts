@@ -1,14 +1,17 @@
 import { getUser } from './auth'
-import { supabase, isSupabaseConfigured } from './supabase-client'
+import { isSupabaseConfigured } from './supabase-client'
 import { getSupabaseClient } from './supabase/singleton-client'
 import type { OCRSettings, ProcessingSettings, UploadSettings, DisplaySettings } from '@/types/settings'
 import { CONFIG } from '@/config/constants'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import type { Database } from '@/types/supabase'
 
 // Import the service client for admin operations
 // This is only used on the server side
-let getServiceClient: () => any | null = () => null
+let getServiceClient: () => SupabaseClient<Database> | null = () => null
 if (typeof window === 'undefined') {
   // Only import on the server side
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { getServiceClient: getServiceClientFn } = require('./supabase/service-client')
   getServiceClient = getServiceClientFn
 }
@@ -309,7 +312,7 @@ class UserSettingsService {
               console.log('[DEBUG] Raw update successful:', rawUpdateData);
               operationError = null;
               success = true;
-              return;
+              return updatedSettings;
             }
           } catch (rawError) {
             console.error('[DEBUG] Raw update failed with exception:', rawError);
@@ -603,9 +606,7 @@ class UserSettingsService {
 
     } catch (error) {
       console.error('[DEBUG] Exception updating user processing settings:', error);
-      // Update local cache anyway
-      this.cache.processing = updatedSettings;
-      this.lastUpdate = Date.now();
+      // Don't update the cache if we don't have the updated settings
       return null;
     }
   }
@@ -821,9 +822,7 @@ class UserSettingsService {
       }
     } catch (error) {
       console.error('[DEBUG] Exception updating user upload settings:', error);
-      // Update local cache anyway
-      this.cache.upload = updatedSettings;
-      this.lastUpdate = Date.now();
+      // Don't update the cache if we don't have the updated settings
       return null;
     }
   }
@@ -1039,9 +1038,7 @@ class UserSettingsService {
       }
     } catch (error) {
       console.error('[DEBUG] Exception updating user display settings:', error);
-      // Update local cache anyway
-      this.cache.display = updatedSettings;
-      this.lastUpdate = Date.now();
+      // Don't update the cache if we don't have the updated settings
       return null;
     }
   }

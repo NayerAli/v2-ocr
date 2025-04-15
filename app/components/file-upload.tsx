@@ -104,7 +104,7 @@ export function FileUpload({
       const countdown = countdowns[item.id] || Math.max(0, Math.ceil(
         (item.rateLimitInfo.retryAfter * 1000 - (Date.now() - item.rateLimitInfo.rateLimitStart)) / 1000
       ))
-      
+
       return (
         <div className="flex items-center gap-1.5 text-purple-600 dark:text-purple-400">
           <Clock className="h-3.5 w-3.5 animate-pulse" />
@@ -141,7 +141,7 @@ export function FileUpload({
 
   const getProgressInfo = (item: ProcessingStatus) => {
     if (!item.totalPages) return null
-    
+
     const processed = item.currentPage || 0
     const percent = Math.round((processed / item.totalPages) * 100)
 
@@ -162,8 +162,8 @@ export function FileUpload({
           "h-[240px] flex flex-col items-center justify-center",
           "transition-all duration-300 ease-out",
           "cursor-pointer group overflow-hidden",
-          isDragActive 
-            ? "border-primary bg-primary/5 scale-[1.01]" 
+          isDragActive
+            ? "border-primary bg-primary/5 scale-[1.01]"
             : isPageDragging
               ? "border-primary/40 bg-muted/5"
               : "border-muted/40 hover:border-primary/50 hover:bg-muted/5",
@@ -171,7 +171,7 @@ export function FileUpload({
         )}
       >
         <input {...getInputProps()} />
-        
+
         {/* Animated Background Pattern */}
         <div className="absolute inset-0 pointer-events-none select-none">
           <div className="absolute inset-0 bg-grid-primary/[0.02] [mask-image:radial-gradient(ellipse_at_center,transparent_20%,black)]" />
@@ -205,13 +205,13 @@ export function FileUpload({
           <div className="relative">
             <div className="absolute inset-0 bg-gradient-to-b from-primary/10 to-primary/5 rounded-full blur-xl group-hover:blur-2xl transition-all duration-500 opacity-0 group-hover:opacity-100" />
             <div className="relative p-4 rounded-full bg-gradient-to-b from-muted to-muted/80 group-hover:from-primary/10 group-hover:to-primary/5 transition-all duration-300">
-              <Upload 
+              <Upload
                 className={cn(
                   "h-8 w-8 text-muted-foreground",
                   "transition-all duration-300",
                   isDragActive && "scale-125 text-primary",
                   "group-hover:scale-110 group-hover:text-primary"
-                )} 
+                )}
               />
             </div>
           </div>
@@ -309,7 +309,7 @@ export function FileUpload({
               >
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 min-w-0">
-                    {item.type?.startsWith('image/') ? (
+                    {item.fileType?.startsWith('image/') ? (
                       <ImageIcon className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                     ) : (
                       <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
@@ -317,7 +317,7 @@ export function FileUpload({
                     <div className="min-w-0">
                       <p className="text-sm font-medium truncate">{item.filename}</p>
                       <p className="text-xs text-muted-foreground">
-                        {formatFileSize(item.size ?? 0, language)}
+                        {formatFileSize(item.fileSize ?? 0, language)}
                       </p>
                     </div>
                   </div>
@@ -346,8 +346,8 @@ export function FileUpload({
 
                 <div className="space-y-1">
                   {getQueueItemStatus(item)}
-                  <Progress 
-                    value={item.progress} 
+                  <Progress
+                    value={item.progress}
                     className={cn(
                       "h-1.5",
                       item.rateLimitInfo?.isRateLimited && "bg-purple-100 dark:bg-purple-900",

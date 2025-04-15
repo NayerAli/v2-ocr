@@ -141,13 +141,13 @@ export async function getServerSession(): Promise<Session | null> {
           }
         }
       }
-    } catch (e) {
+    } catch {
       console.error('[Server-Auth] Error parsing auth cookie')
     }
 
     console.log('[Server-Auth] No session found')
     return null
-  } catch (error) {
+  } catch {
     console.error('[Server-Auth] Exception getting session')
     return null
   }
@@ -180,8 +180,8 @@ export async function getServerUser(): Promise<User | null> {
 
     console.log('[Server] No user found')
     return null
-  } catch (error) {
-    console.error('[Server] Exception getting user:', error)
+  } catch {
+    console.error('[Server] Exception getting user')
     return null
   }
 }

@@ -146,7 +146,7 @@ export default function DashboardPage() {
         const completed = queue.filter((item) => item.status === "completed")
         const totalProcessed = completed.length
         const avgTime = completed.reduce((acc, item) => {
-          return acc + ((item.endTime || 0) - (item.startTime || 0))
+          return acc + ((item.processingCompletedAt?.getTime() || 0) - (item.processingStartedAt?.getTime() || 0))
         }, 0) / (totalProcessed || 1)
 
         setStats({

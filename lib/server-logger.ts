@@ -38,8 +38,8 @@ export function logApiRequest(
   req: NextRequest,
   method: string,
   url: string,
-  params?: any,
-  body?: any
+  params?: Record<string, unknown>,
+  body?: Record<string, unknown>
 ) {
   const timestamp = new Date().toISOString()
   const requestId = crypto.randomUUID()
@@ -65,8 +65,8 @@ export function logApiRequest(
 export function logApiResponse(
   requestId: string,
   status: number,
-  data?: any,
-  error?: any
+  data?: Record<string, unknown>,
+  error?: { message?: string; code?: string; details?: unknown }
 ) {
   const timestamp = new Date().toISOString()
 
@@ -119,7 +119,7 @@ function writeToLog(entry: string) {
 /**
  * Sanitize sensitive data from logs
  */
-function sanitizeData(data: any): any {
+function sanitizeData(data: unknown): unknown {
   if (!data) return data
 
   // Clone the data to avoid modifying the original
@@ -138,7 +138,7 @@ function sanitizeData(data: any): any {
   ]
 
   // Recursively sanitize objects
-  function sanitizeObject(obj: any) {
+  function sanitizeObject(obj: Record<string, unknown>) {
     if (!obj || typeof obj !== 'object') return
 
     Object.keys(obj).forEach(key => {
@@ -146,8 +146,8 @@ function sanitizeData(data: any): any {
 
       if (sensitiveFields.some(field => lowerKey.includes(field))) {
         obj[key] = '[REDACTED]'
-      } else if (typeof obj[key] === 'object') {
-        sanitizeObject(obj[key])
+      } else if (typeof obj[key] === 'object' && obj[key] !== null) {
+        sanitizeObject(obj[key] as Record<string, unknown>)
       }
     })
   }
@@ -198,7 +198,7 @@ export function withApiLogging(handler: (req: NextRequest) => Promise<NextRespon
           body = await reqClone.json()
         }
       }
-    } catch (error) {
+    } catch {
       // Ignore body parsing errors
     }
 
@@ -222,15 +222,16 @@ export function withApiLogging(handler: (req: NextRequest) => Promise<NextRespon
         if (contentType.includes('application/json')) {
           responseData = await resClone.json()
         }
-      } catch (error) {
+      } catch {
         // Ignore response parsing errors
       }
 
       logApiResponse(requestId, response.status, responseData)
       return response
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const errorObj = error instanceof Error ? error : { message: 'Unknown error' }
       // Log error responses
-      logApiResponse(requestId, 500, null, error)
+      logApiResponse(requestId, 500, undefined, errorObj)
       throw error
     }
   }
@@ -239,7 +240,7 @@ export function withApiLogging(handler: (req: NextRequest) => Promise<NextRespon
 /**
  * Log general server-side messages
  */
-export function logServerMessage(category: string, message: string, data?: any) {
+export function logServerMessage(category: string, message: string, data?: unknown) {
   const timestamp = new Date().toISOString()
 
   const logEntry = {

@@ -25,7 +25,7 @@ export async function getServerProcessingSettings(): Promise<ProcessingSettings>
     // If settings is null or undefined, use default settings
     const finalSettings = settings || DEFAULT_SETTINGS
     return finalSettings
-  } catch (error) {
+  } catch {
     // Return default settings if there's an error
     return DEFAULT_SETTINGS
   }

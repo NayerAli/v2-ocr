@@ -23,8 +23,9 @@ export function ForgotPasswordForm() {
     try {
       await resetPassword(email)
       setSuccess(true)
-    } catch (err: any) {
-      setError(err.message || 'Failed to send reset email')
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to send reset email'
+      setError(errorMessage)
     }
   }
 

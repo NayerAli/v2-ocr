@@ -34,9 +34,10 @@ export function LoginForm() {
     try {
       console.log('Login Form: Attempting to sign in with redirect to:', redirectTo || '/')
       await signIn(email, password, redirectTo || '/')
-    } catch (err: any) {
+    } catch (err) {
       console.error('Login Form: Sign in error:', err)
-      setError(err.message || 'Failed to sign in')
+      const errorMessage = err instanceof Error ? err.message : 'Failed to sign in'
+      setError(errorMessage)
     }
   }
 

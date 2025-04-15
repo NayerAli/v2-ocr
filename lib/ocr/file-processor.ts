@@ -40,9 +40,9 @@ export class FileProcessor {
 
     // Check if the provider has an API key
     // We need to access the settings property which might be private
-    // @ts-ignore - Accessing private property for debugging
+    // @ts-expect-error - Accessing private property for debugging
     const apiKey = this.ocrProvider.settings?.apiKey;
-    // @ts-ignore - Accessing private property for debugging
+    // @ts-expect-error - Accessing private property for debugging
     const useSystemKey = this.ocrProvider.settings?.useSystemKey;
 
     // Simplified check: if there's an API key with length > 0, it's valid

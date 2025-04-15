@@ -10,7 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { useToast } from "@/hooks/use-toast"
 import { db } from "@/lib/database"
 import type { ProcessingStatus, OCRResult } from "@/types"
-import { cn } from "@/lib/utils"
+import { cn, isImageFile } from "@/lib/utils"
 import {
   Tooltip,
   TooltipContent,
@@ -812,7 +812,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
             <Skeleton className="h-8 w-48" />
           ) : (
             <div className="flex items-center gap-2 min-w-0 flex-1">
-              {docStatus?.type?.startsWith('image/') ? (
+              {isImageFile(docStatus?.fileType, docStatus?.filename) ? (
                 <ImageIcon className="h-6 w-6 text-muted-foreground flex-shrink-0" />
               ) : (
                 <FileText className="h-6 w-6 text-muted-foreground flex-shrink-0" />

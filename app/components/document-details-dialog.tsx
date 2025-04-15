@@ -1,12 +1,13 @@
 "use client"
 
-import { FileText, Clock, AlertCircle, CheckCircle2, XCircle, Loader2, Settings } from "lucide-react"
+import { FileText, Clock, AlertCircle, CheckCircle2, XCircle, Loader2, Settings, ImageIcon } from "lucide-react"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { formatFileSize, formatDuration, formatTimestamp } from "@/lib/file-utils"
+import { isImageFile } from "@/lib/utils"
 import { useSettings } from "@/store/settings"
 import type { ProcessingStatus } from "@/types"
 import { useLanguage } from "@/hooks/use-language"
@@ -70,7 +71,11 @@ export function DocumentDetailsDialog({ document, open, onOpenChange }: Document
       <DialogContent className="sm:max-w-[600px] max-h-[80vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <FileText className="h-5 w-5" />
+            {isImageFile(document.fileType, document.filename) ? (
+              <ImageIcon className="h-5 w-5" />
+            ) : (
+              <FileText className="h-5 w-5" />
+            )}
             {t('documentDetails', language)}
           </DialogTitle>
           <DialogDescription>
@@ -100,11 +105,11 @@ export function DocumentDetailsDialog({ document, open, onOpenChange }: Document
                 </div>
                 <div className="flex justify-between items-center py-1">
                   <span className="text-sm text-muted-foreground">{t('fileSize', language)}</span>
-                  <span className="font-medium">{formatFileSize(document.size ?? 0, language)}</span>
+                  <span className="font-medium">{formatFileSize(document.fileSize ?? 0, language)}</span>
                 </div>
                 <div className="flex justify-between items-center py-1">
                   <span className="text-sm text-muted-foreground">{t('totalPages', language)}</span>
-                  <span className="font-medium">{document.totalPages || t('unknown', language)}</span>
+                  <span className="font-medium">{isImageFile(document.fileType, document.filename) ? 1 : document.totalPages || t('unknown', language)}</span>
                 </div>
                 {document.metadata && Object.entries(document.metadata)
                   .filter(([key]) => !['type', 'created', 'modified'].includes(key))
@@ -147,21 +152,21 @@ export function DocumentDetailsDialog({ document, open, onOpenChange }: Document
                 <div className="flex justify-between items-center py-1">
                   <span className="text-sm text-muted-foreground">{t('startTime', language)}</span>
                   <span className="font-medium">
-                    {document.startTime ? formatTimestamp(document.startTime) : t('notStarted', language)}
+                    {document.processingStartedAt ? formatTimestamp(document.processingStartedAt.getTime()) : t('notStarted', language)}
                   </span>
                 </div>
-                {document.completionTime && (
+                {document.processingCompletedAt && (
                   <>
                     <div className="flex justify-between items-center py-1">
                       <span className="text-sm text-muted-foreground">{t('endTime', language)}</span>
                       <span className="font-medium">
-                        {document.endTime ? formatTimestamp(document.endTime) : t('notCompleted', language)}
+                        {document.processingCompletedAt ? formatTimestamp(document.processingCompletedAt.getTime()) : t('notCompleted', language)}
                       </span>
                     </div>
                     <div className="flex justify-between items-center py-1">
                       <span className="text-sm text-muted-foreground">{t('totalDuration', language)}</span>
                       <span className="font-medium">
-                        {formatDuration(document.completionTime - (document.startTime || 0))}
+                        {document.processingCompletedAt && document.processingStartedAt ? formatDuration(document.processingCompletedAt.getTime() - document.processingStartedAt.getTime()) : t('unknown', language)}
                       </span>
                     </div>
                   </>
@@ -216,4 +221,4 @@ export function DocumentDetailsDialog({ document, open, onOpenChange }: Document
       </DialogContent>
     </Dialog>
   )
-} 
+}

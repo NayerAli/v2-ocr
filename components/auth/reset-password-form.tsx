@@ -35,15 +35,16 @@ export function ResetPasswordForm() {
     try {
       setIsLoading(true)
       const { error } = await supabase.auth.updateUser({ password })
-      
+
       if (error) {
         throw error
       }
-      
+
       // Redirect to login page after successful password reset
       router.push('/auth/login?reset=true')
-    } catch (err: any) {
-      setError(err.message || 'Failed to reset password')
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to reset password'
+      setError(errorMessage)
     } finally {
       setIsLoading(false)
     }

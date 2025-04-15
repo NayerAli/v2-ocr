@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import Image from "next/image"
 import { cn } from "@/lib/utils"
 
 type AvatarProps = React.HTMLAttributes<HTMLDivElement> & {
@@ -19,10 +20,12 @@ const Avatar = React.forwardRef<HTMLDivElement, AvatarProps>(
       {...props}
     >
       {src ? (
-        <img
+        <Image
           src={src}
           alt={alt || "Avatar"}
           className="aspect-square h-full w-full object-cover"
+          width={40}
+          height={40}
         />
       ) : (
         children
@@ -32,14 +35,21 @@ const Avatar = React.forwardRef<HTMLDivElement, AvatarProps>(
 )
 Avatar.displayName = "Avatar"
 
-type AvatarImageProps = React.ImgHTMLAttributes<HTMLImageElement>
+// Define a custom type that extends the HTML image attributes but with specific width and height
+type AvatarImageProps = Omit<React.ImgHTMLAttributes<HTMLImageElement>, 'width' | 'height'> & {
+  width?: number
+  height?: number
+}
 
 const AvatarImage = React.forwardRef<HTMLImageElement, AvatarImageProps>(
-  ({ className, alt, ...props }, ref) => (
-    <img
-      ref={ref}
+  ({ className, alt, src, width, height, ...props }, ref) => (
+    <Image
+      ref={ref as React.Ref<HTMLImageElement>}
+      src={src as string}
       alt={alt || "Avatar"}
       className={cn("aspect-square h-full w-full object-cover", className)}
+      width={width || 40}
+      height={height || 40}
       {...props}
     />
   )
