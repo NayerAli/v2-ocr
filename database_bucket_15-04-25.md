@@ -1,0 +1,3 @@
+| id            | name          | owner | created_at                  | updated_at                  | public | avif_autodetection | file_size_limit | allowed_mime_types                                                     | owner_id |
+| ------------- | ------------- | ----- | --------------------------- | --------------------------- | ------ | ------------------ | --------------- | ---------------------------------------------------------------------- | -------- |
+| ocr-documents | ocr-documents | null  | 2025-03-13 05:42:02.1157+00 | 2025-03-13 05:42:02.1157+00 | false  | false              | 52428800        | ["application/pdf","image/jpeg","image/png","image/tiff","image/webp"] | null     |

@@ -35,26 +35,28 @@ export async function middleware(req: NextRequest) {
   let session = null
 
   try {
-    // Log cookies for debugging
+    // Log cookies for debugging (only cookie names, not values)
     const cookieHeader = req.headers.get('cookie') || 'No cookies'
-    console.log('Middleware: Cookies:', cookieHeader)
 
     // Try to extract the auth token from cookies directly
     if (cookieHeader !== 'No cookies') {
       const cookies = cookieHeader.split(';').map(c => c.trim())
-      console.log('Middleware: Parsed cookies:', cookies.map(c => c.split('=')[0]))
+      const cookieNames = cookies.map(c => c.split('=')[0])
+      console.log('Middleware: Parsed cookies:', cookieNames)
 
       // Look for Supabase auth cookies
-      const authCookies = cookies.filter(c =>
-        c.startsWith('sb-auth-token=') ||
-        c.startsWith('sb-localhost-auth-token=') ||
-        c.startsWith('sb-localhost:8000-auth-token=') ||
-        c.startsWith('sb-uvhjupgcggyuopxbirnp-auth-token=') ||
-        c.includes('-auth-token=')
-      )
+      const authCookieNames = cookies
+        .filter(c =>
+          c.startsWith('sb-auth-token=') ||
+          c.startsWith('sb-localhost-auth-token=') ||
+          c.startsWith('sb-localhost:8000-auth-token=') ||
+          c.startsWith('sb-uvhjupgcggyuopxbirnp-auth-token=') ||
+          c.includes('-auth-token=')
+        )
+        .map(c => c.split('=')[0])
 
-      if (authCookies.length > 0) {
-        console.log('Middleware: Found auth cookies:', authCookies.map(c => c.split('=')[0]))
+      if (authCookieNames.length > 0) {
+        console.log('Middleware: Found auth cookies:', authCookieNames)
       }
     }
 
@@ -94,7 +96,7 @@ export async function middleware(req: NextRequest) {
                 }
               }
             } catch (e) {
-              console.error(`Middleware: Error parsing ${cookieName} cookie:`, e)
+              console.error(`Middleware: Error parsing ${cookieName} cookie`)
             }
           }
         }

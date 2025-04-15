@@ -86,39 +86,56 @@ export default function DashboardPage() {
     let isMounted = true
 
     const loadQueue = async (isInitialLoad = false) => {
-      console.log('[DEBUG] loadQueue called, isInitialLoad:', isInitialLoad);
-      console.log('[DEBUG] isInitialized:', isInitialized);
-      console.log('[DEBUG] isAuthenticated:', !!user);
+      // Only log on initial load or in development mode
+      if (isInitialLoad && process.env.NODE_ENV === 'development') {
+        console.log('[DEBUG] loadQueue called, isInitialLoad:', isInitialLoad);
+        console.log('[DEBUG] isInitialized:', isInitialized);
+        console.log('[DEBUG] isAuthenticated:', !!user);
+      }
 
       if (!isInitialized) {
-        console.log('[DEBUG] Not initialized, skipping queue load');
+        if (isInitialLoad && process.env.NODE_ENV === 'development') {
+          console.log('[DEBUG] Not initialized, skipping queue load');
+        }
         return;
       }
 
       // Skip loading queue if user is not authenticated
       if (!user && !isAuthLoading) {
-        console.log('[DEBUG] User not authenticated, skipping queue load');
+        if (isInitialLoad && process.env.NODE_ENV === 'development') {
+          console.log('[DEBUG] User not authenticated, skipping queue load');
+        }
         setIsLoadingData(false);
         return;
       }
 
       try {
         if (isInitialLoad) {
-          console.log('[DEBUG] Initial load, setting loading state');
+          if (process.env.NODE_ENV === 'development') {
+            console.log('[DEBUG] Initial load, setting loading state');
+          }
           setIsLoadingData(true);
         }
 
         // Load queue first and update UI immediately
-        console.log('[DEBUG] Loading queue from database');
+        if (isInitialLoad && process.env.NODE_ENV === 'development') {
+          console.log('[DEBUG] Loading queue from database');
+        }
         const queue = await db.getQueue();
-        console.log('[DEBUG] Queue loaded, items:', queue.length);
+        if (isInitialLoad && process.env.NODE_ENV === 'development') {
+          console.log('[DEBUG] Queue loaded, items:', queue.length);
+        }
 
         if (!isMounted) {
-          console.log('[DEBUG] Component unmounted, aborting update');
+          if (isInitialLoad && process.env.NODE_ENV === 'development') {
+            console.log('[DEBUG] Component unmounted, aborting update');
+          }
           return;
         }
 
-        console.log('[DEBUG] Updating processing queue state');
+        if (isInitialLoad && process.env.NODE_ENV === 'development') {
+          console.log('[DEBUG] Updating processing queue state');
+        }
         setProcessingQueue(queue);
 
         // Then load stats in the background
@@ -160,23 +177,39 @@ export default function DashboardPage() {
   }, [isInitialized, user, isAuthLoading])
 
   const handleFilesAccepted = async (files: File[]) => {
-    console.log('[DEBUG] handleFilesAccepted called with', files.length, 'files');
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[DEBUG] handleFilesAccepted called with', files.length, 'files');
+    }
     try {
-      console.log('[DEBUG] Calling processingService.addToQueue');
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[DEBUG] Calling processingService.addToQueue');
+      }
       const ids = await processingService.addToQueue(files)
-      console.log('[DEBUG] processingService.addToQueue returned IDs:', ids);
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[DEBUG] processingService.addToQueue returned IDs:', ids);
+      }
 
-      console.log('[DEBUG] Getting status for each file');
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[DEBUG] Getting status for each file');
+      }
       const newItems = await Promise.all(ids.map((id) => processingService.getStatus(id)))
-      console.log('[DEBUG] Got status for files:', newItems.length);
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[DEBUG] Got status for files:', newItems.length);
+      }
 
       const validItems = newItems.filter((item): item is ProcessingStatus => !!item);
-      console.log('[DEBUG] Valid items:', validItems.length);
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[DEBUG] Valid items:', validItems.length);
+      }
 
       setProcessingQueue((prev) => {
-        console.log('[DEBUG] Previous queue length:', prev.length);
+        if (process.env.NODE_ENV === 'development') {
+          console.log('[DEBUG] Previous queue length:', prev.length);
+        }
         const newQueue = [...prev, ...validItems];
-        console.log('[DEBUG] New queue length:', newQueue.length);
+        if (process.env.NODE_ENV === 'development') {
+          console.log('[DEBUG] New queue length:', newQueue.length);
+        }
         return newQueue;
       })
 
@@ -184,7 +217,9 @@ export default function DashboardPage() {
         toArabicNumerals(num, language)
       )
 
-      console.log('[DEBUG] Showing toast notification');
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[DEBUG] Showing toast notification');
+      }
       toast({
         title: t('filesAdded', language),
         description: message,

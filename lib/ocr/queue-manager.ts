@@ -60,21 +60,44 @@ export class QueueManager {
 
       const id = crypto.randomUUID();
       const now = new Date();
+      // Generate a storage path for the file (without user ID, which will be added during upload)
+      const fileExtension = file.name.substring(file.name.lastIndexOf('.'));
+      const storagePath = `${id}${fileExtension}`;
+
       const status: ProcessingStatus = {
         id,
         filename: file.name,
+        originalFilename: file.name,
         status: "queued",
         progress: 0,
         currentPage: 0,
         totalPages: 0,
-        size: file.size,
-        type: file.type,
+        fileSize: file.size,
+        fileType: file.type,
+        storagePath: storagePath, // Add storage path
         file,
         createdAt: now,
         updatedAt: now
       };
 
       console.log('[DEBUG] Adding file to queue:', file.name, 'with ID:', id);
+
+      // Upload file to Supabase storage
+      try {
+        console.log('[DEBUG] Uploading file to storage:', file.name);
+        const { data: uploadData, error: uploadError } = await this.uploadFileToStorage(file, storagePath);
+
+        if (uploadError) {
+          console.error('[DEBUG] Error uploading file to storage:', uploadError);
+          throw new Error(`Failed to upload file: ${uploadError.message}`);
+        }
+
+        console.log('[DEBUG] File uploaded successfully to storage');
+      } catch (error) {
+        console.error('[DEBUG] Exception uploading file to storage:', error);
+        throw new Error('Failed to upload file to storage');
+      }
+
       this.queueMap.set(id, status);
       await db.saveToQueue(status);
       ids.push(id);
@@ -122,7 +145,7 @@ export class QueueManager {
 
           // Update status to processing
           item.status = "processing";
-          item.startTime = Date.now();
+          item.processingStartedAt = new Date(); // Changed from startTime
           item.progress = 0; // Initialize progress to 0
           item.currentPage = 0; // Initialize current page to 0
           await db.saveToQueue(item);
@@ -210,7 +233,7 @@ export class QueueManager {
 
           // Update status to completed
           item.status = "completed";
-          item.endTime = Date.now();
+          item.processingCompletedAt = new Date(); // Changed from endTime
           item.progress = 100;
           // Clear any rate limit info
           item.rateLimitInfo = undefined;
@@ -245,7 +268,7 @@ export class QueueManager {
 
           item.status = "error";
           item.error = error instanceof Error ? error.message : "Unknown error occurred";
-          item.endTime = Date.now();
+          item.processingCompletedAt = new Date(); // Changed from endTime
           await db.saveToQueue(item);
           this.abortControllers.delete(item.id);
         }
@@ -328,7 +351,7 @@ export class QueueManager {
     // Update status and cleanup
     status.status = "cancelled";
     status.progress = Math.min(status.progress || 0, 100);
-    status.endTime = Date.now();
+    status.processingCompletedAt = new Date(); // Changed from endTime
     status.error = "Processing cancelled by user";
 
     // Clear any rate limit info if present
@@ -362,5 +385,50 @@ export class QueueManager {
     return this.uploadSettings.allowedFileTypes.some(type =>
       file.name.toLowerCase().endsWith(type.toLowerCase())
     );
+  }
+
+  /**
+   * Upload a file to Supabase storage
+   */
+  private async uploadFileToStorage(file: File, storagePath: string): Promise<{ data: any, error: any }> {
+    console.log('[DEBUG] uploadFileToStorage called with file:', file.name, 'storagePath:', storagePath);
+
+    try {
+      // Import the Supabase client
+      const { supabase } = await import('../database/utils');
+
+      // Get the current user to create a user-specific folder
+      const { getUser } = await import('@/lib/auth');
+      const user = await getUser();
+
+      if (!user) {
+        console.error('[DEBUG] User not authenticated. Cannot upload file.');
+        return { data: null, error: { message: 'User not authenticated' } };
+      }
+
+      // Create a user-specific path
+      const userPath = `${user.id}/${storagePath}`;
+
+      // Upload the file to Supabase storage
+      console.log('[DEBUG] Uploading file to Supabase storage:', userPath);
+      const { data, error } = await supabase
+        .storage
+        .from('ocr-documents') // Use the correct bucket name from database_bucket_15-04-25.md
+        .upload(userPath, file, {
+          cacheControl: '3600',
+          upsert: true
+        });
+
+      if (error) {
+        console.error('[DEBUG] Error uploading file to Supabase storage:', error);
+        return { data: null, error };
+      }
+
+      console.log('[DEBUG] File uploaded successfully to Supabase storage');
+      return { data, error: null };
+    } catch (error) {
+      console.error('[DEBUG] Exception in uploadFileToStorage:', error);
+      return { data: null, error };
+    }
   }
 }

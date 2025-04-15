@@ -70,19 +70,30 @@ export async function saveResults(documentId: string, results: OCRResult[]): Pro
 
   // Prepare results for Supabase with required fields
   const supabaseResults = results.map(result => {
+    // Extract camelCase properties that should be snake_case in the database
+    const {
+      documentId,
+      processingTime,
+      pageNumber,
+      totalPages,
+      imageUrl,
+      boundingBox,
+      ...rest
+    } = result;
+
     const preparedResult = {
-      ...result,
-      document_id: documentId,
+      ...rest, // Include remaining properties
+      document_id: documentId, // Always use the parameter value for document_id
       id: result.id || crypto.randomUUID(),
       user_id: userId,
       text: result.text || '',
       confidence: result.confidence || 0,
       language: result.language || 'en',
-      processing_time: result.processingTime || 0,
-      page_number: result.pageNumber || 1,
-      total_pages: result.totalPages || 1,
-      image_url: result.imageUrl || null,
-      bounding_box: result.boundingBox || null,
+      processing_time: processingTime || result.processing_time || 0,
+      page_number: pageNumber || result.page_number || 1,
+      total_pages: totalPages || result.total_pages || 1,
+      image_url: imageUrl || result.image_url || null,
+      bounding_box: boundingBox || result.bounding_box || null,
       error: result.error || null,
       provider: result.provider || 'unknown'
     }

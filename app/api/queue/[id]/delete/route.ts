@@ -2,15 +2,16 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getUser } from '@/lib/auth'
 import { db } from '@/lib/database'
 import { processingService } from '@/lib/ocr/processing-service'
+import { createApiHandler } from '@/app/api/utils'
 
 /**
  * DELETE /api/queue/:id/delete
  * Delete a document from the queue
  */
-export async function DELETE(
+export const DELETE = createApiHandler(async (
   request: NextRequest,
   { params }: { params: { id: string } }
-) {
+) => {
   try {
     // Get the document ID from the URL
     const id = params.id
@@ -67,4 +68,4 @@ export async function DELETE(
       { status: 500 }
     )
   }
-}
+})

@@ -29,10 +29,14 @@ class DatabaseService {
   // Queue operations
   async getQueue(): Promise<ProcessingStatus[]> {
     const now = Date.now()
+    // Only log in development mode and not too frequently
+    const shouldLog = process.env.NODE_ENV === 'development' && Math.random() < 0.05;
 
     // Return cached results if within TTL
     if (this.cache.queue.length > 0 && now - this.lastUpdate < this.CACHE_TTL) {
-      console.log('[DEBUG] Returning cached queue, items:', this.cache.queue.length);
+      if (shouldLog) {
+        console.log('[DEBUG] Returning cached queue, items:', this.cache.queue.length);
+      }
       return this.cache.queue
     }
 
@@ -41,16 +45,23 @@ class DatabaseService {
     // Update cache
     this.cache.queue = queue
     this.lastUpdate = now
-    console.log('[DEBUG] Cache updated with queue items');
+    if (shouldLog) {
+      console.log('[DEBUG] Cache updated with queue items');
+    }
 
     return queue
   }
 
   async saveToQueue(status: ProcessingStatus): Promise<void> {
+    // Only log in development mode and not too frequently
+    const shouldLog = process.env.NODE_ENV === 'development' && Math.random() < 0.1;
+
     await QueueService.saveToQueue(status)
 
     // Update cache
-    console.log('[DEBUG] Updating local cache');
+    if (shouldLog) {
+      console.log('[DEBUG] Updating local cache');
+    }
     const oldQueueLength = this.cache.queue.length;
     this.cache.queue = this.cache.queue
       .filter(item => item.id !== status.id)
@@ -64,7 +75,9 @@ class DatabaseService {
         const aTime = a.createdAt instanceof Date ? a.createdAt.getTime() : new Date(a.createdAt).getTime()
         return bTime - aTime
       })
-    console.log('[DEBUG] Cache updated, old length:', oldQueueLength, 'new length:', this.cache.queue.length);
+    if (shouldLog) {
+      console.log('[DEBUG] Cache updated, old length:', oldQueueLength, 'new length:', this.cache.queue.length);
+    }
   }
 
   async addToQueue(document: Partial<ProcessingStatus>): Promise<void> {
@@ -76,6 +89,9 @@ class DatabaseService {
   }
 
   async removeFromQueue(id: string): Promise<void> {
+    // Only log in development mode
+    const shouldLog = process.env.NODE_ENV === 'development';
+
     await QueueService.removeFromQueue(id)
 
     // Invalidate cache
@@ -84,7 +100,9 @@ class DatabaseService {
     this.cache.results.delete(id)
     this.cache.stats = null
 
-    console.log('[DEBUG] Cache invalidated');
+    if (shouldLog) {
+      console.log('[DEBUG] Cache invalidated');
+    }
   }
 
   async updateQueueItem(id: string, updates: Partial<ProcessingStatus>): Promise<ProcessingStatus | null> {

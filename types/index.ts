@@ -28,17 +28,19 @@ export interface OCRResult {
 export interface ProcessingStatus {
   id: string
   filename: string
+  originalFilename?: string
   status: 'pending' | 'processing' | 'completed' | 'failed' | 'queued' | 'error' | 'cancelled'
   progress?: number
   error?: string
   file?: File
-  size?: number
-  type?: string
+  fileSize?: number // Changed from size to match DB schema
+  fileType?: string // Changed from type to match DB schema
+  storagePath?: string
+  thumbnailPath?: string
   currentPage?: number
   totalPages?: number
-  startTime?: number
-  endTime?: number
-  completionTime?: number
+  processingStartedAt?: Date // Changed from startTime
+  processingCompletedAt?: Date // Changed from endTime
   metadata?: Record<string, any>
   results?: OCRResult[]
   createdAt: Date

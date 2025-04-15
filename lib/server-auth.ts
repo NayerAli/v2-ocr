@@ -122,33 +122,33 @@ export async function getServerSession(): Promise<Session | null> {
         )
       }
 
-      console.log('[Server] Found cookies:', allCookies.map(c => c.name))
+      console.log('[Server-Auth] Found cookies:', allCookies.map(c => c.name))
 
       if (authCookie) {
-        console.log('[Server] Found auth cookie, attempting to parse')
+        console.log('[Server-Auth] Found auth cookie, attempting to parse')
         const cookieValue = decodeURIComponent(authCookie.value)
         const authData = JSON.parse(cookieValue)
 
         if (authData.access_token) {
-          console.log('[Server] Manually parsed auth token from cookie')
+          console.log('[Server-Auth] Manually parsed auth token from cookie')
 
           // Verify the token
           const { data: userData, error: userError } = await supabase.auth.getUser(authData.access_token)
 
           if (!userError && userData?.user) {
-            console.log('[Server] Manually verified user from token:', userData.user.email)
+            console.log('[Server-Auth] Manually verified user from token:', userData.user.email)
             return { user: userData.user, ...authData } as Session
           }
         }
       }
     } catch (e) {
-      console.error('[Server] Error parsing auth cookie:', e)
+      console.error('[Server-Auth] Error parsing auth cookie')
     }
 
-    console.log('[Server] No session found')
+    console.log('[Server-Auth] No session found')
     return null
   } catch (error) {
-    console.error('[Server] Exception getting session:', error)
+    console.error('[Server-Auth] Exception getting session')
     return null
   }
 }

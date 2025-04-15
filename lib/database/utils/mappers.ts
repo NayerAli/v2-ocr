@@ -17,6 +17,12 @@ export const mapToProcessingStatus = (item: any): ProcessingStatus => {
   if (status.updatedAt && typeof status.updatedAt === 'string') {
     status.updatedAt = new Date(status.updatedAt)
   }
+  if (status.processingStartedAt && typeof status.processingStartedAt === 'string') {
+    status.processingStartedAt = new Date(status.processingStartedAt)
+  }
+  if (status.processingCompletedAt && typeof status.processingCompletedAt === 'string') {
+    status.processingCompletedAt = new Date(status.processingCompletedAt)
+  }
 
   console.log('[DEBUG] Final status object:', status.id, status.filename, status.status);
   return status as ProcessingStatus
