@@ -62,6 +62,12 @@ export class FileProcessor {
     if (!status.file) throw new Error("No file to process");
     console.log(`[Process] Starting ${status.filename}`);
 
+    // Verify we have a valid OCR provider before processing
+    if (!this.hasValidOCRProvider()) {
+      console.error(`[Process] No valid OCR provider available for processing ${status.filename}`);
+      throw new Error("No valid OCR provider available");
+    }
+
     // For images
     if (status.file.type.startsWith("image/")) {
       const base64 = await this.fileToBase64(status.file);

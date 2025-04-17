@@ -4,7 +4,7 @@ import { createContext, useContext, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import type { User, Session } from '@supabase/supabase-js'
 import { getSupabaseClient } from '@/lib/supabase/singleton-client'
-import { debugLog, debugError, prodError } from '@/lib/log'
+import { debugLog, debugError } from '@/lib/log'
 
 type AuthContextType = {
   user: User | null

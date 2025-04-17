@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect, useMemo } from "react"
+import React, { useState, useEffect, useRef } from "react"
 import { debugLog, debugError } from "@/lib/log"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -24,6 +24,7 @@ import { useLanguage } from "@/hooks/use-language"
 import { t, tCount, translationKeys, type Language } from "@/lib/i18n/translations"
 import { useAuth } from "@/components/auth/auth-provider"
 import Link from "next/link"
+import { retryDocument } from "@/lib/tests/document-status-validation"
 
 interface DashboardStats {
   totalProcessed: number
@@ -58,22 +59,31 @@ export default function DashboardPage() {
   const [selectedDocument, setSelectedDocument] = useState<ProcessingStatus | null>(null)
   const [isDetailsOpen, setIsDetailsOpen] = useState(false)
 
-  // Create processing service with current settings
-  const processingService = useMemo(
-    () => {
+  // Reference to hold the processing service
+  const processingServiceRef = useRef<any>(null)
+
+  // Initialize processing service
+  useEffect(() => {
+    const initProcessingService = async () => {
       debugLog('[DEBUG] Creating processing service with settings:');
       debugLog('[DEBUG] OCR settings:', settings.ocr);
       debugLog('[DEBUG] Processing settings:', settings.processing);
       debugLog('[DEBUG] Upload settings:', settings.upload);
 
-      return getProcessingService({
+      const service = await getProcessingService({
         ocr: settings.ocr,
         processing: settings.processing,
         upload: settings.upload
       });
-    },
-    [settings.ocr, settings.processing, settings.upload]
-  )
+
+      processingServiceRef.current = service;
+      debugLog('[DEBUG] Processing service initialized');
+    };
+
+    initProcessingService().catch(err => {
+      debugError('[DEBUG] Error initializing processing service:', err);
+    });
+  }, [settings.ocr, settings.processing, settings.upload])
 
   // Initialize PDF.js only after settings are loaded
   useEffect(() => {
@@ -145,15 +155,16 @@ export default function DashboardPage() {
 
         // Update stats after both are loaded
         const completed = queue.filter((item) => item.status === "completed")
-        const totalProcessed = completed.length
+        const failed = queue.filter((item) => item.status === "error" || item.status === "failed")
+        const totalProcessed = completed.length + failed.length
         const avgTime = completed.reduce((acc, item) => {
           return acc + ((item.processingCompletedAt?.getTime() || 0) - (item.processingStartedAt?.getTime() || 0))
-        }, 0) / (totalProcessed || 1)
+        }, 0) / (completed.length || 1)
 
         setStats({
           totalProcessed,
           avgProcessingTime: avgTime,
-          successRate: queue.length ? (totalProcessed / queue.length) * 100 : 0,
+          successRate: totalProcessed ? (completed.length / totalProcessed) * 100 : 0,
           totalStorage: dbStats.dbSize
         })
       } catch (error) {
@@ -182,10 +193,15 @@ export default function DashboardPage() {
       debugLog('[DEBUG] handleFilesAccepted called with', files.length, 'files');
     }
     try {
+      // Check if processing service is initialized
+      if (!processingServiceRef.current) {
+        throw new Error('Processing service not initialized');
+      }
+
       if (process.env.NODE_ENV === 'development') {
         debugLog('[DEBUG] Calling processingService.addToQueue');
       }
-      const ids = await processingService.addToQueue(files)
+      const ids = await processingServiceRef.current.addToQueue(files)
       if (process.env.NODE_ENV === 'development') {
         debugLog('[DEBUG] processingService.addToQueue returned IDs:', ids);
       }
@@ -193,7 +209,7 @@ export default function DashboardPage() {
       if (process.env.NODE_ENV === 'development') {
         debugLog('[DEBUG] Getting status for each file');
       }
-      const newItems = await Promise.all(ids.map((id) => processingService.getStatus(id)))
+      const newItems = await Promise.all(ids.map((id) => processingServiceRef.current.getStatus(id)))
       if (process.env.NODE_ENV === 'development') {
         debugLog('[DEBUG] Got status for files:', newItems.length);
       }
@@ -237,12 +253,17 @@ export default function DashboardPage() {
 
   const handleRemoveFromQueue = async (id: string) => {
     try {
+      // Check if processing service is initialized
+      if (!processingServiceRef.current) {
+        throw new Error('Processing service not initialized');
+      }
+
       const status = processingQueue.find(item => item.id === id)
       if (!status) return
 
       // If the file is processing, cancel it first
       if (status.status === "processing") {
-        await processingService.cancelProcessing(id)
+        await processingServiceRef.current.cancelProcessing(id)
       }
 
       // Remove from active queue but keep in recent documents
@@ -273,7 +294,12 @@ export default function DashboardPage() {
 
   const handleCancel = async (id: string) => {
     try {
-      await processingService.cancelProcessing(id)
+      // Check if processing service is initialized
+      if (!processingServiceRef.current) {
+        throw new Error('Processing service not initialized');
+      }
+
+      await processingServiceRef.current.cancelProcessing(id)
 
       // Update the queue item status
       setProcessingQueue(prev => prev.map(item =>
@@ -292,6 +318,53 @@ export default function DashboardPage() {
         description: "Failed to cancel processing",
         variant: "destructive",
       })
+    }
+  }
+
+  const handleRetry = async (id: string) => {
+    try {
+      console.log('[DEBUG] Retrying document:', id);
+
+      // Find the document
+      const doc = processingQueue.find(d => d.id === id);
+      if (!doc) {
+        console.error('[DEBUG] Document not found for retry:', id);
+        return;
+      }
+
+      // Use our centralized retry function
+      console.log('[DEBUG] Using centralized retry function');
+      // Retry the document
+      const updatedDoc = await retryDocument(id);
+
+      if (!updatedDoc) {
+        console.error('[DEBUG] Failed to retry document: Document not found in queue');
+        toast({
+          title: t('error', language) || 'Error',
+          description: t('retryFailed', language) || 'Failed to retry document processing',
+          variant: 'destructive'
+        });
+        return;
+      }
+
+      // Update the document status in the UI
+      setProcessingQueue(prev => prev.map(d =>
+        d.id === id ? { ...d, status: 'queued', error: null } : d
+      ));
+
+      toast({
+        title: t('documentRetried', language) || 'Document Retried',
+        description: t('documentRetriedDesc', language) || 'Document has been queued for processing again.'
+      });
+
+      console.log('[DEBUG] Document retry initiated successfully');
+    } catch (error) {
+      console.error('[DEBUG] Error retrying document:', error);
+      toast({
+        title: t('error', language) || 'Error',
+        description: t('retryFailed', language) || 'Failed to retry document processing',
+        variant: 'destructive'
+      });
     }
   }
 
@@ -409,14 +482,30 @@ export default function DashboardPage() {
                     onFilesAccepted={handleFilesAccepted}
                     processingQueue={processingQueue}
                 onPause={async () => {
-                  await processingService.pauseQueue()
+                  if (!processingServiceRef.current) {
+                    toast({
+                      title: t('error', language),
+                      description: 'Processing service not initialized',
+                      variant: 'destructive',
+                    });
+                    return;
+                  }
+                  await processingServiceRef.current.pauseQueue()
                   toast({
                     title: t('processingCancelled', language),
                     description: t('processingCancelledDesc', language),
                   })
                 }}
                 onResume={async () => {
-                  await processingService.resumeQueue()
+                  if (!processingServiceRef.current) {
+                    toast({
+                      title: t('error', language),
+                      description: 'Processing service not initialized',
+                      variant: 'destructive',
+                    });
+                    return;
+                  }
+                  await processingServiceRef.current.resumeQueue()
                   toast({
                     title: t('processingCancelled', language),
                     description: t('processingCancelledDesc', language),
@@ -468,6 +557,11 @@ export default function DashboardPage() {
                 <p className="text-xs text-muted-foreground">
                   {toArabicNumerals(processingQueue.filter((item) => item.status === "queued").length, language)} {t('queued', language)}
                 </p>
+                {processingQueue.some(doc => doc.status === "error" || doc.status === "failed") && (
+                  <p className="text-xs text-red-600 dark:text-red-400">
+                    {toArabicNumerals(processingQueue.filter((item) => item.status === "error" || item.status === "failed").length, language)} {t('error', language) || 'Error'}
+                  </p>
+                )}
                 {processingQueue.some(doc => doc.rateLimitInfo?.isRateLimited) && (
                   <p className="text-xs text-purple-600 dark:text-purple-400">
                     {t('rateLimited', language)} • {t('autoResuming', language)}
@@ -542,6 +636,8 @@ export default function DashboardPage() {
                 }}
                 onDownload={handleViewResults}
                 onDelete={handleRemoveFromQueue}
+                onCancel={handleCancel}
+                onRetry={handleRetry}
                 variant="grid"
                 showHeader={false}
               />
@@ -555,6 +651,7 @@ export default function DashboardPage() {
         document={selectedDocument}
         open={isDetailsOpen}
         onOpenChange={setIsDetailsOpen}
+        onRetry={handleRetry}
       />
     </div>
   )

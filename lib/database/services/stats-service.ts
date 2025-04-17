@@ -37,8 +37,8 @@ export async function getDatabaseStats(): Promise<DatabaseStats> {
   }
 
   // Get last cleared date from system_metadata
-  let metadataData: any = null
-  let metadataError: any = null
+  let metadataData: Record<string, unknown> | null = null
+  let metadataError: Record<string, unknown> | null = null
 
   const systemMetadataResult = await supabase
     .from('system_metadata')

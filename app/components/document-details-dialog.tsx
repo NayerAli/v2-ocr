@@ -17,9 +17,10 @@ interface DocumentDetailsDialogProps {
   document: ProcessingStatus | null
   open: boolean
   onOpenChange: (open: boolean) => void
+  onRetry?: (id: string) => void
 }
 
-export function DocumentDetailsDialog({ document, open, onOpenChange }: DocumentDetailsDialogProps) {
+export function DocumentDetailsDialog({ document, open, onOpenChange, onRetry }: DocumentDetailsDialogProps) {
   const settings = useSettings()
   const { language } = useLanguage()
 
@@ -213,7 +214,19 @@ export function DocumentDetailsDialog({ document, open, onOpenChange }: Document
           </TabsContent>
         </Tabs>
 
-        <div className="mt-6 flex justify-end">
+        <div className="mt-6 flex justify-end gap-2">
+          {(document.status === 'error' || document.status === 'failed') && onRetry && (
+            <Button
+              variant="secondary"
+              onClick={() => {
+                onRetry(document.id);
+                onOpenChange(false);
+              }}
+            >
+              <Clock className="mr-2 h-4 w-4" />
+              {t('retry', language) || 'Retry'}
+            </Button>
+          )}
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             {t('close', language)}
           </Button>

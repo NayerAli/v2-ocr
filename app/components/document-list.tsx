@@ -23,6 +23,7 @@ interface DocumentListProps {
   onDownload: (id: string) => void
   onDelete: (id: string) => void
   onCancel?: (id: string) => void
+  onRetry?: (id: string) => void
   variant?: "table" | "grid"
   showHeader?: boolean
   isLoading?: boolean
@@ -97,9 +98,11 @@ function getStatusIcon(status: string) {
     case "cancelled":
       return <Pause className="h-4 w-4" />
     case "error":
+    case "failed":
       return <AlertCircle className="h-4 w-4" />
     default:
-      return null
+      console.log(`[DEBUG] Unknown status: ${status}`);
+      return <AlertCircle className="h-4 w-4" />
   }
 }
 
@@ -109,6 +112,7 @@ export function DocumentList({
   onDownload,
   onDelete,
   onCancel,
+  onRetry,
   variant = "table",
   isLoading = false
 }: DocumentListProps) {
@@ -117,9 +121,13 @@ export function DocumentList({
 
   const canViewDocument = (doc: ProcessingStatus) => {
     if (doc.status === "completed") return true
-    // Only allow viewing cancelled files if they have some processed pages
+    // Allow viewing cancelled files if they have some processed pages
     if (doc.status === "cancelled") {
       return (doc.currentPage || 0) > 0 || (doc.totalPages || 0) > 0
+    }
+    // Allow viewing error files to see the error details
+    if (doc.status === "error" || doc.status === "failed") {
+      return true
     }
     return false
   }
@@ -131,7 +139,7 @@ export function DocumentList({
         "bg-green-50 text-green-700 dark:bg-green-500/20": doc.status === "completed",
         "bg-blue-50 text-blue-700 dark:bg-blue-500/20": doc.status === "processing" && !doc.rateLimitInfo?.isRateLimited,
         "bg-yellow-50 text-yellow-700 dark:bg-yellow-500/20": doc.status === "queued",
-        "bg-red-50 text-red-700 dark:bg-red-500/20": doc.status === "error",
+        "bg-red-50 text-red-700 dark:bg-red-500/20": doc.status === "error" || doc.status === "failed",
         "bg-gray-50 text-gray-700 dark:bg-gray-500/20": doc.status === "cancelled",
         "bg-purple-50 text-purple-700 dark:bg-purple-500/20": doc.rateLimitInfo?.isRateLimited
       }
@@ -308,12 +316,23 @@ export function DocumentList({
                           </DropdownMenuItem>
                         )
                       )}
+                      {/* Show cancel button for processing documents */}
                       {doc.status === 'processing' && onCancel && (
                         <DropdownMenuItem
                           onClick={() => onCancel(doc.id)}
                         >
                           <Pause className="h-4 w-4 mr-2" />
                           {t('cancel', language) || 'Cancel'}
+                        </DropdownMenuItem>
+                      )}
+
+                      {/* Show retry button for error/failed documents */}
+                      {(doc.status === 'error' || doc.status === 'failed') && onRetry && (
+                        <DropdownMenuItem
+                          onClick={() => onRetry(doc.id)}
+                        >
+                          <Clock className="h-4 w-4 mr-2" />
+                          {t('retry', language) || 'Retry'}
                         </DropdownMenuItem>
                       )}
                       <DropdownMenuItem
@@ -443,6 +462,32 @@ export function DocumentList({
                           </DropdownMenuItem>
                         )
                       )}
+                      {/* Show cancel button for processing documents */}
+                      {doc.status === 'processing' && onCancel && (
+                        <DropdownMenuItem
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onCancel(doc.id);
+                          }}
+                        >
+                          <Pause className="h-4 w-4 mr-2" />
+                          {t('cancel', language) || 'Cancel'}
+                        </DropdownMenuItem>
+                      )}
+
+                      {/* Show retry button for error/failed documents */}
+                      {(doc.status === 'error' || doc.status === 'failed') && onRetry && (
+                        <DropdownMenuItem
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onRetry(doc.id);
+                          }}
+                        >
+                          <Clock className="h-4 w-4 mr-2" />
+                          {t('retry', language) || 'Retry'}
+                        </DropdownMenuItem>
+                      )}
+
                       <DropdownMenuItem
                         className="text-destructive focus:text-destructive"
                         onClick={(e) => {

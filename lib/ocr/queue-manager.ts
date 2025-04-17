@@ -2,6 +2,7 @@ import type { ProcessingStatus } from "@/types";
 import type { ProcessingSettings, UploadSettings } from "@/types/settings";
 import { db } from "../database";
 import { FileProcessor } from "./file-processor";
+import { updateDocumentStatus, retryDocument as retryDocumentUtil } from "./document-status-utils";
 
 export class QueueManager {
   private queueMap: Map<string, ProcessingStatus> = new Map();
@@ -149,11 +150,21 @@ export class QueueManager {
           this.abortControllers.set(item.id, controller);
 
           // Update status to processing
-          item.status = "processing";
-          item.processingStartedAt = new Date(); // Changed from startTime
-          item.progress = 0; // Initialize progress to 0
-          item.currentPage = 0; // Initialize current page to 0
-          await db.saveToQueue(item);
+          console.log(`[DEBUG] Setting document ${item.id} status to processing`);
+
+          // Use the utility function to update the document status
+          const processingItem = await updateDocumentStatus(item, "processing");
+
+          // Update additional fields
+          processingItem.processingStartedAt = new Date();
+          processingItem.progress = 0; // Initialize progress to 0
+          processingItem.currentPage = 0; // Initialize current page to 0
+
+          // Save to database
+          await db.saveToQueue(processingItem);
+
+          // Update the item reference for the rest of the processing
+          Object.assign(item, processingItem);
 
           // Set up a status update interval for UI updates
           const statusUpdateInterval = setInterval(async () => {
@@ -192,23 +203,30 @@ export class QueueManager {
               )[0];
 
             if (rateLimitedResult?.rateLimitInfo) {
-              // Update the item with rate limit info
-              item.rateLimitInfo = {
+              console.log(`[Process] Rate limited for ${item.filename}. Retry after ${rateLimitedResult.rateLimitInfo.retryAfter}s`);
+
+              // Use the utility function to update the document status but keep it as "processing"
+              // since it's rate-limited, not failed
+              const rateLimitedItem = await updateDocumentStatus(item, "processing");
+
+              // Add rate limit info
+              rateLimitedItem.rateLimitInfo = {
                 isRateLimited: true,
                 retryAfter: rateLimitedResult.rateLimitInfo.retryAfter,
                 rateLimitStart: Date.now()
               };
 
-              console.log(`[Process] Rate limited for ${item.filename}. Retry after ${rateLimitedResult.rateLimitInfo.retryAfter}s`);
-
               // If we have partial results, save them
               if (results.some(r => r.text && r.text.length > 0)) {
                 await db.saveResults(item.id, results);
-                item.progress = Math.floor((results.length / (item.totalPages || 1)) * 100);
+                rateLimitedItem.progress = Math.floor((results.length / (rateLimitedItem.totalPages || 1)) * 100);
               }
 
-              // Keep the item in processing state but with rate limit info
-              await db.saveToQueue(item);
+              // Save to database
+              await db.saveToQueue(rateLimitedItem);
+
+              // Update the queue map
+              this.queueMap.set(item.id, rateLimitedItem);
               return;
             }
           }
@@ -237,12 +255,22 @@ export class QueueManager {
           }
 
           // Update status to completed
-          item.status = "completed";
-          item.processingCompletedAt = new Date(); // Changed from endTime
-          item.progress = 100;
+          console.log(`[DEBUG] Setting document ${item.id} status to completed`);
+
+          // Use the utility function to update the document status
+          const completedItem = await updateDocumentStatus(item, "completed");
+
+          // Update additional fields
+          completedItem.processingCompletedAt = new Date();
+          completedItem.progress = 100;
           // Clear any rate limit info
-          item.rateLimitInfo = undefined;
-          await db.saveToQueue(item);
+          completedItem.rateLimitInfo = undefined;
+
+          // Save to database
+          await db.saveToQueue(completedItem);
+
+          // Update the queue map
+          this.queueMap.set(item.id, completedItem);
         } catch (error) {
           console.error(`Error processing ${item.filename}:`, error);
 
@@ -261,21 +289,44 @@ export class QueueManager {
           if (isRateLimitError) {
             // Set a default retry time of 60 seconds if we can't extract it
             const retryAfter = 60;
-            item.rateLimitInfo = {
+            console.log(`[Process] Rate limited for ${item.filename}. Retry after ${retryAfter}s`);
+
+            // Use the utility function to update the document status but keep it as "processing"
+            // since it's rate-limited, not failed
+            const individualRateLimitedItem = await updateDocumentStatus(item, "processing");
+
+            // Add rate limit info
+            individualRateLimitedItem.rateLimitInfo = {
               isRateLimited: true,
               retryAfter,
               rateLimitStart: Date.now()
             };
-            console.log(`[Process] Rate limited for ${item.filename}. Retry after ${retryAfter}s`);
-            await db.saveToQueue(item);
+
+            // Save to database
+            await db.saveToQueue(individualRateLimitedItem);
+
+            // Update the queue map
+            this.queueMap.set(item.id, individualRateLimitedItem);
             return;
           }
 
-          item.status = "error";
-          item.error = error instanceof Error ? error.message : "Unknown error occurred";
-          item.processingCompletedAt = new Date(); // Changed from endTime
-          await db.saveToQueue(item);
+          // Update status to error
+          const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
+          console.log(`[DEBUG] Setting document ${item.id} status to error: ${errorMessage}`);
+
+          // Use the utility function to update the document status
+          const updatedItem = await updateDocumentStatus(item, "error", errorMessage);
+
+          // Update additional fields
+          updatedItem.processingCompletedAt = new Date();
+
+          // Make sure the item is in the queue map
+          this.queueMap.set(item.id, updatedItem);
+
+          // Clean up abort controller
           this.abortControllers.delete(item.id);
+
+          console.log(`[DEBUG] Document ${item.id} (${item.filename}) marked as error: ${item.error}`);
         }
       });
 
@@ -305,9 +356,18 @@ export class QueueManager {
     if (rateLimitedItems.length > 0) {
       for (const item of rateLimitedItems) {
         console.log(`[DEBUG] Rate limit period ended for ${item.filename}. Requeuing...`);
-        item.status = "queued";
-        item.rateLimitInfo = undefined;
-        await db.saveToQueue(item);
+
+        // Use the utility function to update the document status
+        const requeuedItem = await updateDocumentStatus(item, "queued");
+
+        // Clear rate limit info
+        requeuedItem.rateLimitInfo = undefined;
+
+        // Save to database
+        await db.saveToQueue(requeuedItem);
+
+        // Update the queue map
+        this.queueMap.set(item.id, requeuedItem);
       }
     }
 
@@ -321,18 +381,26 @@ export class QueueManager {
   }
 
   async pauseQueue() {
+    console.log('[DEBUG] QueueManager.pauseQueue called');
     this.isPaused = true;
+
     if (this.abortControllers.size > 0) {
       Array.from(this.abortControllers.values()).forEach(controller => controller.abort());
       this.abortControllers.clear();
     }
+
     // Save current state to IndexedDB
     for (const status of Array.from(this.queueMap.values())) {
       if (status.status === "processing") {
-        status.status = "queued";
+        console.log(`[DEBUG] Changing processing document ${status.id} to queued`);
+        // Use the utility function to update the document status
+        const updatedStatus = await updateDocumentStatus(status, "queued");
+        // Update the queue map
+        this.queueMap.set(status.id, updatedStatus);
       }
-      await db.saveToQueue(status);
     }
+
+    console.log('[DEBUG] Queue paused successfully');
   }
 
   async resumeQueue() {
@@ -343,36 +411,55 @@ export class QueueManager {
   }
 
   async cancelProcessing(id: string) {
+    console.log(`[DEBUG] QueueManager.cancelProcessing called for ${id}`);
+
     const status = this.queueMap.get(id);
-    if (!status) return;
+    if (!status) {
+      console.log(`[DEBUG] Document ${id} not found in queue map, cannot cancel`);
+      return;
+    }
 
     // Abort processing if in progress
     const controller = this.abortControllers.get(id);
     if (controller) {
+      console.log(`[DEBUG] Aborting processing for document ${id}`);
       controller.abort();
       this.abortControllers.delete(id);
     }
 
     // Update status and cleanup
-    status.status = "cancelled";
-    status.progress = Math.min(status.progress || 0, 100);
-    status.processingCompletedAt = new Date(); // Changed from endTime
-    status.error = "Processing cancelled by user";
+    console.log(`[DEBUG] Updating document ${id} status to cancelled`);
+
+    // Use the utility function to update the document status
+    const updatedStatus = await updateDocumentStatus(
+      status,
+      "cancelled",
+      "Processing cancelled by user"
+    );
+
+    // Update additional fields
+    updatedStatus.progress = Math.min(updatedStatus.progress || 0, 100);
+    updatedStatus.processingCompletedAt = new Date();
 
     // Clear any rate limit info if present
-    if (status.rateLimitInfo) {
-      status.rateLimitInfo = undefined;
+    if (updatedStatus.rateLimitInfo) {
+      updatedStatus.rateLimitInfo = undefined;
     }
 
-    // Save to queue and notify UI
-    this.queueMap.set(id, status);
-    await db.saveToQueue(status);
+    // Update the queue map
+    this.queueMap.set(id, updatedStatus);
+
+    // Save to database
+    await db.saveToQueue(updatedStatus);
+
+    console.log(`[DEBUG] Document ${id} cancelled successfully`);
 
     // If this was the only processing item, reset processing state
     const processingItems = Array.from(this.queueMap.values()).filter(
       item => item.status === "processing"
     );
     if (processingItems.length === 0) {
+      console.log(`[DEBUG] No more processing items, resetting isProcessing to false`);
       this.isProcessing = false;
     }
   }
@@ -383,6 +470,63 @@ export class QueueManager {
 
   async getAllStatus(): Promise<ProcessingStatus[]> {
     return Array.from(this.queueMap.values());
+  }
+
+  /**
+   * Update the status of a specific item in the queue
+   * This is used when we need to manually update an item's status
+   */
+  async updateItemStatus(item: ProcessingStatus): Promise<void> {
+    console.log(`[DEBUG] QueueManager.updateItemStatus called for ${item.id} with status ${item.status}`);
+
+    // Use the utility function to update the document status
+    const updatedItem = await updateDocumentStatus(item, item.status, item.error || undefined);
+
+    // Update the item in the queue map
+    this.queueMap.set(item.id, updatedItem);
+
+    console.log(`[DEBUG] Updated status for item ${item.id} to ${item.status}`);
+  }
+
+  /**
+   * Retry a failed document
+   * This is used when a document has failed and we want to retry it
+   */
+  async retryDocument(id: string): Promise<ProcessingStatus | null> {
+    console.log(`[DEBUG] QueueManager.retryDocument called for ${id}`);
+
+    // Get the document from the queue map or database
+    let document = this.queueMap.get(id);
+
+    if (!document) {
+      console.log(`[DEBUG] Document ${id} not found in queue map, fetching from database`);
+      const queue = await db.getQueue();
+      document = queue.find(item => item.id === id);
+
+      if (!document) {
+        console.error(`[DEBUG] Document ${id} not found in database`);
+        return null;
+      }
+    }
+
+    // Use the utility function to retry the document
+    const retryResult = await retryDocumentUtil(id);
+
+    if (!retryResult) {
+      console.error(`[DEBUG] Failed to retry document ${id}`);
+      return null;
+    }
+
+    // Update the queue map with the retried document
+    this.queueMap.set(id, retryResult);
+
+    // Start processing the queue if not already processing
+    if (!this.isProcessing && !this.isPaused) {
+      console.log(`[DEBUG] Starting queue processing for retried document`);
+      this.processQueue();
+    }
+
+    return retryResult;
   }
 
   private isFileValid(file: File): boolean {

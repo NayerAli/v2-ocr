@@ -9,21 +9,16 @@ import { serverLog, serverError } from './log'
  * Log API request details to console
  */
 export function logApiRequestToConsole(
+  // We need the request parameter for future use but don't use it currently
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   req: NextRequest,
   method: string,
   url: string,
   params?: Record<string, unknown>
 ) {
-  const timestamp = new Date().toISOString()
   const requestId = crypto.randomUUID().substring(0, 8)
 
-  // Sanitize headers to remove sensitive information
-  // We're not using headers in this function, but keeping the code for future use
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const headers = Object.fromEntries(
-    Array.from(req.headers.entries())
-      .filter(([key]) => !['cookie', 'authorization'].includes(key.toLowerCase()))
-  )
+  // Note: We're not logging headers to avoid exposing sensitive information
 
   serverLog(requestId, `${method} ${url}`)
 
@@ -51,17 +46,15 @@ export function logApiResponseToConsole(
 export function withConsoleApiLogging(handler: (req: NextRequest) => Promise<NextResponse>) {
   return async (req: NextRequest) => {
     const method = req.method
-    const url = req.url
+    // We use pathname from nextUrl instead of the full URL
     const pathname = req.nextUrl.pathname
 
     // Generate a unique request ID
     const requestId = crypto.randomUUID().substring(0, 8)
 
-    // Extract query parameters
-    const { searchParams } = new URL(url)
-    // We're not using params in this function, but keeping the code for future use
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const params = Object.fromEntries(searchParams.entries())
+    // Extract query parameters if needed in the future
+    // const { searchParams } = new URL(url)
+    // const params = Object.fromEntries(searchParams.entries())
 
     // Log the request
     serverLog(requestId, `${method} ${pathname}`)

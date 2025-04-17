@@ -17,6 +17,8 @@ import { cn } from "@/lib/utils"
 import { useSettingsInit } from "@/hooks/use-settings-init"
 import { useLanguage } from "@/hooks/use-language"
 import { t } from "@/lib/i18n/translations"
+import { useToast } from "@/hooks/use-toast"
+import { retryDocument } from "@/lib/tests/document-status-validation"
 // Auth hook is not directly used in this component
 // import { useAuth } from "@/components/auth/auth-provider"
 import { AuthCheck } from "@/components/auth/auth-check"
@@ -26,6 +28,7 @@ import { AuthCheck } from "@/components/auth/auth-check"
 export default function DocumentsPage() {
   const { isInitialized } = useSettingsInit()
   const { language } = useLanguage()
+  const { toast } = useToast()
   // These variables are not used in this component
   // const { user } = useAuth()
   // const router = useRouter()
@@ -188,6 +191,72 @@ export default function DocumentsPage() {
     }
   }, []);
 
+  const handleRetry = useCallback(async (id: string) => {
+    try {
+      console.log('[DEBUG] Retrying document:', id);
+
+      // Find the document
+      const doc = documents.find(d => d.id === id);
+      if (!doc) {
+        console.error('[DEBUG] Document not found for retry:', id);
+        return;
+      }
+
+      console.log('[DEBUG] Original document state:', {
+        id: doc.id,
+        filename: doc.filename,
+        status: doc.status,
+        error: doc.error
+      });
+
+      // Use our centralized retry function
+      console.log('[DEBUG] Using centralized retry function');
+      const retryResult = await retryDocument(id);
+
+      if (!retryResult) {
+        console.error('[DEBUG] Failed to retry document: Document not found in queue');
+        toast({
+          title: t('error', language) || 'Error',
+          description: t('retryFailed', language) || 'Failed to retry document processing',
+          variant: 'destructive'
+        });
+        return;
+      }
+
+      console.log('[DEBUG] Retry result:', retryResult);
+
+      // Update the document status in the UI
+      setDocuments(prev => prev.map(d =>
+        d.id === id ? { ...d, status: 'queued', error: null } : d
+      ));
+
+      toast({
+        title: t('documentRetried', language) || 'Document Retried',
+        description: t('documentRetriedDesc', language) || 'Document has been queued for processing again.'
+      });
+
+      console.log('[DEBUG] Document retry initiated successfully');
+
+      // Trigger a refresh of the queue after a short delay
+      setTimeout(() => {
+        console.log('[DEBUG] Refreshing document list after retry');
+        db.getQueue().then(queue => {
+          console.log('[DEBUG] Updated queue after retry:', queue.length, 'items');
+          setDocuments(queue);
+        }).catch(error => {
+          console.error('[DEBUG] Error refreshing queue after retry:', error);
+        });
+      }, 2000); // 2 second delay to allow processing to start
+    } catch (error) {
+      console.error('[DEBUG] Error retrying document:', error);
+      toast({
+        title: t('error', language) || 'Error',
+        description: t('retryFailed', language) || 'Failed to retry document processing',
+        variant: 'destructive'
+      });
+    }
+  }, [documents, language, toast]);
+
   const handleDownload = useCallback(async (id: string) => {
     const results = await db.getResults(id)
     if (!results) return
@@ -249,6 +318,7 @@ export default function DocumentsPage() {
               <SelectItem value="queued">{t('queued', language)}</SelectItem>
               <SelectItem value="cancelled">{t('cancelled', language)}</SelectItem>
               <SelectItem value="error">{t('error', language)}</SelectItem>
+              <SelectItem value="failed">{t('failed', language) || 'Failed'}</SelectItem>
             </SelectContent>
           </Select>
           <Select value={sortBy} onValueChange={setSortBy} disabled={isLoadingData}>
@@ -279,6 +349,7 @@ export default function DocumentsPage() {
         onDownload={handleDownload}
         onDelete={handleDelete}
         onCancel={handleCancel}
+        onRetry={handleRetry}
         isLoading={isLoadingData}
       />
 
@@ -286,6 +357,7 @@ export default function DocumentsPage() {
         document={selectedDocument}
         open={isDetailsOpen}
         onOpenChange={setIsDetailsOpen}
+        onRetry={handleRetry}
       />
     </div>
     </AuthCheck>

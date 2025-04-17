@@ -44,14 +44,14 @@ export async function getQueue(): Promise<ProcessingStatus[]> {
     }
     query = query
       .eq('user_id', user.id)
-      // Include all statuses including 'completed'
-      .in('status', ['pending', 'processing', 'queued', 'completed', 'failed', 'cancelled'])
+      // Include all statuses including 'completed' and 'error'
+      .in('status', ['pending', 'processing', 'queued', 'completed', 'failed', 'cancelled', 'error'])
   } else {
     if (shouldLog) {
       console.log('[DEBUG] No user filter applied to query');
     }
     // For backward compatibility, still filter by status
-    query = query.in('status', ['pending', 'processing', 'queued', 'completed', 'failed', 'cancelled'])
+    query = query.in('status', ['pending', 'processing', 'queued', 'completed', 'failed', 'cancelled', 'error'])
   }
 
   // Order by created_at
@@ -70,10 +70,30 @@ export async function getQueue(): Promise<ProcessingStatus[]> {
 
   if (shouldLog) {
     console.log('[DEBUG] Query successful, raw data items:', data ? data.length : 0);
+
+    // Log status distribution
+    if (data && data.length > 0) {
+      const statusCounts = data.reduce((acc, item) => {
+        acc[item.status] = (acc[item.status] || 0) + 1;
+        return acc;
+      }, {});
+      console.log('[DEBUG] Status distribution:', statusCounts);
+    }
   }
+
   const queue = data.map(mapToProcessingStatus)
+
   if (shouldLog) {
     console.log('[DEBUG] Mapped queue items:', queue.length);
+
+    // Log mapped status distribution
+    if (queue.length > 0) {
+      const mappedStatusCounts = queue.reduce((acc, item) => {
+        acc[item.status] = (acc[item.status] || 0) + 1;
+        return acc;
+      }, {});
+      console.log('[DEBUG] Mapped status distribution:', mappedStatusCounts);
+    }
   }
 
   return queue

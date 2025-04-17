@@ -6,7 +6,7 @@ import { createClient } from '@supabase/supabase-js'
 import type { User, Session } from '@supabase/supabase-js'
 import type { Database } from '@/types/supabase'
 import { cookies } from 'next/headers'
-import { debugLog, debugError, middlewareLog, prodLog } from './log'
+import { debugError, middlewareLog } from './log'
 
 /**
  * Create a Supabase client for server-side use

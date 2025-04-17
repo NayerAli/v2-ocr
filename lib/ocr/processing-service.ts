@@ -1,7 +1,7 @@
 import type { ProcessingStatus } from "@/types";
 import type { OCRSettings, ProcessingSettings, UploadSettings } from "@/types/settings";
 import { AzureRateLimiter } from "./rate-limiter";
-import { createOCRProvider } from "./providers";
+import { createOCRProviderWithLatestSettings } from "./providers";
 import { FileProcessor } from "./file-processor";
 import { QueueManager } from "./queue-manager";
 import { getServerProcessingSettings } from "./server-settings";
@@ -36,6 +36,9 @@ async function initializeService(state: ProcessingServiceState): Promise<void> {
   // Try to load user-specific settings first
   try {
     console.log('[DEBUG] Fetching user-specific settings');
+    // Clear the cache to ensure we get the latest settings
+    userSettingsService.clearCache();
+
     const userOCRSettings = await userSettingsService.getOCRSettings();
     const userProcessingSettings = await userSettingsService.getProcessingSettings();
     const userUploadSettings = await userSettingsService.getUploadSettings();
@@ -48,8 +51,9 @@ async function initializeService(state: ProcessingServiceState): Promise<void> {
     state.processingSettings = userProcessingSettings;
     state.uploadSettings = userUploadSettings;
 
-    // Create a new OCR provider with the user's settings
-    const ocrProvider = createOCRProvider(userOCRSettings, state.azureRateLimiter);
+    // Create a new OCR provider with the latest user settings
+    // This will always get the most up-to-date API key
+    const ocrProvider = await createOCRProviderWithLatestSettings(userOCRSettings, state.azureRateLimiter);
     state.fileProcessor.updateOCRProvider(ocrProvider);
 
     // Update components that depend on processing settings
@@ -99,8 +103,9 @@ async function initializeService(state: ProcessingServiceState): Promise<void> {
 /**
  * Create service components with the provided settings
  */
-function createServiceComponents(settings: ServiceSettings, rateLimiter: AzureRateLimiter): Omit<ProcessingServiceState, 'azureRateLimiter'> {
-  const ocrProvider = createOCRProvider(settings.ocr, rateLimiter);
+async function createServiceComponents(settings: ServiceSettings, rateLimiter: AzureRateLimiter): Promise<Omit<ProcessingServiceState, 'azureRateLimiter'>> {
+  // Always get the latest OCR provider with up-to-date API key
+  const ocrProvider = await createOCRProviderWithLatestSettings(settings.ocr, rateLimiter);
   const fileProcessor = new FileProcessor(settings.processing, ocrProvider);
   const queueManager = new QueueManager(
     settings.processing,
@@ -120,15 +125,19 @@ function createServiceComponents(settings: ServiceSettings, rateLimiter: AzureRa
 /**
  * Get or create the processing service instance
  */
-export function getProcessingService(settings: ServiceSettings) {
+export async function getProcessingService(settings: ServiceSettings) {
   console.log('[DEBUG] getProcessingService called with settings:', settings);
 
   if (!serviceState) {
     console.log('[DEBUG] No existing service state, creating new instance');
     const azureRateLimiter = new AzureRateLimiter();
+
+    // Create components asynchronously to get the latest API key
+    const components = await createServiceComponents(settings, azureRateLimiter);
+
     serviceState = {
       azureRateLimiter,
-      ...createServiceComponents(settings, azureRateLimiter)
+      ...components
     };
 
     // Initialize asynchronously
@@ -146,11 +155,51 @@ export function getProcessingService(settings: ServiceSettings) {
     console.log('[DEBUG] New OCR settings:', settings.ocr);
 
     // Update settings if they've changed
-    const components = createServiceComponents(settings, serviceState.azureRateLimiter);
+    // Create components asynchronously to get the latest API key
+    const components = await createServiceComponents(settings, serviceState.azureRateLimiter);
+
+    // Store the old queue manager to handle in-flight jobs
+    const oldQueueManager = serviceState.queueManager;
+
+    // Update the service state with new components
     serviceState = {
       ...components,
       azureRateLimiter: serviceState.azureRateLimiter
     };
+
+    // Handle in-flight jobs - cancel and requeue them with the new API key
+    try {
+      console.log('[DEBUG] Handling in-flight jobs with updated API key');
+      // Pause the old queue to stop processing
+      await oldQueueManager.pauseQueue();
+
+      // Get all processing items
+      const allStatus = await oldQueueManager.getAllStatus();
+      const processingItems = allStatus.filter(item => item.status === "processing");
+
+      if (processingItems.length > 0) {
+        console.log(`[DEBUG] Found ${processingItems.length} in-flight jobs to restart with new API key`);
+
+        // Cancel all processing items in the old queue
+        for (const item of processingItems) {
+          await oldQueueManager.cancelProcessing(item.id);
+
+          // Update status to queued in the new queue manager
+          const updatedItem = await serviceState.queueManager.getStatus(item.id);
+          if (updatedItem) {
+            updatedItem.status = "queued";
+            updatedItem.error = undefined;
+            // Save the updated status
+            await serviceState.queueManager.updateItemStatus(updatedItem);
+          }
+        }
+
+        // Start processing the queue with the new API key
+        serviceState.queueManager.processQueue();
+      }
+    } catch (error) {
+      console.error('[DEBUG] Error handling in-flight jobs:', error);
+    }
 
     // Initialize with new settings
     console.log('[DEBUG] Reinitializing service with new settings');
@@ -159,6 +208,15 @@ export function getProcessingService(settings: ServiceSettings) {
     });
   } else {
     console.log('[DEBUG] Using existing service instance, settings unchanged');
+
+    // Even if settings haven't changed, refresh the OCR provider to ensure it has the latest API key
+    try {
+      console.log('[DEBUG] Refreshing OCR provider with latest API key');
+      const ocrProvider = await createOCRProviderWithLatestSettings(serviceState.ocrSettings, serviceState.azureRateLimiter);
+      serviceState.fileProcessor.updateOCRProvider(ocrProvider);
+    } catch (error) {
+      console.error('[DEBUG] Error refreshing OCR provider:', error);
+    }
   }
 
   // Return the public API
@@ -233,18 +291,67 @@ export function getProcessingService(settings: ServiceSettings) {
     },
 
     /**
+     * Retry a failed document
+     */
+    retryDocument: async (id: string): Promise<ProcessingStatus | null> => {
+      if (!serviceState) throw new Error('Service not initialized');
+      console.log('[DEBUG] Processing service retryDocument called for ID:', id);
+      return serviceState.queueManager.retryDocument(id);
+    },
+
+    /**
      * Update service settings
      */
-    updateSettings: (newSettings: ServiceSettings): void => {
+    updateSettings: async (newSettings: ServiceSettings): Promise<void> => {
       if (!serviceState) throw new Error('Service not initialized');
 
       console.log('[ProcessingService] Updating settings:', newSettings);
 
-      const components = createServiceComponents(newSettings, serviceState.azureRateLimiter);
+      // Create components asynchronously to get the latest API key
+      const components = await createServiceComponents(newSettings, serviceState.azureRateLimiter);
+
+      // Store the old queue manager to handle in-flight jobs
+      const oldQueueManager = serviceState.queueManager;
+
+      // Update the service state with new components
       serviceState = {
         ...components,
         azureRateLimiter: serviceState.azureRateLimiter
       };
+
+      // Handle in-flight jobs - cancel and requeue them with the new API key
+      try {
+        console.log('[DEBUG] Handling in-flight jobs with updated API key');
+        // Pause the old queue to stop processing
+        await oldQueueManager.pauseQueue();
+
+        // Get all processing items
+        const allStatus = await oldQueueManager.getAllStatus();
+        const processingItems = allStatus.filter(item => item.status === "processing");
+
+        if (processingItems.length > 0) {
+          console.log(`[DEBUG] Found ${processingItems.length} in-flight jobs to restart with new API key`);
+
+          // Cancel all processing items in the old queue
+          for (const item of processingItems) {
+            await oldQueueManager.cancelProcessing(item.id);
+
+            // Update status to queued in the new queue manager
+            const updatedItem = await serviceState.queueManager.getStatus(item.id);
+            if (updatedItem) {
+              updatedItem.status = "queued";
+              updatedItem.error = null; // Explicitly set to null to ensure it's cleared in the database
+              // Save the updated status
+              await serviceState.queueManager.updateItemStatus(updatedItem);
+            }
+          }
+
+          // Start processing the queue with the new API key
+          serviceState.queueManager.processQueue();
+        }
+      } catch (error) {
+        console.error('[DEBUG] Error handling in-flight jobs:', error);
+      }
 
       // Initialize with new settings
       initializeService(serviceState).catch(err =>

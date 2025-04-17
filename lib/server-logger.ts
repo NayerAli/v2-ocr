@@ -5,7 +5,7 @@
 import fs from 'fs'
 import path from 'path'
 import { NextRequest, NextResponse } from 'next/server'
-import { debugLog, debugError, prodError } from './log'
+import { debugLog, prodError } from './log'
 
 // Configure log directory and file
 const LOG_DIR = process.env.LOG_DIR || 'logs'
