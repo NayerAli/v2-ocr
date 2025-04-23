@@ -374,39 +374,93 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     }
   }, [params.id])
 
+  // Function to refresh a signed URL using the storage path
+  const refreshSignedUrl = async (result: OCRResult | undefined): Promise<string | undefined> => {
+    if (!result || !result.storagePath) return undefined;
+
+    try {
+      // Import the Supabase client
+      const { supabase } = await import('@/lib/database/utils');
+
+      // Create a signed URL that expires in 24 hours (86400 seconds)
+      const { data, error } = await supabase.storage
+        .from('ocr-documents')
+        .createSignedUrl(result.storagePath, 86400);
+
+      if (error || !data?.signedUrl) {
+        console.error('Error generating signed URL:', error);
+        return undefined;
+      }
+
+      // Update the result in our local state
+      setResults(prev => prev.map(r => {
+        if (r.id === result.id) {
+          return { ...r, imageUrl: data.signedUrl };
+        }
+        return r;
+      }));
+
+      return data.signedUrl;
+    } catch (error) {
+      console.error('Error refreshing signed URL:', error);
+      return undefined;
+    }
+  };
+
   // Handle image loading
-  const handleImageRetry = (imageUrl: string | undefined) => {
-    if (!imageUrl || isRetrying) return
+  const handleImageRetry = async (result: OCRResult | undefined) => {
+    if (!result || isRetrying) return;
 
-    setIsRetrying(true)
-    setImageError(false)
-    setImageLoaded(false)
-    setRetryCount(prev => prev + 1)
+    setIsRetrying(true);
+    setImageError(false);
+    setImageLoaded(false);
+    setRetryCount(prev => prev + 1);
 
-    // For base64 images, we can just retry loading directly
-    const img = new Image()
+    // Try to refresh the signed URL if available
+    let imageUrl = result.imageUrl;
+    if (result.storagePath) {
+      const refreshedUrl = await refreshSignedUrl(result);
+      if (refreshedUrl) {
+        imageUrl = refreshedUrl;
+      }
+    }
+
+    if (!imageUrl) {
+      setIsRetrying(false);
+      setImageError(true);
+      setImageLoaded(false);
+      toast({
+        variant: "destructive",
+        title: "Failed to Load",
+        description: "Could not generate a valid URL for this image.",
+      });
+      return;
+    }
+
+    // Load the image with the new URL
+    const img = new Image();
     img.onload = () => {
-      setIsRetrying(false)
-      setImageLoaded(true)
-      setImageError(false)
+      setIsRetrying(false);
+      setImageLoaded(true);
+      setImageError(false);
       toast({
         title: "Success",
         description: "Image loaded successfully.",
-      })
-    }
+      });
+    };
     img.onerror = () => {
-      setIsRetrying(false)
-      setImageError(true)
-      setImageLoaded(false)
+      setIsRetrying(false);
+      setImageError(true);
+      setImageLoaded(false);
       toast({
         variant: "destructive",
         title: "Failed to Load",
         description: retryCount >= 2
           ? "Multiple attempts failed. The image might be corrupted."
           : "Failed to load image. Please try again.",
-      })
-    }
-    img.src = imageUrl
+      });
+    };
+    img.src = imageUrl;
   }
 
   const handleCopyText = useCallback(async () => {
@@ -524,15 +578,34 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     }
   }, [])
 
-  const handleImageError = useCallback(() => {
+  const handleImageError = useCallback(async () => {
     setImageError(true)
     setImageLoaded(false)
+
+    // If this is the first error, try to refresh the URL automatically
+    if (retryCount === 0 && currentResult?.storagePath) {
+      try {
+        setIsRetrying(true)
+        const refreshedUrl = await refreshSignedUrl(currentResult)
+        if (refreshedUrl) {
+          // The URL has been refreshed in the state, so the image will reload
+          setImageError(false)
+          setRetryCount(prev => prev + 1)
+          return
+        }
+      } catch (error) {
+        console.error('Error auto-refreshing image URL:', error)
+      } finally {
+        setIsRetrying(false)
+      }
+    }
+
     toast({
       variant: "destructive",
       title: "Image Load Error",
       description: "Failed to load image preview. You can still view the extracted text.",
     })
-  }, [toast])
+  }, [toast, retryCount, currentResult, refreshSignedUrl])
 
   const handleSearch = useCallback((query: string) => {
     setSearchQuery(query)
@@ -1182,7 +1255,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     </div>
   )
 
-  const renderImageError = (imageUrl: string) => {
+  const renderImageError = () => {
     const maxRetries = 3
     const remainingRetries = maxRetries - retryCount
 
@@ -1210,7 +1283,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
               <Button
                 variant={retryCount >= maxRetries ? "ghost" : "outline"}
                 size="sm"
-                onClick={() => handleImageRetry(imageUrl)}
+                onClick={() => handleImageRetry(currentResult)}
                 disabled={isRetrying || retryCount >= maxRetries}
                 className="relative min-w-[120px]"
               >
@@ -1466,7 +1539,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
               decoding="async"
             />
 
-            {imageError && renderImageError(currentResult.imageUrl)}
+            {imageError && renderImageError()}
           </div>
         </div>
       </div>

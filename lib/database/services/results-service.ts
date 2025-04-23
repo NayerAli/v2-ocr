@@ -78,8 +78,9 @@ export async function saveResults(documentId: string, results: OCRResult[]): Pro
       processingTime,
       pageNumber,
       totalPages,
-      imageUrl,
+      storagePath,
       boundingBox,
+      imageUrl, // Add imageUrl to the list of properties to convert to snake_case
       ...rest
     } = result;
 
@@ -94,7 +95,8 @@ export async function saveResults(documentId: string, results: OCRResult[]): Pro
       processing_time: processingTime || (result as unknown as Record<string, unknown>).processing_time as number || result.processingTime || 0,
       page_number: pageNumber || (result as unknown as Record<string, unknown>).page_number as number || result.pageNumber || 1,
       total_pages: totalPages || (result as unknown as Record<string, unknown>).total_pages as number || result.totalPages || 1,
-      image_url: imageUrl || (result as unknown as Record<string, unknown>).image_url as string || result.imageUrl || null,
+      storage_path: storagePath || null,
+      image_url: imageUrl || null, // Add image_url field with snake_case
       bounding_box: boundingBox || (result as unknown as Record<string, unknown>).bounding_box as string || result.boundingBox || null,
       error: result.error || null,
       provider: (result as unknown as Record<string, unknown>).provider as string || 'unknown'

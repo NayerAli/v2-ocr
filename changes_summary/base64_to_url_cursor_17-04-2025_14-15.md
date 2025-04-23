@@ -508,7 +508,6 @@ export interface OCRResult {
 - [ ] Remove any logic that expects base64 or static URLs in `imageUrl`.
 - [ ] In the UI, always generate signed URLs on demand using the Supabase client and `storagePath`.
 - [ ] Preload next/previous pages as described for smooth UX.
-- [ ] Test with large PDFs to ensure navigation is instant and smooth.
 
 ## 4. Testing & Verification
 - [ ] Test with multiple users: ensure users cannot access each other's files/images.

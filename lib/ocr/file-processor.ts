@@ -4,6 +4,16 @@ import { renderPageToBase64, loadPDF } from "../pdf-utils";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import type { OCRProvider } from "./providers/types";
 import { MistralOCRProvider } from "./providers/mistral";
+import { getUser } from "@/lib/auth";
+import { getSupabaseClient } from "@/lib/supabase/singleton-client";
+
+// Configuration
+const STORAGE_CONFIG = {
+  // Default storage bucket name
+  storageBucket: 'ocr-documents',
+  // Default signed URL expiry time in seconds (24 hours)
+  signedUrlExpiry: 86400
+};
 
 export class FileProcessor {
   private processingSettings: ProcessingSettings;
@@ -59,6 +69,7 @@ export class FileProcessor {
   }
 
   async processFile(status: ProcessingStatus, signal: AbortSignal): Promise<OCRResult[]> {
+    const supabase = getSupabaseClient();
     if (!status.file) throw new Error("No file to process");
     console.log(`[Process] Starting ${status.filename}`);
 
@@ -71,17 +82,32 @@ export class FileProcessor {
     // For images
     if (status.file.type.startsWith("image/")) {
       const base64 = await this.fileToBase64(status.file);
+      if (signal.aborted) throw new Error("Processing aborted");
+      console.log(`[Process] Processing image: ${status.filename}`);
+      const user = await getUser();
+      if (!user) throw new Error("User not authenticated");
 
-      // Check if cancelled
-      if (signal.aborted) {
-        console.log(`[Process] Processing aborted for ${status.filename}`);
-        throw new Error("Processing aborted");
+      const path = `${user.id}/${status.id}/migrated_1${this.getExtensionForMime(status.file.type)}`;
+      console.log(`[Process] Uploading image to ${path}`);
+      const { error: uploadError } = await supabase
+        .storage
+        .from(STORAGE_CONFIG.storageBucket)
+        .upload(path, status.file, { upsert: true });
+
+      if (uploadError) {
+        console.error(`[Process] Error uploading image to storage:`, uploadError);
+        throw new Error(`Failed to upload image: ${uploadError.message}`);
       }
 
-      console.log(`[Process] Processing image: ${status.filename}`);
+      // Generate a signed URL for the image
+      const imageUrl = await this.generateSignedUrl(path);
+      console.log(`[Process] Generated signed URL for image: ${imageUrl.substring(0, 50)}...`);
+
+      // Process the image with OCR
       const result = await this.ocrProvider.processImage(base64, signal);
       result.documentId = status.id;
-      result.imageUrl = `data:${status.file.type};base64,${base64}`;
+      result.storagePath = path;
+      result.imageUrl = imageUrl; // Use the signed URL instead of base64
       console.log(`[Process] Completed image: ${status.filename}`);
       return [result];
     }
@@ -123,11 +149,37 @@ export class FileProcessor {
                 throw new Error("Processing aborted");
               }
 
+              // Get the current user
+              const user = await getUser();
+              if (!user) {
+                throw new Error("User not authenticated");
+              }
+
+              // Upload the original PDF
+              const path = `${user.id}/${status.id}/migrated_1.pdf`;
+              console.log(`[Process] Uploading original PDF to ${path}`);
+
+              const { error: uploadError } = await supabase
+                .storage
+                .from(STORAGE_CONFIG.storageBucket)
+                .upload(path, status.file, { upsert: true });
+
+              if (uploadError) {
+                console.error(`[Process] Error uploading PDF to storage:`, uploadError);
+                throw new Error(`Failed to upload PDF: ${uploadError.message}`);
+              }
+
+              // Generate a signed URL for the PDF
+              const pdfUrl = await this.generateSignedUrl(path);
+
               // Process PDF directly
               console.log(`[Process] Sending PDF to Mistral OCR API`);
               const result = await this.ocrProvider.processPdfDirectly(base64Data, signal);
               result.documentId = status.id;
               result.totalPages = numPages;
+              result.storagePath = path;
+              result.imageUrl = pdfUrl; // Use the signed URL instead of base64
+              console.log(`[Process] Generated signed URL for PDF: ${pdfUrl.substring(0, 50)}...`);
 
               console.log(`[Process] Completed PDF direct processing: ${status.filename}`);
               return [result];
@@ -156,6 +208,7 @@ export class FileProcessor {
   }
 
   private async processPageByPage(pdf: PDFDocumentProxy, status: ProcessingStatus, signal: AbortSignal): Promise<OCRResult[]> {
+    // We don't need supabase here, it's used in processPage
     const numPages = pdf.numPages;
     console.log(`[Process] PDF has ${numPages} pages`);
     const results: OCRResult[] = [];
@@ -286,30 +339,64 @@ export class FileProcessor {
   }
 
   private async processPage(pdf: PDFDocumentProxy, pageNum: number, status: ProcessingStatus, signal: AbortSignal): Promise<OCRResult> {
+    const supabase = getSupabaseClient();
     try {
       const page = await pdf.getPage(pageNum);
       const base64Data = await renderPageToBase64(page);
-
-      // Check if cancelled
-      if (signal.aborted) {
-        console.log(`[Process] Processing aborted for page ${pageNum} of ${status.filename}`);
-        throw new Error("Processing aborted");
-      }
-
+      if (signal.aborted) throw new Error("Processing aborted");
       console.log(`[Process] Processing page ${pageNum} of ${status.filename}`);
       status.currentPage = pageNum;
 
-      // Pass the page number and total pages to the OCR provider
+      const user = await getUser();
+      if (!user) throw new Error("User not authenticated");
+
+      const blob = await this.base64ToBlob(base64Data, 'image/jpeg');
+      const path = `${user.id}/${status.id}/page_${pageNum}.jpg`;
+      let uploadSuccessful = false;
+
+      try {
+          console.log(`[Process] Uploading page ${pageNum} to ${path}`);
+          const { error: uploadError } = await supabase
+            .storage
+            .from(STORAGE_CONFIG.storageBucket)
+            .upload(path, blob, { upsert: true });
+
+          if (uploadError) {
+            console.error(`[Process] Error uploading page ${pageNum} to storage:`, uploadError);
+            // Do not throw here, let OCR proceed but mark upload as failed
+          } else {
+            uploadSuccessful = true;
+            console.log(`[Process] Successfully uploaded page ${pageNum} to ${path}`);
+          }
+      } catch (uploadCatchError) {
+          console.error(`[Process] Exception during upload for page ${pageNum}:`, uploadCatchError);
+          // Mark upload as failed
+      }
+
       const result = await this.ocrProvider.processImage(
         base64Data,
         signal,
-        undefined, // fileType
-        pageNum,   // pageNumber
-        status.totalPages // totalPages
+        undefined,
+        pageNum,
+        status.totalPages
       );
 
-      // Use JPEG instead of PNG for better compression
-      result.imageUrl = `data:image/jpeg;base64,${base64Data}`;
+      // IMPORTANT: Only set storagePath and generate URL if upload was successful
+      if (uploadSuccessful) {
+        result.storagePath = path;
+
+        // Generate a signed URL for the page image
+        try {
+          const imageUrl = await this.generateSignedUrl(path);
+          console.log(`[Process] Generated signed URL for page ${pageNum}: ${imageUrl.substring(0, 50)}...`);
+          result.imageUrl = imageUrl; // Use the signed URL instead of base64
+        } catch (urlError) {
+          console.error(`[Process] Error generating signed URL for page ${pageNum}:`, urlError);
+        }
+      } else {
+        result.storagePath = undefined; // Ensure path is not set if upload failed
+        console.warn(`[Process] storagePath not set for page ${pageNum} due to upload failure.`);
+      }
 
       // Check if we got a rate limit response
       if (result.rateLimitInfo?.isRateLimited) {
@@ -366,16 +453,14 @@ export class FileProcessor {
   private async fileToBase64(file: File): Promise<string> {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = () => {
-        const base64 = reader.result as string;
-        resolve(base64.split(",")[1]);
-      };
-      reader.onerror = (error) => {
-        console.error(`[Process] Error reading file:`, error);
-        reject(new Error(`Failed to read file: ${error instanceof Error ? error.message : String(error)}`));
-      };
+      reader.onload = () => resolve((reader.result as string).split(",")[1]);
+      reader.onerror = (error) => reject(new Error(`Failed to read file: ${error}`));
       reader.readAsDataURL(file);
     });
+  }
+
+  private async base64ToBlob(base64: string, contentType: string = ''): Promise<Blob> {
+    return fetch(`data:${contentType};base64,${base64}`).then(res => res.blob());
   }
 
   private async processInBatches<T>(promises: Promise<T>[], batchSize: number): Promise<T[]> {
@@ -388,5 +473,48 @@ export class FileProcessor {
     }
 
     return results;
+  }
+
+  private getExtensionForMime(mimeType: string): string {
+    switch (mimeType) {
+      case 'image/jpeg':
+        return '.jpg';
+      case 'image/png':
+        return '.png';
+      case 'image/gif':
+        return '.gif';
+      default:
+        throw new Error(`Unsupported image MIME type: ${mimeType}`);
+    }
+  }
+
+  /**
+   * Generate a signed URL for a file in Supabase storage
+   */
+  private async generateSignedUrl(storagePath: string): Promise<string> {
+    try {
+      const supabase = getSupabaseClient();
+      const user = await getUser();
+
+      if (!user) {
+        console.error('[Process] User not authenticated. Cannot generate signed URL.');
+        return '';
+      }
+
+      // Create a signed URL that expires in the configured time
+      const { data, error } = await supabase.storage
+        .from(STORAGE_CONFIG.storageBucket)
+        .createSignedUrl(storagePath, STORAGE_CONFIG.signedUrlExpiry);
+
+      if (error || !data?.signedUrl) {
+        console.error('[Process] Error generating signed URL:', error);
+        return '';
+      }
+
+      return data.signedUrl;
+    } catch (error) {
+      console.error('[Process] Exception in generateSignedUrl:', error);
+      return '';
+    }
   }
 }

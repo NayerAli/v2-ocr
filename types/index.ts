@@ -14,7 +14,8 @@ export interface OCRResult {
   processingTime: number
   pageNumber: number
   totalPages?: number
-  imageUrl?: string
+  storagePath?: string
+  imageUrl?: string // URL to the image in storage (signed URL)
   boundingBox?: BoundingBox
   error?: string
   user_id?: string

@@ -63,7 +63,8 @@ export class QueueManager {
       const now = new Date();
       // Generate a storage path for the file (without user ID, which will be added during upload)
       const fileExtension = file.name.substring(file.name.lastIndexOf('.'));
-      const storagePath = `${id}${fileExtension}`;
+      // Use the old path structure with migrated_1 for compatibility
+      const storagePath = `${id}/migrated_1${fileExtension}`;
 
       const status: ProcessingStatus = {
         id,
@@ -537,7 +538,45 @@ export class QueueManager {
   }
 
   /**
+   * Generate a signed URL for a file in Supabase storage
+   */
+  private async generateSignedUrl(storagePath: string): Promise<string> {
+    try {
+      // Import the Supabase client
+      const { supabase } = await import('../database/utils');
+
+      // Get the current user to create a user-specific folder
+      const { getUser } = await import('@/lib/auth');
+      const user = await getUser();
+
+      if (!user) {
+        console.error('[DEBUG] User not authenticated. Cannot generate signed URL.');
+        return '';
+      }
+
+      // Create a user-specific path
+      const userPath = `${user.id}/${storagePath}`;
+
+      // Create a signed URL that expires in 24 hours (86400 seconds)
+      const { data, error } = await supabase.storage
+        .from('ocr-documents')
+        .createSignedUrl(userPath, 86400);
+
+      if (error || !data?.signedUrl) {
+        console.error('[DEBUG] Error generating signed URL:', error);
+        return '';
+      }
+
+      return data.signedUrl;
+    } catch (error) {
+      console.error('[DEBUG] Exception in generateSignedUrl:', error);
+      return '';
+    }
+  }
+
+  /**
    * Upload a file to Supabase storage
+   * Uses the old path structure with documentId/migrated_1.extension for compatibility
    */
   private async uploadFileToStorage(file: File, storagePath: string): Promise<{ data: unknown, error: unknown }> {
     console.log('[DEBUG] uploadFileToStorage called with file:', file.name, 'storagePath:', storagePath);
@@ -556,6 +595,7 @@ export class QueueManager {
       }
 
       // Create a user-specific path
+      // The storagePath should already be in the format: documentId/migrated_1.extension
       const userPath = `${user.id}/${storagePath}`;
 
       // Upload the file to Supabase storage
