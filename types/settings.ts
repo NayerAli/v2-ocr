@@ -13,6 +13,7 @@ export interface ProcessingSettings {
   concurrentChunks: number
   retryAttempts: number
   retryDelay: number
+  pagesPerBatch?: number
 }
 
 export interface UploadSettings {
