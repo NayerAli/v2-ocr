@@ -375,7 +375,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
   }, [params.id])
 
   // Function to refresh a signed URL using the storage path
-  const refreshSignedUrl = async (result: OCRResult | undefined): Promise<string | undefined> => {
+  const refreshSignedUrl = useCallback(async (result: OCRResult | undefined): Promise<string | undefined> => {
     if (!result || !result.storagePath) return undefined;
 
     try {
@@ -405,7 +405,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
       console.error('Error refreshing signed URL:', error);
       return undefined;
     }
-  };
+  }, []);
 
   // Handle image loading
   const handleImageRetry = async (result: OCRResult | undefined) => {

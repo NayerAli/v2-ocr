@@ -1,6 +1,4 @@
 import { NextRequest, NextResponse } from "next/server"
-import { db } from "@/lib/database"
-import { debugLog } from "@/lib/log"
 import { logApiRequestToConsole } from "@/lib/server-console-logger"
 import { createServerSupabaseClient } from "@/lib/server-auth"
 
@@ -233,26 +231,7 @@ export async function PUT(
       return NextResponse.json({ error: "Document not found" }, { status: 404 })
     }
 
-    // Map the document to the expected format
-    const mappedDocument = {
-      id: existingDocument.id,
-      filename: existingDocument.filename,
-      originalFilename: existingDocument.original_filename,
-      status: existingDocument.status,
-      progress: existingDocument.progress,
-      currentPage: existingDocument.current_page,
-      totalPages: existingDocument.total_pages,
-      fileSize: existingDocument.file_size,
-      fileType: existingDocument.file_type,
-      storagePath: existingDocument.storage_path,
-      thumbnailPath: existingDocument.thumbnail_path,
-      error: existingDocument.error,
-      createdAt: existingDocument.created_at,
-      updatedAt: existingDocument.updated_at,
-      processingStartedAt: existingDocument.processing_started_at,
-      processingCompletedAt: existingDocument.processing_completed_at,
-      user_id: existingDocument.user_id
-    }
+    // Document exists and belongs to the user
 
     // Get the updated document data from the request
     const updatedData = await req.json()
@@ -274,7 +253,7 @@ export async function PUT(
 
     // Ensure error field is cleared when status is not 'error'
     if (documentToUpdate.status !== 'error') {
-      documentToUpdate.error = null;
+      documentToUpdate.error = undefined;
       console.log('[SERVER] Status is not error, clearing error field');
     }
 

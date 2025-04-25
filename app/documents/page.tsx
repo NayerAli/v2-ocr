@@ -217,7 +217,7 @@ export default function DocumentsPage() {
         console.error('[DEBUG] Failed to retry document: Document not found in queue');
         toast({
           title: t('error', language) || 'Error',
-          description: t('retryFailed', language) || 'Failed to retry document processing',
+          description: 'Failed to retry document processing',
           variant: 'destructive'
         });
         return;
@@ -227,12 +227,12 @@ export default function DocumentsPage() {
 
       // Update the document status in the UI
       setDocuments(prev => prev.map(d =>
-        d.id === id ? { ...d, status: 'queued', error: null } : d
+        d.id === id ? { ...d, status: 'queued', error: undefined } : d
       ));
 
       toast({
-        title: t('documentRetried', language) || 'Document Retried',
-        description: t('documentRetriedDesc', language) || 'Document has been queued for processing again.'
+        title: 'Document Retried',
+        description: 'Document has been queued for processing again.'
       });
 
       console.log('[DEBUG] Document retry initiated successfully');
@@ -251,7 +251,7 @@ export default function DocumentsPage() {
       console.error('[DEBUG] Error retrying document:', error);
       toast({
         title: t('error', language) || 'Error',
-        description: t('retryFailed', language) || 'Failed to retry document processing',
+        description: 'Failed to retry document processing',
         variant: 'destructive'
       });
     }

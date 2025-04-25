@@ -53,7 +53,7 @@ export async function POST(
     }
 
     // Get processing service with default settings
-    const processingService = getProcessingService(getDefaultSettings())
+    const processingService = await getProcessingService(getDefaultSettings())
 
     // Cancel processing
     await processingService.cancelProcessing(id)

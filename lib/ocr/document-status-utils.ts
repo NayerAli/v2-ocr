@@ -12,7 +12,7 @@ import { getUser } from "../auth";
  */
 export async function updateDocumentStatus(
   document: ProcessingStatus,
-  newStatus: string,
+  newStatus: 'pending' | 'processing' | 'completed' | 'failed' | 'queued' | 'error' | 'cancelled',
   errorMessage?: string
 ): Promise<ProcessingStatus> {
   console.log(`[DEBUG] Updating document ${document.id} status from ${document.status} to ${newStatus}`);
@@ -26,7 +26,7 @@ export async function updateDocumentStatus(
     console.log(`[DEBUG] Setting error message: ${document.error}`);
   } else {
     // Clear error field for non-error statuses
-    document.error = null;
+    document.error = undefined;
     console.log(`[DEBUG] Clearing error field for non-error status`);
   }
 
@@ -99,7 +99,7 @@ export async function retryDocument(documentId: string): Promise<ProcessingStatu
 
   // Reset document properties for retry
   document.status = 'queued';
-  document.error = null;
+  document.error = undefined;
   document.progress = 0;
   document.currentPage = 0;
   document.updatedAt = new Date();

@@ -37,7 +37,12 @@ export async function GET(
 
   // Fetch document; if bypassing, skip user_id constraint
   let query = serviceClient.from('documents').select('storage_path').eq('id', params.id)
-  if (!bypassAuth) query = query.eq('user_id', user.id)
+  if (!bypassAuth && user) {
+    query = query.eq('user_id', user.id)
+  } else if (!bypassAuth) {
+    // If we're not bypassing auth but user is null, return unauthorized
+    return NextResponse.json({ error: 'Unauthorized: User not found' }, { status: 401 })
+  }
   const { data: document, error: docError } = await query.single()
   if (docError || !document) {
     return NextResponse.json({ error: 'Document not found' }, { status: 404 })

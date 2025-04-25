@@ -31,27 +31,7 @@ const DEFAULT_PROCESSING_SETTINGS: ProcessingSettings = {
   concurrentChunks: 1,
   retryAttempts: 2,
   retryDelay: 1000,
-  // PDF size thresholds for adaptive processing
-  pdfSizeThresholds: {
-    large: 100,
-    veryLarge: 200,
-    extreme: 500
-  },
-  // Chunk size limits based on PDF size
-  chunkSizeLimits: {
-    default: 10,
-    large: 8,
-    veryLarge: 5,
-    extreme: 3
-  },
-  // Batch processing settings
-  maxPagesPerBatch: 3,
-  maxConcurrentPages: 2,
-  saveAfterChunkThreshold: 100,
-  // Result batch size settings
-  resultBatchSizeThreshold: 100,
-  resultBatchSizeLarge: 20,
-  resultBatchSizeSmall: 50
+  pagesPerBatch: 3
 }
 
 const DEFAULT_UPLOAD_SETTINGS: UploadSettings = {

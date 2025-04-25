@@ -9,6 +9,7 @@ import { FileText, Upload, CheckCircle, AlertCircle, ArrowRight, Clock, LogIn } 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { FileUpload } from "./components/file-upload"
 import type { ProcessingStatus } from "@/types"
+import type { OCRSettings, ProcessingSettings, UploadSettings } from "@/types/settings"
 import { useSettings } from "@/store/settings"
 import { useSettingsInit } from "@/hooks/use-settings-init"
 import { useToast } from "@/hooks/use-toast"
@@ -60,7 +61,17 @@ export default function DashboardPage() {
   const [isDetailsOpen, setIsDetailsOpen] = useState(false)
 
   // Reference to hold the processing service
-  const processingServiceRef = useRef<any>(null)
+  interface ProcessingService {
+    addToQueue: (files: File[]) => Promise<string[]>;
+    getStatus: (id: string) => Promise<ProcessingStatus | undefined>;
+    cancelProcessing: (id: string) => Promise<void>;
+    pauseQueue: () => Promise<void>;
+    resumeQueue: () => Promise<void>;
+    updateSettings: (settings: { ocr: OCRSettings; processing: ProcessingSettings; upload: UploadSettings }) => Promise<void>;
+    retryDocument: (id: string) => Promise<ProcessingStatus | null>;
+  }
+
+  const processingServiceRef = useRef<ProcessingService | null>(null)
 
   // Initialize processing service
   useEffect(() => {
@@ -209,7 +220,7 @@ export default function DashboardPage() {
       if (process.env.NODE_ENV === 'development') {
         debugLog('[DEBUG] Getting status for each file');
       }
-      const newItems = await Promise.all(ids.map((id) => processingServiceRef.current.getStatus(id)))
+      const newItems = await Promise.all(ids.map((id) => processingServiceRef.current!.getStatus(id)))
       if (process.env.NODE_ENV === 'development') {
         debugLog('[DEBUG] Got status for files:', newItems.length);
       }
@@ -341,7 +352,7 @@ export default function DashboardPage() {
         console.error('[DEBUG] Failed to retry document: Document not found in queue');
         toast({
           title: t('error', language) || 'Error',
-          description: t('retryFailed', language) || 'Failed to retry document processing',
+          description: 'Failed to retry document processing',
           variant: 'destructive'
         });
         return;
@@ -349,12 +360,12 @@ export default function DashboardPage() {
 
       // Update the document status in the UI
       setProcessingQueue(prev => prev.map(d =>
-        d.id === id ? { ...d, status: 'queued', error: null } : d
+        d.id === id ? { ...d, status: 'queued', error: undefined } : d
       ));
 
       toast({
-        title: t('documentRetried', language) || 'Document Retried',
-        description: t('documentRetriedDesc', language) || 'Document has been queued for processing again.'
+        title: 'Document Retried',
+        description: 'Document has been queued for processing again.'
       });
 
       console.log('[DEBUG] Document retry initiated successfully');
@@ -362,7 +373,7 @@ export default function DashboardPage() {
       console.error('[DEBUG] Error retrying document:', error);
       toast({
         title: t('error', language) || 'Error',
-        description: t('retryFailed', language) || 'Failed to retry document processing',
+        description: 'Failed to retry document processing',
         variant: 'destructive'
       });
     }

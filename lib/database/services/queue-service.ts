@@ -88,7 +88,7 @@ export async function getQueue(): Promise<ProcessingStatus[]> {
 
     // Log mapped status distribution
     if (queue.length > 0) {
-      const mappedStatusCounts = queue.reduce((acc, item) => {
+      const mappedStatusCounts = queue.reduce<Record<string, number>>((acc, item) => {
         acc[item.status] = (acc[item.status] || 0) + 1;
         return acc;
       }, {});

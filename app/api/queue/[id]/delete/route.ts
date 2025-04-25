@@ -56,7 +56,7 @@ export async function DELETE(
     // If the document is being processed, cancel it first
     if (document.status === 'processing') {
       // Get processing service with default settings
-      const processingService = getProcessingService(getDefaultSettings())
+      const processingService = await getProcessingService(getDefaultSettings())
       await processingService.cancelProcessing(id)
     }
 

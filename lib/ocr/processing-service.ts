@@ -89,7 +89,7 @@ async function initializeService(state: ProcessingServiceState): Promise<void> {
   console.log('[DEBUG] Queue initialized');
 
   // Check if we have a valid OCR provider with an API key
-  const hasValidProvider = state.fileProcessor.hasValidOCRProvider();
+  const hasValidProvider = await state.fileProcessor.hasValidOCRProvider();
 
   if (hasValidProvider) {
     console.log('[DEBUG] Valid OCR provider found, processing queue');
@@ -237,7 +237,7 @@ export async function getProcessingService(settings: ServiceSettings) {
       console.log('[DEBUG] queueManager.addToQueue returned IDs:', ids);
 
       // Check if we have a valid OCR provider with an API key
-      const hasValidProvider = serviceState.fileProcessor.hasValidOCRProvider();
+      const hasValidProvider = await serviceState.fileProcessor.hasValidOCRProvider();
 
       if (hasValidProvider) {
         console.log('[DEBUG] Valid OCR provider found, calling processQueue');
@@ -340,7 +340,7 @@ export async function getProcessingService(settings: ServiceSettings) {
             const updatedItem = await serviceState.queueManager.getStatus(item.id);
             if (updatedItem) {
               updatedItem.status = "queued";
-              updatedItem.error = null; // Explicitly set to null to ensure it's cleared in the database
+              updatedItem.error = undefined; // Clear the error field
               // Save the updated status
               await serviceState.queueManager.updateItemStatus(updatedItem);
             }

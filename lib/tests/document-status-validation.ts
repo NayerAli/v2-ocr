@@ -39,7 +39,7 @@ export async function validateDocumentStatuses(): Promise<{
     console.log('[TEST] Fixing invalid documents...');
     for (const doc of invalidDocuments) {
       console.log(`[TEST] Fixing document ${doc.id} (${doc.filename})`);
-      doc.error = null;
+      doc.error = undefined;
       await db.saveToQueue(doc);
     }
     console.log('[TEST] All invalid documents fixed');
@@ -124,7 +124,7 @@ export async function retryDocument(documentId: string): Promise<ProcessingStatu
 
   // Reset document properties for retry
   document.status = 'queued';
-  document.error = null;
+  document.error = undefined;
   document.progress = 0;
   document.currentPage = 0;
   document.updatedAt = new Date();
