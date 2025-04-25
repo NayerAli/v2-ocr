@@ -140,6 +140,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
   const { language } = useLanguage()
   const [docStatus, setDocStatus] = useState<ProcessingStatus | null>(null)
   const [results, setResults] = useState<OCRResult[]>([])
+  // Initialize currentPage to 1 to ensure we always start with the first page
   const [currentPage, setCurrentPage] = useState(1)
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -231,6 +232,87 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     handleZoomChange(Math.max(zoomLevel - 25, 25))
   }, [handleZoomChange, zoomLevel])
 
+  // Function to refresh a signed URL using the storage path
+  const refreshSignedUrl = useCallback(async (result: OCRResult | undefined): Promise<string | undefined> => {
+    if (!result || !result.storagePath) return undefined;
+
+    try {
+      // Generate a new signed URL
+      const { supabase } = await import('@/lib/database/utils');
+      const { data, error } = await supabase.storage
+        .from('ocr-documents')
+        .createSignedUrl(result.storagePath, 86400);
+
+      if (error || !data?.signedUrl) {
+        console.error(`Error generating signed URL for page ${result.pageNumber}:`, error);
+        return undefined;
+      }
+
+      // Update the result in our local state
+      setResults(prev => prev.map(r => {
+        if (r.id === result.id) {
+          return { ...r, imageUrl: data.signedUrl };
+        }
+        return r;
+      }));
+
+      return data.signedUrl;
+    } catch (error) {
+      console.error('Error refreshing signed URL:', error);
+      return undefined;
+    }
+  }, []);
+
+  // Function to ensure all results have valid signed URLs
+  const ensureSignedUrls = useCallback(async (results: OCRResult[]) => {
+    if (!results.length) return results;
+
+    const resultsWithUrls = [...results];
+    let hasUpdates = false;
+
+    // Process all results in parallel for efficiency
+    const updatePromises = results.map(async (result, index) => {
+      // Skip results that don't have a storage path
+      if (!result.storagePath) return null;
+
+      // If the result already has a valid imageUrl that's not expired, skip it
+      if (result.imageUrl && result.imageUrl.startsWith('http')) {
+        try {
+          // Quick check if URL is valid by creating a HEAD request
+          const response = await fetch(result.imageUrl, { method: 'HEAD', cache: 'no-store' });
+          if (response.ok) return null; // URL is still valid
+        } catch {
+          // URL is invalid or expired, continue to refresh it
+        }
+      }
+
+      try {
+        // Generate a new signed URL
+        const { supabase } = await import('@/lib/database/utils');
+        const { data, error } = await supabase.storage
+          .from('ocr-documents')
+          .createSignedUrl(result.storagePath, 86400);
+
+        if (error || !data?.signedUrl) {
+          console.error(`Error generating signed URL for page ${result.pageNumber}:`, error);
+          return null;
+        }
+
+        // Update the result with the new URL
+        resultsWithUrls[index] = { ...result, imageUrl: data.signedUrl };
+        hasUpdates = true;
+        return index; // Return the index that was updated
+      } catch (error) {
+        console.error(`Error refreshing signed URL for page ${result.pageNumber}:`, error);
+        return null;
+      }
+    });
+
+    await Promise.all(updatePromises);
+
+    return hasUpdates ? resultsWithUrls : results;
+  }, []);
+
   useEffect(() => {
     const loadDocument = async () => {
       try {
@@ -268,6 +350,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
           return
         }
 
+        // Get results from database
         const docResults = await db.getResults(params.id)
         if (!docResults || docResults.length === 0) {
           setError("No OCR results found for this document")
@@ -278,7 +361,34 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
           })
           return
         }
-        setResults(docResults.sort((a, b) => a.pageNumber - b.pageNumber))
+
+        // Sort results by page number
+        const sortedResults = docResults.sort((a, b) => a.pageNumber - b.pageNumber)
+
+        // Ensure all results have valid signed URLs before setting state
+        const resultsWithUrls = await ensureSignedUrls(sortedResults)
+
+        // Set results in state
+        setResults(resultsWithUrls)
+
+        // Set current page to first page to ensure consistent behavior
+        // This is important to ensure we're not starting at the last page
+        setCurrentPage(1)
+
+        // Preload images for the first few pages
+        if (resultsWithUrls.length > 0) {
+          const pagesToPreload = Math.min(3, resultsWithUrls.length)
+          for (let i = 0; i < pagesToPreload; i++) {
+            const result = resultsWithUrls[i]
+            if (result?.imageUrl) {
+              try {
+                await imageCache.preload(result.imageUrl)
+              } catch (error) {
+                console.error(`Failed to preload image for page ${i + 1}:`, error)
+              }
+            }
+          }
+        }
 
         clearTimeout(timeoutId)
       } catch (err) {
@@ -296,7 +406,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     }
 
     loadDocument()
-  }, [params.id, toast])
+  }, [params.id, toast, ensureSignedUrls])
 
   // Reset states when component mounts or refreshes
   useEffect(() => {
@@ -306,28 +416,56 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     setIsRetrying(false)
   }, [])
 
+
+
   // Preload image when URL changes
   useEffect(() => {
-    if (!currentResult?.imageUrl) return
+    if (!currentResult?.imageUrl) {
+      // If we have a result but no imageUrl, try to refresh it
+      if (currentResult && currentResult.storagePath) {
+        refreshSignedUrl(currentResult).catch(err => {
+          console.error('Error refreshing URL on page change:', err);
+        });
+      }
+      return;
+    }
 
-    const img = new Image()
+    // Check if image is already in cache
+    const cachedImage = imageCache.has(currentResult.imageUrl);
+    if (cachedImage) {
+      setImageLoaded(true);
+      setImageError(false);
+      setIsRetrying(false);
+      return;
+    }
+
+    const img = new Image();
     img.onload = () => {
-      setImageLoaded(true)
-      setImageError(false)
-      setIsRetrying(false)
-    }
+      setImageLoaded(true);
+      setImageError(false);
+      setIsRetrying(false);
+      // Add to cache
+      imageCache.set(currentResult.imageUrl!, img);
+    };
     img.onerror = () => {
-      setImageError(true)
-      setImageLoaded(false)
-      setIsRetrying(false)
-    }
-    img.src = currentResult.imageUrl
+      setImageError(true);
+      setImageLoaded(false);
+      setIsRetrying(false);
+
+      // If image fails to load, try to refresh the URL automatically
+      if (currentResult.storagePath) {
+        refreshSignedUrl(currentResult).catch(err => {
+          console.error('Error auto-refreshing URL after load error:', err);
+        });
+      }
+    };
+    img.src = currentResult.imageUrl;
 
     return () => {
-      img.onload = null
-      img.onerror = null
-    }
-  }, [currentResult?.imageUrl])
+      img.onload = null;
+      img.onerror = null;
+    };
+  }, [currentResult, refreshSignedUrl])
 
   // Reset states when page changes
   useEffect(() => {
@@ -374,38 +512,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     }
   }, [params.id])
 
-  // Function to refresh a signed URL using the storage path
-  const refreshSignedUrl = useCallback(async (result: OCRResult | undefined): Promise<string | undefined> => {
-    if (!result || !result.storagePath) return undefined;
 
-    try {
-      // Import the Supabase client
-      const { supabase } = await import('@/lib/database/utils');
-
-      // Create a signed URL that expires in 24 hours (86400 seconds)
-      const { data, error } = await supabase.storage
-        .from('ocr-documents')
-        .createSignedUrl(result.storagePath, 86400);
-
-      if (error || !data?.signedUrl) {
-        console.error('Error generating signed URL:', error);
-        return undefined;
-      }
-
-      // Update the result in our local state
-      setResults(prev => prev.map(r => {
-        if (r.id === result.id) {
-          return { ...r, imageUrl: data.signedUrl };
-        }
-        return r;
-      }));
-
-      return data.signedUrl;
-    } catch (error) {
-      console.error('Error refreshing signed URL:', error);
-      return undefined;
-    }
-  }, []);
 
   // Handle image loading
   const handleImageRetry = async (result: OCRResult | undefined) => {
@@ -1385,6 +1492,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
   )
 
   const renderImageContent = () => {
+    // If we're still loading, show a loading skeleton
     if (isLoading) {
       return (
         <div className="w-full h-full flex items-center justify-center">
@@ -1394,6 +1502,33 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
               <div className="flex flex-col items-center gap-3">
                 <div className="h-5 w-5 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
                 <p className="text-sm text-muted-foreground animate-pulse">Loading document...</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )
+    }
+
+    // If we have a current result but no image URL, try to refresh it
+    if (currentResult && !currentResult.imageUrl && currentResult.storagePath && !isRetrying) {
+      // Attempt to refresh the URL
+      refreshSignedUrl(currentResult).catch(console.error);
+
+      return (
+        <div className="w-full h-full flex items-center justify-center">
+          <div className="relative w-full h-full">
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="flex flex-col items-center gap-3">
+                <div className="h-5 w-5 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+                <p className="text-sm text-muted-foreground">Generating preview...</p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => window.location.reload()}
+                  className="mt-2"
+                >
+                  Refresh Page
+                </Button>
               </div>
             </div>
           </div>
@@ -1598,14 +1733,35 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
                       </div>
                     </div>
                   ) : currentResult ? (
-                    <div
-                      dir={currentResult.language === "ar" || currentResult.language === "fa" ? "rtl" : "ltr"}
-                      lang={currentResult.language}
-                      style={{ fontSize: `${textSize}px` }}
-                      className="max-w-none text-foreground/90 whitespace-pre-wrap leading-relaxed"
-                    >
-                      {currentResult.text}
-                    </div>
+                    currentResult.text ? (
+                      <div
+                        dir={currentResult.language === "ar" || currentResult.language === "fa" ? "rtl" : "ltr"}
+                        lang={currentResult.language}
+                        style={{ fontSize: `${textSize}px` }}
+                        className="max-w-none text-foreground/90 whitespace-pre-wrap leading-relaxed"
+                      >
+                        {currentResult.text}
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center h-full min-h-[200px] gap-3">
+                        <p className="text-muted-foreground">Text data is still loading...</p>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            // Force refresh the current result
+                            if (currentResult.storagePath) {
+                              refreshSignedUrl(currentResult).catch(console.error);
+                            } else {
+                              // If no storage path, try a full page refresh
+                              window.location.reload();
+                            }
+                          }}
+                        >
+                          Refresh Data
+                        </Button>
+                      </div>
+                    )
                   ) : (
                     <div className="flex items-center justify-center h-full min-h-[200px] text-muted-foreground">
                       No text extracted for this page
