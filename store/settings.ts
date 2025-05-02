@@ -56,7 +56,19 @@ export const useSettings = create<SettingsState>()(
     {
       name: "pdf-ocr-settings",
       version: 1,
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(() => {
+        // Use localStorage in browser, no-op in server
+        if (typeof window !== 'undefined') {
+          return localStorage;
+        }
+
+        // Return a no-op storage for server-side rendering
+        return {
+          getItem: () => null,
+          setItem: () => {},
+          removeItem: () => {}
+        };
+      }),
       skipHydration: false,
       onRehydrateStorage: () => {
         // Return a handler that will be called after rehydration

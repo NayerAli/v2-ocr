@@ -129,11 +129,12 @@ class DatabaseService {
 
   // Results operations
   async getResults(documentId: string): Promise<OCRResult[]> {
-    // Always fetch fresh results from the database to avoid stale data
-    // This is critical for the document viewer which needs the latest URLs
+    const cached = this.cache.results.get(documentId)
+    if (cached) return cached
+
     const results = await ResultsService.getResults(documentId)
 
-    // Update cache with fresh results
+    // Update cache
     this.cache.results.set(documentId, results)
 
     return results

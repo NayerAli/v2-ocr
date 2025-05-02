@@ -3,7 +3,7 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import type { User, Session } from '@supabase/supabase-js'
-import { getSupabaseClient } from '@/lib/supabase/singleton-client'
+import { createBrowserClient } from '@supabase/ssr'
 import { debugLog, debugError } from '@/lib/log'
 
 type AuthContextType = {
@@ -23,7 +23,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const router = useRouter()
-  const supabase = getSupabaseClient()
+
+  // Create a Supabase client for the browser
+  const supabase = createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  )
 
   useEffect(() => {
     // Get initial session
@@ -121,12 +126,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         password
       })
 
-      // Set up redirect after successful sign-in
-      await supabase.auth.setSession({
-        access_token: data?.session?.access_token || '',
-        refresh_token: data?.session?.refresh_token || ''
-      })
-
       if (error) {
         debugError('Auth Provider: Sign in error:', error.message)
         throw error
@@ -145,53 +144,72 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           debugLog('Auth Provider: Session expires at:', new Date(data.session.expires_at! * 1000).toLocaleString())
           debugLog('Auth Provider: Access token:', data.session.access_token ? 'Present' : 'Missing')
 
-          // Manually set the cookie to ensure it's available for server-side requests
-          // This is a critical step to ensure the middleware can detect the session
+          // Verify the session was stored by checking cookies
           if (typeof document !== 'undefined') {
-            const cookieValue = JSON.stringify({
-              access_token: data.session.access_token,
-              refresh_token: data.session.refresh_token,
-              expires_at: data.session.expires_at
-            })
+            const cookies = document.cookie.split(';').map(c => c.trim());
+            const authCookies = cookies.filter(c =>
+              c.startsWith('sb-auth-token=') ||
+              c.includes('-auth-token=')
+            );
 
-            // Set the cookie with appropriate options
-            document.cookie = `sb-auth-token=${encodeURIComponent(cookieValue)};path=/;max-age=${60 * 60 * 24 * 7};SameSite=Lax`
+            debugLog('Auth Provider: Auth cookies found:', authCookies.length > 0);
 
-            // Also set the project-specific cookie name that Supabase might use
-            const projectId = process.env.NEXT_PUBLIC_SUPABASE_URL?.split('//')[1]?.split('.')[0]
-            if (projectId) {
-              document.cookie = `sb-${projectId}-auth-token=${encodeURIComponent(cookieValue)};path=/;max-age=${60 * 60 * 24 * 7};SameSite=Lax`
+            // If no cookies were set automatically, set them manually
+            if (authCookies.length === 0) {
+              debugLog('Auth Provider: No auth cookies found, setting manually');
+
+              // Manually set the cookie to ensure it's available for server-side requests
+              const cookieValue = JSON.stringify({
+                access_token: data.session.access_token,
+                refresh_token: data.session.refresh_token,
+                expires_at: data.session.expires_at
+              });
+
+              // Set the cookie with appropriate options
+              document.cookie = `sb-auth-token=${encodeURIComponent(cookieValue)};path=/;max-age=${60 * 60 * 24 * 7};SameSite=Lax`;
+
+              // Also set the project-specific cookie name that Supabase might use
+              const projectId = process.env.NEXT_PUBLIC_SUPABASE_URL?.split('//')[1]?.split('.')[0];
+              if (projectId) {
+                document.cookie = `sb-${projectId}-auth-token=${encodeURIComponent(cookieValue)};path=/;max-age=${60 * 60 * 24 * 7};SameSite=Lax`;
+              }
+
+              debugLog('Auth Provider: Cookies manually set');
             }
-
-            debugLog('Auth Provider: Cookies manually set')
           }
 
-          // Verify the session was stored
-          if (typeof window !== 'undefined') {
-            const localStorageKeys = Object.keys(localStorage)
-            debugLog('Auth Provider: LocalStorage keys:', localStorageKeys)
+          // Double-check the session
+          const { data: sessionData } = await supabase.auth.getSession();
+          debugLog('Auth Provider: Session verification:', !!sessionData.session);
 
-            // Check if we can retrieve the session again
-            const { data: sessionData } = await supabase.auth.getSession()
-            debugLog('Auth Provider: Session verification:', !!sessionData.session)
+          if (!sessionData.session) {
+            debugError('Auth Provider: Session verification failed, trying to set session manually');
+
+            // Try to set the session manually
+            await supabase.auth.setSession({
+              access_token: data.session.access_token,
+              refresh_token: data.session.refresh_token
+            });
+
+            // Check again
+            const { data: recheckData } = await supabase.auth.getSession();
+            debugLog('Auth Provider: Session recheck:', !!recheckData.session);
           }
         }
 
-        debugLog('Auth Provider: Redirecting to:', redirectTo)
+        debugLog('Auth Provider: Login successful, ready for redirect to:', redirectTo);
 
-        // Force a small delay to ensure the session is properly established
-        setTimeout(() => {
-          router.push(redirectTo)
-        }, 1000)
+        // We'll let the login form handle the redirect to ensure cookies are properly set
+        return;
       } else {
-        debugError('Auth Provider: Sign in returned no user')
-        throw new Error('Sign in failed - no user returned')
+        debugError('Auth Provider: Sign in returned no user');
+        throw new Error('Sign in failed - no user returned');
       }
     } catch (error) {
-      debugError('Auth Provider: Error signing in:', error)
-      throw error
+      debugError('Auth Provider: Error signing in:', error);
+      throw error;
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
   }
 

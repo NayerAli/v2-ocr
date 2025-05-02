@@ -124,3 +124,19 @@ export function serverError(requestId: string | undefined, message: string, ...a
 export function shouldLog(frequency = 0.05): boolean {
   return process.env.NODE_ENV === 'development' && Math.random() < frequency
 }
+
+/**
+ * Log API request details to the console
+ * Use for debugging API requests in development
+ */
+export function logApiRequestToConsole(
+  req: Request,
+  method: string,
+  url: string,
+  params?: Record<string, string>
+) {
+  if (process.env.NODE_ENV !== 'production') {
+    const timestamp = new Date().toISOString()
+    console.log(`[API] ${timestamp} ${method} ${url}`, params || '')
+  }
+}

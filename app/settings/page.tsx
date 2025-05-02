@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { CONFIG } from "@/config/constants"
-import { validateGoogleApiKey, validateMicrosoftApiKey, validateMistralApiKey } from "@/lib/api-validation"
+// API validation is now done through the server-side API
 import { useToast } from "@/hooks/use-toast"
 import { cn } from "@/lib/utils"
 import { db } from "@/lib/database"
@@ -199,19 +199,26 @@ export default function SettingsPage() {
     setIsValid(null)
 
     try {
-      let result;
-      // If using system key, use the default API key from environment
-      const apiKeyToValidate = settings.ocr.useSystemKey !== false
-        ? process.env.NEXT_PUBLIC_DEFAULT_OCR_API_KEY || ""
-        : settings.ocr.apiKey;
+      // Use server-side API validation endpoint
+      const response = await fetch('/api/settings/validate-api', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          provider: settings.ocr.provider,
+          apiKey: settings.ocr.apiKey,
+          region: settings.ocr.region,
+          useSystemKey: settings.ocr.useSystemKey
+        }),
+      });
 
-      if (settings.ocr.provider === "google") {
-        result = await validateGoogleApiKey(apiKeyToValidate);
-      } else if (settings.ocr.provider === "microsoft") {
-        result = await validateMicrosoftApiKey(apiKeyToValidate, settings.ocr.region || "");
-      } else if (settings.ocr.provider === "mistral") {
-        result = await validateMistralApiKey(apiKeyToValidate);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to validate API key');
       }
+
+      const result = await response.json();
 
       if (!result) {
         setValidationError("Validation failed with an unknown error")

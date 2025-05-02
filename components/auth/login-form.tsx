@@ -33,7 +33,17 @@ export function LoginForm() {
 
     try {
       console.log('Login Form: Attempting to sign in with redirect to:', redirectTo || '/')
+
+      // Add a delay before redirecting to ensure cookies are properly set
       await signIn(email, password, redirectTo || '/')
+
+      // Force a page reload after successful login to ensure cookies are properly recognized
+      if (redirectTo) {
+        // Small delay to ensure cookies are set
+        setTimeout(() => {
+          window.location.href = redirectTo
+        }, 500)
+      }
     } catch (err) {
       console.error('Login Form: Sign in error:', err)
       const errorMessage = err instanceof Error ? err.message : 'Failed to sign in'

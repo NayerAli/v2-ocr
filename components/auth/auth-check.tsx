@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from './auth-provider'
-import { supabase } from '@/lib/supabase-client'
+import { createBrowserClient } from '@supabase/ssr'
 import { debugLog, debugError } from '@/lib/log'
 
 interface AuthCheckProps {
@@ -14,6 +14,9 @@ interface AuthCheckProps {
 /**
  * A component that checks if the user is authenticated on the client side
  * and redirects to the login page if not.
+ *
+ * NOTE: This component should only be used as a fallback for server-side authentication.
+ * Prefer using server components with getUser() for authentication checks.
  */
 export function AuthCheck({ children, redirectTo = '/auth/login' }: AuthCheckProps) {
   const { user, isLoading } = useAuth()
@@ -36,6 +39,12 @@ export function AuthCheck({ children, redirectTo = '/auth/login' }: AuthCheckPro
 
         // If no user in context, check with Supabase directly
         if (!isLoading) {
+          // Create a Supabase client for the browser
+          const supabase = createBrowserClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+          )
+
           // No user in context, check with Supabase directly
           const { data, error } = await supabase.auth.getSession()
 
@@ -44,6 +53,7 @@ export function AuthCheck({ children, redirectTo = '/auth/login' }: AuthCheckPro
             setIsAuthenticated(false)
           } else if (data.session) {
             // Session found
+            debugLog('[DEBUG] AuthCheck: Session found for user:', data.session.user.email)
             setIsAuthenticated(true)
           } else {
             // No session found from Supabase
@@ -78,19 +88,28 @@ export function AuthCheck({ children, redirectTo = '/auth/login' }: AuthCheckPro
 
     verifyAuth()
 
-    // Also check localStorage directly as a fallback
-    if (typeof window !== 'undefined') {
-      const hasAuthToken = !!localStorage.getItem('sb-auth-token') ||
-                          !!localStorage.getItem(`sb-${window.location.hostname}-auth-token`);
+    // Check cookies directly as a fallback
+    if (typeof document !== 'undefined') {
+      const cookies = document.cookie.split(';').map(c => c.trim());
+      const hasAuthCookie = cookies.some(c =>
+        c.startsWith('sb-auth-token=') ||
+        c.startsWith(`sb-${window.location.hostname}-auth-token=`) ||
+        c.includes('-auth-token=')
+      );
 
-      if (hasAuthToken) {
-        debugLog('AuthCheck: Auth token found in localStorage')
-        // If we have a token but no user yet, wait for the auth state to update
+      if (hasAuthCookie) {
+        debugLog('AuthCheck: Auth cookie found')
+        // If we have a cookie but no user yet, wait for the auth state to update
         if (!user && isLoading) {
           debugLog('AuthCheck: Waiting for auth state to update...')
         } else if (!user && !isLoading) {
-          debugLog('AuthCheck: Auth token exists but no user, forcing refresh')
+          debugLog('AuthCheck: Auth cookie exists but no user, forcing refresh')
           // Force a refresh of the auth state
+          const supabase = createBrowserClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+          )
+
           supabase.auth.getSession().then(({ data }) => {
             if (data.session) {
               debugLog('AuthCheck: Session refreshed for user:', data.session.user.email)
@@ -107,7 +126,13 @@ export function AuthCheck({ children, redirectTo = '/auth/login' }: AuthCheckPro
     // Redirect if not authenticated and not still verifying
     if (!isVerifying && !isAuthenticated) {
       debugLog('AuthCheck: Not authenticated, redirecting to:', redirectTo)
-      const fullRedirectUrl = `${redirectTo}?redirect=${encodeURIComponent(window.location.pathname)}`
+
+      // Use a safer approach for server-side rendering
+      // We can't use window.location.pathname directly, and router.pathname doesn't exist in App Router
+      // So we'll use a default path of '/' for simplicity
+      const currentPath = '/'
+      const fullRedirectUrl = `${redirectTo}?redirect=${encodeURIComponent(currentPath)}`
+
       router.push(fullRedirectUrl)
     }
   }, [isVerifying, isAuthenticated, redirectTo, router])

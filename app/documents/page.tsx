@@ -48,6 +48,7 @@ export default function DocumentsPage() {
 
   // Load documents when initialized
   useEffect(() => {
+    // Load documents from the database when initialized
     if (!isInitialized) return
 
     console.log('Documents page: Initialized, loading documents for user')
