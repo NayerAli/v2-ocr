@@ -93,6 +93,8 @@ function getStatusIcon(status: string) {
       return <CheckCircle className="h-4 w-4" />
     case "queued":
       return <Clock className="h-4 w-4" />
+    case "pending":
+      return <Clock className="h-4 w-4" />
     case "processing":
       return <Loader2 className="h-4 w-4 animate-spin" />
     case "cancelled":
@@ -138,7 +140,7 @@ export function DocumentList({
       {
         "bg-green-50 text-green-700 dark:bg-green-500/20": doc.status === "completed",
         "bg-blue-50 text-blue-700 dark:bg-blue-500/20": doc.status === "processing" && !doc.rateLimitInfo?.isRateLimited,
-        "bg-yellow-50 text-yellow-700 dark:bg-yellow-500/20": doc.status === "queued",
+        "bg-yellow-50 text-yellow-700 dark:bg-yellow-500/20": doc.status === "queued" || doc.status === "pending",
         "bg-red-50 text-red-700 dark:bg-red-500/20": doc.status === "error" || doc.status === "failed",
         "bg-gray-50 text-gray-700 dark:bg-gray-500/20": doc.status === "cancelled",
         "bg-purple-50 text-purple-700 dark:bg-purple-500/20": doc.rateLimitInfo?.isRateLimited

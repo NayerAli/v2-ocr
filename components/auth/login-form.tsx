@@ -34,22 +34,82 @@ export function LoginForm() {
     try {
       console.log('Login Form: Attempting to sign in with redirect to:', redirectTo || '/')
 
-      // Add a delay before redirecting to ensure cookies are properly set
+      // Save redirect info in localStorage before signing in
+      localStorage.setItem('auth_redirect_after_login', redirectTo || '/')
+      localStorage.setItem('auth_login_timestamp', Date.now().toString())
+      
+      // Sign in 
       await signIn(email, password, redirectTo || '/')
 
       // Force a page reload after successful login to ensure cookies are properly recognized
-      if (redirectTo) {
-        // Small delay to ensure cookies are set
-        setTimeout(() => {
-          window.location.href = redirectTo
-        }, 500)
-      }
+      // and redirects work properly regardless of client-side router state
+      const destination = redirectTo || '/'
+      console.log('Login Form: Authentication successful, redirecting to:', destination)
+      
+      // Set a flag in sessionStorage to indicate authentication in progress
+      sessionStorage.setItem('auth_in_progress', 'true')
+      sessionStorage.setItem('auth_redirect', destination)
+      
+      // Small delay to ensure cookies are set
+      setTimeout(() => {
+        // Use window.location for a full page reload to ensure proper authentication state
+        console.log('Login Form: Redirecting now to', destination)
+        // Force a full reload to ensure cookies are properly recognized
+        window.location.href = destination
+      }, 1000)
     } catch (err) {
       console.error('Login Form: Sign in error:', err)
       const errorMessage = err instanceof Error ? err.message : 'Failed to sign in'
       setError(errorMessage)
     }
   }
+  
+  // Check for auth state when the component mounts
+  useEffect(() => {
+    const checkAuthState = async () => {
+      const authInProgress = sessionStorage.getItem('auth_in_progress')
+      const authRedirect = sessionStorage.getItem('auth_redirect') || localStorage.getItem('auth_redirect_after_login')
+      const authLoginTimestamp = localStorage.getItem('auth_login_timestamp')
+      
+      // Only process redirects that are recent (within the last 30 seconds)
+      const isRecent = authLoginTimestamp && 
+        (Date.now() - parseInt(authLoginTimestamp, 10)) < 30000
+      
+      if (authInProgress === 'true' || (isRecent && authRedirect)) {
+        console.log('Login Form: Auth in progress or recent login, checking session status...')
+        
+        // Clean up storage
+        sessionStorage.removeItem('auth_in_progress')
+        sessionStorage.removeItem('auth_redirect')
+        
+        // Check if we're logged in by accessing a secure endpoint
+        try {
+          const response = await fetch('/api/auth/debug', {
+            credentials: 'include',
+            cache: 'no-cache'
+          })
+          
+          const data = await response.json()
+          console.log('Login Form: Auth check response:', data)
+          
+          if (data.authenticated) {
+            console.log('Login Form: User is authenticated, redirecting to', authRedirect)
+            
+            // Clear the redirect info
+            localStorage.removeItem('auth_redirect_after_login')
+            localStorage.removeItem('auth_login_timestamp')
+            
+            // Redirect to the intended destination
+            window.location.href = authRedirect || '/'
+          }
+        } catch (error) {
+          console.error('Login Form: Error checking auth status:', error)
+        }
+      }
+    }
+    
+    checkAuthState()
+  }, [])
 
   return (
     <div className="space-y-6">

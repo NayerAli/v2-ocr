@@ -38,11 +38,21 @@ export async function getServerProcessingSettings(): Promise<ProcessingSettings>
  * This function should only be called from server components
  */
 export async function getServerOCRSettings(): Promise<OCRSettings> {
+  console.log('[SERVER] Getting OCR settings from server');
+  
   // Clear the cache to ensure we get the latest settings
   userSettingsService.clearCache();
 
   // Get the latest OCR settings
-  return await userSettingsService.getOCRSettings();
+  const settings = await userSettingsService.getOCRSettings();
+  
+  console.log('[SERVER] Retrieved OCR settings from service:', {
+    provider: settings.provider,
+    apiKeyLength: settings.apiKey ? settings.apiKey.length : 0,
+    useSystemKey: settings.useSystemKey
+  });
+  
+  return settings;
 }
 
 /**
@@ -54,23 +64,42 @@ export async function validateServerOCRSettings(): Promise<{
   apiKeyMissing: boolean;
   missingRequirements: string[];
 }> {
+  console.log('[SERVER] Validating OCR settings');
   const settings = await getServerOCRSettings();
+  console.log('[SERVER] Retrieved OCR settings:', {
+    provider: settings.provider,
+    hasApiKey: !!settings.apiKey && settings.apiKey.length > 0,
+    useSystemKey: settings.useSystemKey,
+    hasRegion: !!settings.region
+  });
 
   const missingRequirements: string[] = [];
 
   // Check if API key is missing and not using system key
   const apiKeyMissing = !settings.apiKey || settings.apiKey.length === 0;
-  if (apiKeyMissing && settings.useSystemKey !== true) {
+  const isUsingSystemKey = settings.useSystemKey === true;
+  console.log('[SERVER] API key check:', { apiKeyMissing, isUsingSystemKey });
+  
+  if (apiKeyMissing && !isUsingSystemKey) {
+    console.log('[SERVER] API key is missing and not using system key');
     missingRequirements.push('API key');
   }
 
   // Check if Azure region is missing for Microsoft provider
   if (settings.provider === "microsoft" && !settings.region) {
+    console.log('[SERVER] Azure region is missing for Microsoft provider');
     missingRequirements.push('Azure region');
   }
 
+  const isConfigured = missingRequirements.length === 0;
+  console.log('[SERVER] OCR validation result:', { 
+    isConfigured, 
+    apiKeyMissing,
+    missingRequirements
+  });
+
   return {
-    isConfigured: missingRequirements.length === 0,
+    isConfigured,
     apiKeyMissing,
     missingRequirements
   };

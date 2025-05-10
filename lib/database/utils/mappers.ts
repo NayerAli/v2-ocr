@@ -31,6 +31,33 @@ export const mapToProcessingStatus = (item: any): ProcessingStatus => {
 // Convert OCRResult from Supabase to application format
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const mapToOCRResult = (item: any): OCRResult => {
+  // First convert from snake_case to camelCase
   const result = snakeToCamel(item)
+
+  // Ensure both camelCase and snake_case versions are available for compatibility
+  if (item.image_url && !result.imageUrl) {
+    result.imageUrl = item.image_url
+  }
+
+  if (item.storage_path && !result.storagePath) {
+    result.storagePath = item.storage_path
+  }
+
+  if (item.page_number && !result.pageNumber) {
+    result.pageNumber = item.page_number
+  }
+
+  if (item.total_pages && !result.totalPages) {
+    result.totalPages = item.total_pages
+  }
+
+  if (item.processing_time && !result.processingTime) {
+    result.processingTime = item.processing_time
+  }
+
+  if (item.document_id && !result.documentId) {
+    result.documentId = item.document_id
+  }
+
   return result as OCRResult
 }

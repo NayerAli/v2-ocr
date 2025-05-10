@@ -11,19 +11,31 @@ export class MicrosoftVisionProvider implements OCRProvider {
     this.rateLimiter = rateLimiter;
   }
 
-  async processImage(base64Data: string, signal: AbortSignal, /* fileType?: string */): Promise<OCRResult> {
+  async processImage(base64Data: string, signal: AbortSignal, fileType?: string, pageNumber: number = 1, totalPages: number = 1): Promise<OCRResult> {
     const startTime = Date.now();
 
     try {
+      // Log the base64 data length to help with debugging
+      console.log(`[Microsoft] Processing image with base64 length: ${base64Data.length}, page ${pageNumber}/${totalPages}`);
+
+      // Validate base64 data
+      if (!base64Data || base64Data.length < 100) {
+        console.error('[Microsoft] Invalid base64 data received, length:', base64Data?.length || 0);
+        throw new Error('Invalid image data received');
+      }
+
       await this.rateLimiter.waitIfLimited();
 
       // Check if cancelled after rate limit wait
       if (signal.aborted) {
-        console.log(`[Process] Processing aborted`);
+        console.log(`[Microsoft] Processing aborted`);
         throw new Error("Processing aborted");
       }
 
-      const raw = atob(base64Data);
+      // Ensure the base64 data doesn't have a data URL prefix
+      const cleanBase64 = base64Data.replace(/^data:image\/[a-z]+;base64,/, '');
+
+      const raw = atob(cleanBase64);
       const arr = new Uint8Array(new ArrayBuffer(raw.length));
       for (let i = 0; i < raw.length; i++) {
         arr[i] = raw.charCodeAt(i);
@@ -43,15 +55,28 @@ export class MicrosoftVisionProvider implements OCRProvider {
       });
 
       if (!response.ok) {
-        const error = await response.json();
+        let errorMessage = `Microsoft Vision API error: ${response.status}`;
+        try {
+          const errorData = await response.json();
+          console.error('[Microsoft] API error response:', errorData);
+          if (errorData.error) {
+            errorMessage = errorData.error.message || errorData.error.code || errorMessage;
+          }
+        } catch (parseError) {
+          console.error('[Microsoft] Failed to parse error response:', parseError);
+        }
+
         if (response.status === 429) {
           const retryAfter = parseInt(response.headers.get("Retry-After") || "60", 10);
+          console.log(`[Microsoft] Rate limited (429). Retry after ${retryAfter}s`);
           throw new Error(`RATE_LIMIT:${retryAfter}`);
         }
-        throw new Error(error.error?.message || `Microsoft Vision API error: ${response.status}`);
+
+        throw new Error(errorMessage);
       }
 
       const data = await response.json();
+      console.log('[Microsoft] API response received, parsing results');
 
       // List of RTL language codes
       const rtlLanguages = new Set([
@@ -70,7 +95,7 @@ export class MicrosoftVisionProvider implements OCRProvider {
       const isRTL = rtlLanguages.has(detectedLanguage.toLowerCase().split('-')[0]);
 
       // Reconstruct text
-      const text =
+      let text =
         (data as MicrosoftVisionResponse).regions
           ?.map((region) =>
             region.lines
@@ -82,6 +107,15 @@ export class MicrosoftVisionProvider implements OCRProvider {
           )
           .join("\n\n") || "";
 
+      // Ensure text is never empty
+      if (!text) {
+        console.warn('[Microsoft] OCR returned empty text. Setting default message.');
+        text = 'No text was extracted from this image. Please try again or use a different OCR provider.';
+      }
+
+      // Log success
+      console.log(`[Microsoft] Successfully processed image page ${pageNumber}/${totalPages}, text length: ${text.length}`);
+
       return {
         id: crypto.randomUUID(),
         documentId: "",
@@ -89,7 +123,9 @@ export class MicrosoftVisionProvider implements OCRProvider {
         confidence: 1,
         language: detectedLanguage,
         processingTime: Date.now() - startTime,
-        pageNumber: 1,
+        pageNumber: pageNumber,
+        totalPages: totalPages,
+        provider: "microsoft"
       };
     } catch (error) {
       if (error instanceof Error && error.message.startsWith("RATE_LIMIT:")) {

@@ -1,6 +1,6 @@
 import { db } from "../database";
 import type { ProcessingStatus } from "@/types";
-import { downloadFileFromStorage } from "../storage-utils";
+import { downloadFileFromStorage } from "../storage-utils.client";
 import { getUser } from "../auth";
 
 /**

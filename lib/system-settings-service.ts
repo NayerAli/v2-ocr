@@ -1,6 +1,6 @@
 // System settings service for global system settings
 
-import { getSupabaseClient } from './supabase/singleton-client'
+import { createClient } from '@/utils/supabase/server'
 
 interface CachedData<T> {
   data: T
@@ -32,7 +32,7 @@ class SystemSettingsService {
   private cacheTTL: number
 
   constructor() {
-    this.supabase = getSupabaseClient()
+    this.supabase = createClient()
     this.cache = new Map()
     this.cacheTTL = 5 * 60 * 1000 // 5 minutes
   }

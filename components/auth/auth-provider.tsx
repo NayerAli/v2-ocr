@@ -1,15 +1,18 @@
 'use client'
 
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useState, useMemo, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import type { User, Session } from '@supabase/supabase-js'
-import { createBrowserClient } from '@supabase/ssr'
 import { debugLog, debugError } from '@/lib/log'
+import { createClient } from '@/utils/supabase/client'
+import { createPagesBrowserClient } from '@supabase/auth-helpers-nextjs'
+import { SessionContextProvider } from '@supabase/auth-helpers-react'
 
 type AuthContextType = {
   user: User | null
   session: Session | null
   isLoading: boolean
+  hasInvalidToken: boolean
   signIn: (email: string, password: string, redirectTo?: string) => Promise<void>
   signUp: (email: string, password: string) => Promise<void>
   signOut: () => Promise<void>
@@ -18,102 +21,271 @@ type AuthContextType = {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
+interface AuthProviderProps {
+  children: React.ReactNode
+}
+
+export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<User | null>(null)
   const [session, setSession] = useState<Session | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [hasInvalidToken, setHasInvalidToken] = useState(false)
   const router = useRouter()
 
-  // Create a Supabase client for the browser
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  )
+  // Use createClient from our singleton instead of creating a new instance
+  const supabaseClient = useMemo(() => createClient(), [])
 
-  useEffect(() => {
-    // Get initial session
-    const getInitialSession = async () => {
-      setIsLoading(true)
+  // Verify token validity with server
+  const verifyAuthToken = async () => {
+    try {
+      const response = await fetch('/api/auth/status', {
+        credentials: 'include',
+        cache: 'no-cache'
+      })
 
-      try {
-        const { data, error } = await supabase.auth.getSession()
+      if (!response.ok) {
+        debugLog('Auth Provider: Token verification failed')
+        setHasInvalidToken(true)
+        return false
+      }
 
-        if (error) {
-          debugError('Auth Provider: Error getting session:', error.message)
-          setSession(null)
+      const data = await response.json()
+      return data.authenticated
+    } catch (error) {
+      debugError('Auth Provider: Error verifying token:', error)
+      setHasInvalidToken(true)
+      return false
+    }
+  }
+
+  // Clean up invalid auth cookies
+  const cleanupInvalidTokens = async () => {
+    if (!hasInvalidToken) return
+
+    try {
+      debugLog('Auth Provider: Cleaning up invalid auth tokens')
+      const response = await fetch('/api/auth/cleanup', {
+        method: 'POST',
+        credentials: 'include'
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        debugLog('Auth Provider: Cleaned up cookies:', data.cookies_cleaned)
+
+        // Reset hasInvalidToken after cleanup
+        setHasInvalidToken(false)
+
+        // Force sign out if we had a user object still
+        if (user) {
+          debugLog('Auth Provider: Signing out user after token cleanup')
+          await supabaseClient.auth.signOut()
           setUser(null)
-          setIsLoading(false)
-          return
+          setSession(null)
         }
+      }
+    } catch (error) {
+      debugError('Auth Provider: Error cleaning up tokens:', error)
+    }
+  }
 
-        setSession(data.session)
-        setUser(data.session?.user ?? null)
+  // Get initial session
+  const getInitialSession = useCallback(async () => {
+    setIsLoading(true)
 
-        if (data.session?.user) {
-          debugLog('Auth Provider: User authenticated:', data.session.user.email)
-          debugLog('Auth Provider: Session expires at:', new Date(data.session.expires_at! * 1000).toLocaleString())
-        } else {
-          debugLog('Auth Provider: No authenticated user')
+    try {
+      const { data, error } = await supabaseClient.auth.getSession()
 
-          // Try to refresh the session
-          debugLog('Auth Provider: Attempting to refresh session')
-          const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession()
-
-          if (refreshError) {
-            debugError('Auth Provider: Error refreshing session:', refreshError.message)
-          } else if (refreshData.session) {
-            debugLog('Auth Provider: Session refreshed for user:', refreshData.session.user.email)
-            setSession(refreshData.session)
-            setUser(refreshData.session.user)
-          }
-        }
-      } catch (error) {
-        debugError('Auth Provider: Exception getting session:', error)
+      if (error) {
+        debugError('Auth Provider: Error getting session:', error.message)
         setSession(null)
         setUser(null)
-      } finally {
         setIsLoading(false)
-      }
-    }
 
+        // Check for invalid token state
+        if (document.cookie.includes('-auth-token=')) {
+          debugLog('Auth Provider: Auth cookie found but session error, verifying token')
+          await verifyAuthToken()
+        }
+        return
+      }
+
+      setSession(data.session)
+      setUser(data.session?.user ?? null)
+
+      if (data.session?.user) {
+        debugLog('Auth Provider: User authenticated:', data.session.user.email)
+        debugLog('Auth Provider: Session expires at:', new Date(data.session.expires_at! * 1000).toLocaleString())
+
+        // Persist session in localStorage for redundancy
+        try {
+          localStorage.setItem('supabase-auth-user', JSON.stringify(data.session.user))
+        } catch (e) {
+          debugError('Auth Provider: Failed to store user in localStorage', e)
+        }
+
+        // Verify token validity with server
+        await verifyAuthToken()
+      } else {
+        debugLog('Auth Provider: No authenticated user')
+
+        // If we have auth cookies but no session, the cookies are likely invalid
+        if (document.cookie.includes('-auth-token=')) {
+          debugLog('Auth Provider: Auth cookie found but no session, verifying token')
+          await verifyAuthToken()
+        }
+
+        // Try to refresh the session
+        debugLog('Auth Provider: Attempting to refresh session')
+        const { data: refreshData, error: refreshError } = await supabaseClient.auth.refreshSession()
+
+        if (refreshError) {
+          debugError('Auth Provider: Error refreshing session:', refreshError.message)
+          // If refresh fails and we have cookies, tokens are likely invalid
+          if (document.cookie.includes('-auth-token=')) {
+            setHasInvalidToken(true)
+          }
+        } else if (refreshData.session) {
+          debugLog('Auth Provider: Session refreshed for user:', refreshData.session.user.email)
+          setSession(refreshData.session)
+          setUser(refreshData.session.user)
+          setHasInvalidToken(false)
+
+          // Store refreshed user
+          try {
+            localStorage.setItem('supabase-auth-user', JSON.stringify(refreshData.session.user))
+          } catch (e) {
+            debugError('Auth Provider: Failed to store refreshed user in localStorage', e)
+          }
+        }
+      }
+    } catch (error) {
+      debugError('Auth Provider: Exception getting session:', error)
+      setSession(null)
+      setUser(null)
+
+      // Check for invalid token state
+      if (document.cookie.includes('-auth-token=')) {
+        setHasInvalidToken(true)
+      }
+    } finally {
+      setIsLoading(false)
+    }
+  }, [supabaseClient.auth])
+
+  // Initialize auth state
+  useEffect(() => {
     getInitialSession()
 
     // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        debugLog('Auth Provider: Auth state changed:', event)
+    const {
+      data: { subscription },
+    } = supabaseClient.auth.onAuthStateChange(async (event, session) => {
+      debugLog('Auth Provider: Auth state changed:', event)
 
-        if (event === 'SIGNED_IN') {
-          debugLog('Auth Provider: User signed in:', session?.user?.email)
-          setSession(session)
-          setUser(session?.user ?? null)
-        } else if (event === 'SIGNED_OUT') {
-          debugLog('Auth Provider: User signed out')
-          setSession(null)
-          setUser(null)
-          router.push('/auth/login')
-        } else if (event === 'TOKEN_REFRESHED') {
-          debugLog('Auth Provider: Token refreshed for user:', session?.user?.email)
-          setSession(session)
-          setUser(session?.user ?? null)
-        } else if (event === 'USER_UPDATED') {
-          debugLog('Auth Provider: User updated:', session?.user?.email)
-          setSession(session)
-          setUser(session?.user ?? null)
-        } else {
-          debugLog('Auth Provider: Other auth event:', event)
-          setSession(session)
-          setUser(session?.user ?? null)
+      if (event === 'SIGNED_IN') {
+        debugLog('Auth Provider: User signed in:', session?.user?.email)
+        setSession(session)
+        setUser(session?.user ?? null)
+        setHasInvalidToken(false)
+
+        // Force a cookie refresh after sign-in
+        try {
+          const response = await fetch('/api/auth/set-cookies', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              event,
+              session,
+            }),
+          });
+
+          if (!response.ok) {
+            debugLog('Auth Provider: Failed to set cookies via API:', response.status, response.statusText);
+          }
+        } catch (error) {
+          debugError('Auth Provider: Error setting cookies:', error);
         }
 
-        setIsLoading(false)
+        // Store user in localStorage
+        if (session?.user) {
+          try {
+            localStorage.setItem('supabase-auth-user', JSON.stringify(session.user))
+          } catch (e) {
+            debugError('Auth Provider: Failed to store user in localStorage', e)
+          }
+        }
+      } else if (event === 'SIGNED_OUT') {
+        debugLog('Auth Provider: User signed out')
+        setSession(null)
+        setUser(null)
+        setHasInvalidToken(false)
+
+        // Clear stored user
+        try {
+          localStorage.removeItem('supabase-auth-user')
+        } catch (e) {
+          debugError('Auth Provider: Failed to remove user from localStorage', e)
+        }
+
+        router.push('/auth/login')
+      } else if (event === 'TOKEN_REFRESHED') {
+        debugLog('Auth Provider: Token refreshed for user:', session?.user?.email)
+        setSession(session)
+        setUser(session?.user ?? null)
+        setHasInvalidToken(false)
+
+        // Update stored user
+        if (session?.user) {
+          try {
+            localStorage.setItem('supabase-auth-user', JSON.stringify(session.user))
+          } catch (e) {
+            debugError('Auth Provider: Failed to update user in localStorage', e)
+          }
+        }
+      } else if (event === 'USER_UPDATED') {
+        debugLog('Auth Provider: User updated:', session?.user?.email)
+        setSession(session)
+        setUser(session?.user ?? null)
+        setHasInvalidToken(false)
+
+        // Update stored user
+        if (session?.user) {
+          try {
+            localStorage.setItem('supabase-auth-user', JSON.stringify(session.user))
+          } catch (e) {
+            debugError('Auth Provider: Failed to update user in localStorage', e)
+          }
+        }
+      } else {
+        debugLog('Auth Provider: Other auth event:', event)
+        setSession(session)
+        setUser(session?.user ?? null)
+
+        // Update stored user if present
+        if (session?.user) {
+          try {
+            localStorage.setItem('supabase-auth-user', JSON.stringify(session.user))
+          } catch (e) {
+            debugError('Auth Provider: Failed to update user in localStorage', e)
+          }
+        }
       }
-    )
+
+      setIsLoading(false)
+    })
+
+    // Clean up invalid tokens when detected
+    if (hasInvalidToken) {
+      cleanupInvalidTokens()
+    }
 
     return () => {
       subscription.unsubscribe()
     }
-  }, [router, supabase.auth])
+  }, [getInitialSession, supabaseClient.auth, router, hasInvalidToken])
 
   const signIn = async (email: string, password: string, redirectTo: string = '/') => {
     try {
@@ -121,7 +293,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       debugLog('Auth Provider: Attempting to sign in:', email)
 
       // Sign in with password
-      const { data, error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabaseClient.auth.signInWithPassword({
         email,
         password
       })
@@ -139,62 +311,50 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setSession(data.session)
         setUser(data.user)
 
+        // Persist the auth session in localStorage
+        try {
+          localStorage.setItem('supabase-auth-user', JSON.stringify(data.user))
+          localStorage.setItem('supabase-auth-state', 'authenticated')
+          localStorage.setItem('supabase-auth-last-signin', new Date().toISOString())
+        } catch (e) {
+          debugError('Auth Provider: Failed to store auth state in localStorage', e)
+        }
+
         // Log session details
         if (data.session) {
           debugLog('Auth Provider: Session expires at:', new Date(data.session.expires_at! * 1000).toLocaleString())
           debugLog('Auth Provider: Access token:', data.session.access_token ? 'Present' : 'Missing')
 
-          // Verify the session was stored by checking cookies
-          if (typeof document !== 'undefined') {
-            const cookies = document.cookie.split(';').map(c => c.trim());
-            const authCookies = cookies.filter(c =>
-              c.startsWith('sb-auth-token=') ||
-              c.includes('-auth-token=')
-            );
+          // Force cookies to be set properly by using the session_api
+          try {
+            debugLog('Auth Provider: Setting auth cookies via API')
+            // Use window.location.origin to ensure we're using the correct port
+            const apiUrl = `${window.location.origin}/api/auth/set-cookies`;
+            debugLog('Auth Provider: Using API URL:', apiUrl);
 
-            debugLog('Auth Provider: Auth cookies found:', authCookies.length > 0);
+            const response = await fetch(apiUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                event: 'SIGNED_IN',
+                session: data.session,
+              }),
+            })
 
-            // If no cookies were set automatically, set them manually
-            if (authCookies.length === 0) {
-              debugLog('Auth Provider: No auth cookies found, setting manually');
-
-              // Manually set the cookie to ensure it's available for server-side requests
-              const cookieValue = JSON.stringify({
-                access_token: data.session.access_token,
-                refresh_token: data.session.refresh_token,
-                expires_at: data.session.expires_at
-              });
-
-              // Set the cookie with appropriate options
-              document.cookie = `sb-auth-token=${encodeURIComponent(cookieValue)};path=/;max-age=${60 * 60 * 24 * 7};SameSite=Lax`;
-
-              // Also set the project-specific cookie name that Supabase might use
-              const projectId = process.env.NEXT_PUBLIC_SUPABASE_URL?.split('//')[1]?.split('.')[0];
-              if (projectId) {
-                document.cookie = `sb-${projectId}-auth-token=${encodeURIComponent(cookieValue)};path=/;max-age=${60 * 60 * 24 * 7};SameSite=Lax`;
-              }
-
-              debugLog('Auth Provider: Cookies manually set');
+            if (response.ok) {
+              debugLog('Auth Provider: Cookies set successfully')
+            } else {
+              debugLog('Auth Provider: Failed to set cookies via API:', response.status, response.statusText)
             }
+          } catch (cookieError) {
+            debugError('Auth Provider: Error setting cookies:', cookieError)
           }
 
           // Double-check the session
-          const { data: sessionData } = await supabase.auth.getSession();
+          const { data: sessionData } = await supabaseClient.auth.getSession();
           debugLog('Auth Provider: Session verification:', !!sessionData.session);
-
-          if (!sessionData.session) {
-            debugError('Auth Provider: Session verification failed, trying to set session manually');
-
-            // Try to set the session manually
-            await supabase.auth.setSession({
-              access_token: data.session.access_token,
-              refresh_token: data.session.refresh_token
-            });
-
-            // Check again
-            const { data: recheckData } = await supabase.auth.getSession();
-            debugLog('Auth Provider: Session recheck:', !!recheckData.session);
-          }
         }
 
         debugLog('Auth Provider: Login successful, ready for redirect to:', redirectTo);
@@ -237,7 +397,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       debugLog('[DEBUG] Auth Provider: User created successfully:', data.user.id)
 
       // Now sign in with the created user
-      const { error: signInError } = await supabase.auth.signInWithPassword({
+      const { error: signInError } = await supabaseClient.auth.signInWithPassword({
         email,
         password
       })
@@ -262,7 +422,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signOut = async () => {
     try {
       setIsLoading(true)
-      const { error } = await supabase.auth.signOut()
+      const { error } = await supabaseClient.auth.signOut()
 
       if (error) {
         throw error
@@ -280,7 +440,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const resetPassword = async (email: string) => {
     try {
       setIsLoading(true)
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      const { error } = await supabaseClient.auth.resetPasswordForEmail(email, {
         redirectTo: `${window.location.origin}/auth/reset-password`,
       })
 
@@ -299,13 +459,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     user,
     session,
     isLoading,
+    hasInvalidToken,
     signIn,
     signUp,
     signOut,
     resetPassword,
   }
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+  return (
+    <SessionContextProvider supabaseClient={supabaseClient}>
+      <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+    </SessionContextProvider>
+  )
 }
 
 export function useAuth() {

@@ -101,11 +101,11 @@ export function formatFileSize(bytes: number): string {
 
 export function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`
-  
+
   const seconds = Math.floor(ms / 1000)
   const minutes = Math.floor(seconds / 60)
   const hours = Math.floor(minutes / 60)
-  
+
   if (hours > 0) {
     return `${hours}h ${minutes % 60}m ${seconds % 60}s`
   }
@@ -121,8 +121,9 @@ export function estimateProcessingTime(file: File): number {
   const sizeMultiplier = file.size / (1024 * 1024) // Size in MB
 
   if (file.type === "application/pdf") {
-    // Assume 2 seconds per page, rough estimate from file size
-    const estimatedPages = Math.ceil(sizeMultiplier * 10) // Rough estimate: 10 pages per MB
+    // More accurate estimation: 2-3 pages per MB for typical PDFs
+    // This is a conservative estimate that works better for most PDFs
+    const estimatedPages = Math.ceil(sizeMultiplier * 2.5) // 2.5 pages per MB
     return baseTime + estimatedPages * 2000
   }
 
@@ -134,3 +135,69 @@ export function formatTimestamp(timestamp: number): string {
   return new Date(timestamp).toLocaleString()
 }
 
+/**
+ * Validates and cleans base64 data
+ * @param base64Data The base64 data to validate and clean
+ * @returns Cleaned base64 data or null if invalid
+ */
+export function validateAndCleanBase64(base64Data: string): string | null {
+  if (!base64Data || base64Data.length < 100) {
+    console.error('Invalid base64 data received, length:', base64Data?.length || 0);
+    return null;
+  }
+
+  // Remove data URL prefix if present (handle both image and application types)
+  return base64Data.replace(/^data:(image|application)\/[a-z.]+;base64,/, '');
+}
+
+/**
+ * Convert base64 data to a Blob
+ * @param base64Data The base64 data to convert
+ * @param mimeType The MIME type of the data
+ * @returns A Blob containing the data
+ */
+export async function base64ToBlob(base64Data: string, mimeType: string): Promise<Blob> {
+  // Clean the base64 data
+  const cleanBase64 = validateAndCleanBase64(base64Data);
+
+  if (!cleanBase64) {
+    throw new Error('Invalid base64 data');
+  }
+
+  // Convert base64 to binary
+  const byteCharacters = atob(cleanBase64);
+  const byteArrays = [];
+
+  for (let offset = 0; offset < byteCharacters.length; offset += 1024) {
+    const slice = byteCharacters.slice(offset, offset + 1024);
+    const byteNumbers = new Array(slice.length);
+
+    for (let i = 0; i < slice.length; i++) {
+      byteNumbers[i] = slice.charCodeAt(i);
+    }
+
+    const byteArray = new Uint8Array(byteNumbers);
+    byteArrays.push(byteArray);
+  }
+
+  return new Blob(byteArrays, { type: mimeType });
+}
+
+/**
+ * Convert a file to base64 data
+ * @param file The file to convert
+ * @returns A Promise that resolves to the base64 data
+ */
+export function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      // Extract the base64 data from the data URL
+      const base64 = result.split(',')[1];
+      resolve(base64);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}

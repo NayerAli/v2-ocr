@@ -31,8 +31,18 @@ export const camelToSnake = (obj: any): any => {
   return Object.keys(obj).reduce((acc, key) => {
     const snakeKey = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`)
 
-    // Special case for 'id' which should remain as is
-    const finalKey = key === 'id' ? 'id' : snakeKey
+    // Special cases for keys that need specific handling
+    let finalKey = snakeKey;
+
+    // 'id' should remain as is
+    if (key === 'id') {
+      finalKey = 'id';
+    }
+
+    // Ensure 'originalFilename' is properly converted to 'original_filename'
+    if (key === 'originalFilename') {
+      finalKey = 'original_filename';
+    }
 
     // Skip File objects
     if (typeof window !== 'undefined' && obj[key] instanceof File) {

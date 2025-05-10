@@ -1,8 +1,8 @@
 // Queue-related database operations
 
+import { getSupabaseClient, isSupabaseConfigured, mapToProcessingStatus, camelToSnake } from '../utils'
 import { getUser } from '../../auth'
 import type { ProcessingStatus } from '@/types'
-import { supabase, isSupabaseConfigured, mapToProcessingStatus, camelToSnake } from '../utils'
 
 /**
  * Get all queue items for the current user
@@ -20,39 +20,58 @@ export async function getQueue(): Promise<ProcessingStatus[]> {
     return []
   }
 
-  // Get the current user
-  if (shouldLog) {
-    console.log('[DEBUG] Getting current user');
+  // Determine if we're in a server context
+  const isServer = typeof window === 'undefined';
+  let client;
+  let userId = null;
+
+  if (isServer) {
+    // In server context, use the service client to bypass RLS
+    const { getServiceClient } = await import('../utils/service-client');
+    client = getServiceClient();
+    if (shouldLog) {
+      console.log('[DEBUG] Using service client in server context for getQueue');
+    }
+  } else {
+    // In client context, use the regular client with user authentication
+    client = getSupabaseClient();
+
+    // Get the current user and bail if not authenticated
+    const user = await getUser();
+    userId = user?.id;
+
+    if (!userId) {
+      if (shouldLog) console.error('[DEBUG] No authenticated user found. Cannot get queue.');
+      return []
+    }
+
+    if (shouldLog) {
+      console.log('[DEBUG] Using regular client in client context for getQueue');
+      console.log('[DEBUG] Current user:', user ? 'Authenticated' : 'Not authenticated');
+    }
   }
-  const user = await getUser()
-  if (shouldLog) {
-    console.log('[DEBUG] Current user:', user ? 'Authenticated' : 'Not authenticated');
+
+  if (!client) {
+    console.error('[DEBUG] Failed to create Supabase client');
+    return [];
   }
 
   // Build the query
   if (shouldLog) {
     console.log('[DEBUG] Building Supabase query');
   }
-  let query = supabase
+  let query = client
     .from('documents')
     .select('*')
 
-  // If user is authenticated, filter by user_id
-  if (user) {
-    if (shouldLog) {
-      console.log('[DEBUG] Adding user filter to query, user ID:', user.id);
-    }
-    query = query
-      .eq('user_id', user.id)
-      // Include all statuses including 'completed' and 'error'
-      .in('status', ['pending', 'processing', 'queued', 'completed', 'failed', 'cancelled', 'error'])
-  } else {
-    if (shouldLog) {
-      console.log('[DEBUG] No user filter applied to query');
-    }
-    // For backward compatibility, still filter by status
-    query = query.in('status', ['pending', 'processing', 'queued', 'completed', 'failed', 'cancelled', 'error'])
+  // If in client context and user is authenticated, filter by user_id
+  if (!isServer && userId) {
+    if (shouldLog) console.log('[DEBUG] Adding user filter to query, user ID:', userId);
+    query = query.eq('user_id', userId);
   }
+
+  // Include all statuses
+  query = query.in('status', ['pending', 'processing', 'queued', 'completed', 'failed', 'cancelled', 'error']);
 
   // Order by created_at
   query = query.order('created_at', { ascending: false })
@@ -143,6 +162,8 @@ export async function saveToQueue(status: ProcessingStatus): Promise<void> {
     fileType: statusWithoutFile.fileType || (statusAny.type as string | undefined),
     // Ensure storagePath is set
     storagePath: statusWithoutFile.storagePath || `${statusWithoutFile.id}${statusWithoutFile.fileType || '.unknown'}`,
+    // Ensure originalFilename is set, defaulting to filename if not provided
+    originalFilename: statusWithoutFile.originalFilename || statusWithoutFile.filename,
     // Map startTime to processingStartedAt if startTime exists and processingStartedAt doesn't
     processingStartedAt: statusWithoutFile.processingStartedAt ||
       (statusAny.startTime && typeof statusAny.startTime === 'string' || typeof statusAny.startTime === 'number' ?
@@ -163,8 +184,8 @@ export async function saveToQueue(status: ProcessingStatus): Promise<void> {
     status: status.status || 'queued', // Ensure status is set, default to 'queued'
     createdAt: status.createdAt instanceof Date ? status.createdAt : new Date(status.createdAt || Date.now()),
     updatedAt: new Date(),
-    // Add user_id if user is authenticated
-    user_id: user?.id || null
+    // Add user_id, prioritizing existing user_id in status, then authenticated user, then fallback to a default
+    user_id: status.user_id || user?.id || '2f4a9512-414a-47cc-a1d1-a110739085f8' // Fallback to test user ID if needed
   }
   if (shouldLog) {
     console.log('[DEBUG] Created updated status object with dates and user_id');
@@ -190,11 +211,40 @@ export async function saveToQueue(status: ProcessingStatus): Promise<void> {
   }
 
   try {
+    // Determine if we're in a server context
+    const isServer = typeof window === 'undefined';
+    let client;
+
+    if (isServer) {
+      try {
+        // In server context, use the service client to bypass RLS
+        const { getServiceClient } = await import('../utils/service-client');
+        client = getServiceClient();
+        if (shouldLog) {
+          console.log('[DEBUG] Using service client in server context');
+        }
+      } catch (error) {
+        console.error('[DEBUG] Error importing service client:', error);
+        client = getSupabaseClient();
+      }
+    } else {
+      // In client context, use the regular client with user authentication
+      client = getSupabaseClient();
+      if (shouldLog) {
+        console.log('[DEBUG] Using regular client in client context');
+      }
+    }
+
+    if (!client) {
+      console.error('[DEBUG] Failed to create Supabase client');
+      return;
+    }
+
     // Upsert to Supabase
     if (shouldLog) {
       console.log('[DEBUG] Executing Supabase upsert operation');
     }
-    const { data, error } = await supabase
+    const { data, error } = await client
       .from('documents')
       .upsert(snakeCaseStatus)
       .select()
@@ -217,10 +267,12 @@ export async function saveToQueue(status: ProcessingStatus): Promise<void> {
  * Add a document to the queue (new function with more explicit name)
  */
 export async function addToQueue(document: Partial<ProcessingStatus>): Promise<void> {
-  // Set status to queued explicitly
+  // Set status to queued explicitly and ensure originalFilename is set
   const queuedDocument = {
     ...document,
-    status: 'queued'
+    status: 'queued',
+    // Ensure originalFilename is set, defaulting to filename if not provided
+    originalFilename: document.originalFilename || document.filename
   }
 
   // Use the existing saveToQueue function
@@ -248,13 +300,39 @@ export async function removeFromQueue(id: string): Promise<void> {
   }
 
   try {
+    // Determine if we're in a server context
+    const isServer = typeof window === 'undefined';
+    let client;
+
+    if (isServer) {
+      // In server context, use the service client to bypass RLS
+      const { getServiceClient } = await import('../utils/service-client');
+      client = getServiceClient();
+      console.log('[DEBUG] Using service client in server context for removeFromQueue');
+    } else {
+      // In client context, use the regular client with user authentication
+      client = getSupabaseClient();
+      console.log('[DEBUG] Using regular client in client context for removeFromQueue');
+    }
+
+    if (!client) {
+      console.error('[DEBUG] Failed to create Supabase client');
+      return;
+    }
+
     // Delete from ocr_results first
     console.log('[DEBUG] Deleting results for document:', id);
-    const { error: resultsError } = await supabase
+    let resultsQuery = client
       .from('ocr_results')
       .delete()
-      .eq('document_id', id)
-      .eq('user_id', user.id) // Add user_id filter
+      .eq('document_id', id);
+
+    // Only add user_id filter in client context
+    if (!isServer && user.id) {
+      resultsQuery = resultsQuery.eq('user_id', user.id);
+    }
+
+    const { error: resultsError } = await resultsQuery;
 
     if (resultsError) {
       console.error('[DEBUG] Error removing results:', resultsError)
@@ -264,11 +342,17 @@ export async function removeFromQueue(id: string): Promise<void> {
 
     // Then delete from documents
     console.log('[DEBUG] Deleting document:', id);
-    const { error: documentError } = await supabase
+    let documentQuery = client
       .from('documents')
       .delete()
-      .eq('id', id)
-      .eq('user_id', user.id) // Add user_id filter
+      .eq('id', id);
+
+    // Only add user_id filter in client context
+    if (!isServer && user.id) {
+      documentQuery = documentQuery.eq('user_id', user.id);
+    }
+
+    const { error: documentError } = await documentQuery;
 
     if (documentError) {
       console.error('[DEBUG] Error removing document:', documentError)
@@ -303,9 +387,31 @@ export async function updateQueueItem(id: string, updates: Partial<ProcessingSta
   }
 
   try {
+    // Determine if we're in a server context
+    const isServer = typeof window === 'undefined';
+    let client;
+
+    if (isServer) {
+      // In server context, use the service client to bypass RLS
+      const { getServiceClient } = await import('../utils/service-client');
+      client = getServiceClient();
+      console.log('[DEBUG] Using service client in server context for updateQueueItem');
+    } else {
+      // In client context, use the regular client with user authentication
+      client = getSupabaseClient();
+      console.log('[DEBUG] Using regular client in client context for updateQueueItem');
+    }
+
+    if (!client) {
+      console.error('[DEBUG] Failed to create Supabase client');
+      return null;
+    }
+
     // Prepare the update object
     const updateData = {
       ...updates,
+      // If filename is being updated but originalFilename isn't, set originalFilename to filename
+      originalFilename: updates.originalFilename || (updates.filename ? updates.filename : undefined),
       updated_at: new Date().toISOString()
     }
 
@@ -314,13 +420,17 @@ export async function updateQueueItem(id: string, updates: Partial<ProcessingSta
 
     // Update the document
     console.log('[DEBUG] Updating document:', id);
-    const { data, error } = await supabase
+    let query = client
       .from('documents')
       .update(snakeCaseUpdates)
-      .eq('id', id)
-      .eq('user_id', user.id) // Add user_id filter
-      .select()
-      .single()
+      .eq('id', id);
+
+    // Only add user_id filter in client context
+    if (!isServer && user.id) {
+      query = query.eq('user_id', user.id);
+    }
+
+    const { data, error } = await query.select().single();
 
     if (error) {
       console.error('[DEBUG] Error updating document:', error)

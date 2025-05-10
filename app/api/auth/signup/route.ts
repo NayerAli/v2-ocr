@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 
 /**
  * POST /api/auth/signup
@@ -20,7 +20,8 @@ export async function POST(request: Request) {
     console.log('[API] Signup: Creating user without email confirmation:', email)
 
     // Create a Supabase admin client with the service role key
-    const supabaseAdmin = createClient(
+    // We use createSupabaseClient directly here since we need the admin client
+    const supabaseAdmin = createSupabaseClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
       {

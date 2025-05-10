@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getSupabaseClient } from '@/lib/supabase/singleton-client'
+import { createClient } from '@/utils/supabase/server'
 import { debugLog, debugError } from '@/lib/log'
 
 export async function GET(request: NextRequest) {
@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
   debugLog('Auth callback: Processing callback with code and redirect to:', redirectTo)
 
   if (code) {
-    const supabase = getSupabaseClient()
+    const supabase = createClient()
     const { data, error } = await supabase.auth.exchangeCodeForSession(code)
 
     if (error) {

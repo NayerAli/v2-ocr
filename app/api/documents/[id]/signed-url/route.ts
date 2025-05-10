@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServiceClient } from '@/lib/supabase/service-client'
+import { createClient } from '@/utils/supabase/server'
 import { logApiRequestToConsole } from '@/lib/server-console-logger'
 
 /**
@@ -16,9 +16,12 @@ export async function GET(
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
   const bypassKey = req.headers.get('x-api-key')
   const bypassAuth = bypassKey && serviceKey && bypassKey === serviceKey
-  const serviceClient = getServiceClient()
-  if (!serviceClient) {
-    return NextResponse.json({ error: 'Server error: service client not available' }, { status: 500 })
+  let serviceClient;
+  try {
+    serviceClient = createClient();
+  } catch (error) {
+    console.error('Error creating service client:', error);
+    return NextResponse.json({ error: 'Server error: service client not available' }, { status: 500 });
   }
   let user = null
   if (!bypassAuth) {

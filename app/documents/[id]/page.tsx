@@ -8,8 +8,6 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useToast } from "@/hooks/use-toast"
-import { db } from "@/lib/database"
-import type { ProcessingStatus, OCRResult } from "@/types"
 import { cn, isImageFile } from "@/lib/utils"
 import {
   Tooltip,
@@ -28,6 +26,7 @@ import {
 import { useRouter } from "next/navigation"
 import { useLanguage } from "@/hooks/use-language"
 import { Language, t, tCount } from "@/lib/i18n/translations"
+import type { ProcessingStatus, OCRResult } from "@/types"
 
 const LOADING_TIMEOUT = 30000 // 30 seconds
 const OPERATION_TIMEOUT = 10000 // 10 seconds
@@ -36,10 +35,79 @@ const OPERATION_TIMEOUT = 10000 // 10 seconds
 class ImageCache {
   private cache: Map<string, HTMLImageElement>
   private maxSize: number
+  private urlMap: Map<string, string> // Maps result IDs to URLs for tracking changes
+  private urlExpiryMap: Map<string, number> // Track URL expiration timestamps
+  private storagePathMap: Map<string, string> // Maps result IDs to storage paths
 
   constructor(maxSize = 10) {
     this.cache = new Map()
     this.maxSize = maxSize
+    this.urlMap = new Map()
+    this.urlExpiryMap = new Map()
+    this.storagePathMap = new Map()
+
+    // Try to restore cached data from sessionStorage
+    this.restoreFromStorage()
+  }
+
+  // Save cache metadata to sessionStorage (client-side only)
+  private saveToStorage(): void {
+    // Skip if not in browser environment
+    if (typeof window === 'undefined' || typeof sessionStorage === 'undefined') {
+      return;
+    }
+
+    try {
+      // We can't store the actual image elements, but we can store metadata
+      const urlMapData = Object.fromEntries(this.urlMap.entries())
+      const urlExpiryData = Object.fromEntries(this.urlExpiryMap.entries())
+      const storagePathData = Object.fromEntries(this.storagePathMap.entries())
+
+      sessionStorage.setItem('ocrImageCacheUrlMap', JSON.stringify(urlMapData))
+      sessionStorage.setItem('ocrImageCacheExpiryMap', JSON.stringify(urlExpiryData))
+      sessionStorage.setItem('ocrImageCacheStoragePath', JSON.stringify(storagePathData))
+    } catch (e) {
+      console.warn('[ImageCache] Failed to save cache metadata to sessionStorage', e)
+    }
+  }
+
+  // Restore cache metadata from sessionStorage (client-side only)
+  private restoreFromStorage(): void {
+    // Skip if not in browser environment
+    if (typeof window === 'undefined' || typeof sessionStorage === 'undefined') {
+      return;
+    }
+
+    try {
+      const urlMapData = sessionStorage.getItem('ocrImageCacheUrlMap')
+      const urlExpiryData = sessionStorage.getItem('ocrImageCacheExpiryMap')
+      const storagePathData = sessionStorage.getItem('ocrImageCacheStoragePath')
+
+      if (urlMapData) {
+        const parsed = JSON.parse(urlMapData)
+        Object.entries(parsed).forEach(([key, value]) => {
+          this.urlMap.set(key, value as string)
+        })
+      }
+
+      if (urlExpiryData) {
+        const parsed = JSON.parse(urlExpiryData)
+        Object.entries(parsed).forEach(([key, value]) => {
+          this.urlExpiryMap.set(key, value as number)
+        })
+      }
+
+      if (storagePathData) {
+        const parsed = JSON.parse(storagePathData)
+        Object.entries(parsed).forEach(([key, value]) => {
+          this.storagePathMap.set(key, value as string)
+        })
+      }
+
+      console.log(`[ImageCache] Restored cache metadata for ${this.urlMap.size} items`)
+    } catch (e) {
+      console.warn('[ImageCache] Failed to restore cache from sessionStorage', e)
+    }
   }
 
   has(key: string): boolean {
@@ -56,7 +124,7 @@ class ImageCache {
     return item
   }
 
-  set(key: string, image: HTMLImageElement): void {
+  set(key: string, image: HTMLImageElement, resultId?: string): void {
     if (this.cache.size >= this.maxSize) {
       // Remove least recently used
       const firstKey = this.cache.keys().next().value
@@ -65,10 +133,53 @@ class ImageCache {
       }
     }
     this.cache.set(key, image)
+
+    // If we have a result ID, track the URL for this result
+    if (resultId) {
+      this.urlMap.set(resultId, key)
+      // Save cache metadata to storage
+      this.saveToStorage()
+    }
   }
 
-  preload(url: string): Promise<HTMLImageElement> {
+  // Check if the URL for a result has changed
+  hasUrlChanged(resultId: string, newUrl: string): boolean {
+    const oldUrl = this.urlMap.get(resultId)
+    return oldUrl !== newUrl
+  }
+
+  // Store expiration time for a URL
+  setUrlExpiry(resultId: string, expiryTimestamp: number, storagePath: string): void {
+    this.urlExpiryMap.set(resultId, expiryTimestamp)
+    this.storagePathMap.set(resultId, storagePath)
+    this.saveToStorage()
+  }
+
+  // Check if a URL is expired or about to expire (within 5 minutes)
+  isUrlExpired(resultId: string): boolean {
+    const expiry = this.urlExpiryMap.get(resultId)
+    if (!expiry) return true
+
+    // Consider URLs that expire in the next 5 minutes as expired
+    const fiveMinutesFromNow = Date.now() + 5 * 60 * 1000
+    return expiry < fiveMinutesFromNow
+  }
+
+  // Get storage path for a result
+  getStoragePath(resultId: string): string | undefined {
+    return this.storagePathMap.get(resultId)
+  }
+
+  preload(url: string, resultId?: string): Promise<HTMLImageElement> {
     return new Promise((resolve, reject) => {
+      // Skip empty URLs
+      if (!url) {
+        reject(new Error('No URL provided'))
+        return
+      }
+
+      // For base64 images, we can use them directly
+      if (url.startsWith('data:image/')) {
       if (this.has(url)) {
         resolve(this.get(url)!)
         return
@@ -76,20 +187,91 @@ class ImageCache {
 
       const img = new Image()
       img.onload = () => {
-        this.set(url, img)
+          this.set(url, img, resultId)
         resolve(img)
       }
-      img.onerror = reject
+        img.onerror = () => {
+          reject(new Error('Failed to load base64 image'))
+        }
+        img.src = url
+        return
+      }
+
+      // For regular URLs, check if we already have it cached
+      if (this.has(url) && (!resultId || !this.hasUrlChanged(resultId, url))) {
+        resolve(this.get(url)!)
+        return
+      }
+
+      const img = new Image()
+
+      // Set crossOrigin to anonymous to avoid CORS issues with signed URLs
+      img.crossOrigin = "anonymous"
+
+      img.onload = () => {
+        this.set(url, img, resultId)
+        resolve(img)
+      }
+      img.onerror = () => {
+        // Log the actual error for debugging but don't expose in production
+        if (process.env.NODE_ENV === 'development') {
+          console.warn(`[ImageCache] Failed to preload: ${url.substring(0, 50)}...`)
+        }
+        reject(new Error('Failed to load image'))
+      }
       img.src = url
     })
   }
 
   clear(): void {
     this.cache.clear()
+    // We keep the URL and expiry maps for reference
+    // But clear sessionStorage (client-side only)
+    if (typeof window !== 'undefined' && typeof sessionStorage !== 'undefined') {
+      try {
+        sessionStorage.removeItem('ocrImageCacheUrlMap')
+        sessionStorage.removeItem('ocrImageCacheExpiryMap')
+        sessionStorage.removeItem('ocrImageCacheStoragePath')
+      } catch (e) {
+        // Ignore errors
+      }
+    }
+  }
+
+  getExpiry(resultId: string): number | undefined {
+    return this.urlExpiryMap.get(resultId)
   }
 }
 
-const imageCache = new ImageCache(15) // Cache up to 15 pages
+// Create the image cache as a lazy-loaded singleton to ensure it's only created on the client side
+const getImageCache = (() => {
+  let instance: ImageCache | null = null;
+  return () => {
+    if (typeof window === 'undefined') {
+      // Return a minimal implementation for SSR that does nothing
+      return {
+        has: () => false,
+        get: () => undefined,
+        set: () => {},
+        preload: () => Promise.resolve(new Image()),
+        hasUrlChanged: () => true,
+        setUrlExpiry: () => {},
+        isUrlExpired: () => true,
+        getStoragePath: () => undefined,
+        getExpiry: () => undefined,
+        clear: () => {}
+      } as unknown as ImageCache;
+    }
+
+    if (!instance) {
+      instance = new ImageCache(15); // Cache up to 15 pages
+    }
+    return instance;
+  };
+})();
+
+// Get the image cache instance
+const imageCache = getImageCache();
 
 // Add utility function for RTL text handling
 function isRTLText(text: string): boolean {
@@ -165,7 +347,193 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
   const [pageInputValue, setPageInputValue] = useState<string>("")
   const [isEditingPage, setIsEditingPage] = useState(false)
 
-  const currentResult = results.find((r) => r.pageNumber === currentPage)
+  // --- Robust Image Cache and Signed URL Management ---
+  function getExpiryFromSignedUrl(url: string): number | null {
+    try {
+      const u = new URL(url)
+      const e = u.searchParams.get('e')
+      if (e) return parseInt(e, 10) * 1000 // Supabase uses seconds
+    } catch {}
+    return null
+  }
+
+  // Expose expiry info via a public method
+  function getUrlExpiry(resultId: string): number | undefined {
+    return imageCache.getExpiry(resultId)
+  }
+
+  function isUrlExpired(expiry: number | undefined): boolean {
+    if (!expiry) return true
+    return expiry < Date.now() + 5 * 60 * 1000
+  }
+
+  const refreshSignedUrl = useCallback(async (result: OCRResult | undefined): Promise<string | undefined> => {
+    // If we already have a valid URL, use it
+    if (result?.imageUrl) {
+      return result.imageUrl;
+    }
+
+    // If no result or no storage path, we can't proceed
+    if (!result || !result.storagePath) {
+      return undefined;
+    }
+
+    try {
+      const { createClient } = await import('@/utils/supabase/client')
+      const supabase = createClient()
+
+      // Get the current user
+      const { data: { user }, error: userError } = await supabase.auth.getUser()
+      if (userError || !user) {
+        return undefined;
+      }
+
+      // Use the correct path format for the storage
+      // The correct format is: uploads/{documentId}/{filename}
+      let path = result.storagePath;
+
+      // Create a signed URL
+      const expiresIn = 3600; // 1 hour is enough for viewing
+      const { data, error } = await supabase.storage
+        .from('ocr-documents')
+        .createSignedUrl(path, expiresIn);
+
+      if (error || !data?.signedUrl) {
+        return undefined;
+      }
+
+      // Update the results state with the new URL
+      setResults((prev: OCRResult[]) => prev.map((r: OCRResult) =>
+        r.id === result.id ? { ...r, imageUrl: data.signedUrl } : r
+      ));
+
+      return data.signedUrl;
+    } catch (error) {
+      return undefined;
+    }
+  }, [setResults])
+
+  useEffect(() => {
+    if (!results.length) return
+    (async () => {
+      for (const r of results) {
+        if (!r.id) continue
+        const expiry = getUrlExpiry(r.id)
+        if (!r.imageUrl || isUrlExpired(expiry)) {
+          await refreshSignedUrl(r)
+        }
+      }
+    })()
+  }, [results, refreshSignedUrl])
+
+  const currentResult = results.find((r) => {
+    const pageNum = r.pageNumber || r.page_number || 0;
+    return pageNum === currentPage;
+  });
+
+  // Simple image preloading with minimal API calls
+  async function safePreloadImage(result: OCRResult): Promise<void> {
+    if (!result?.id) {
+      setImageError(true);
+      return;
+    }
+
+    // Use existing URL if available
+    let url = result.imageUrl;
+
+    // Only get a new URL if we don't have one
+    if (!url && result.storagePath) {
+      url = await refreshSignedUrl(result);
+    }
+
+    if (!url) {
+      setImageError(true);
+      return;
+    }
+
+    // Try to load the image
+    try {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => {
+          setImageLoaded(true);
+          setImageError(false);
+          resolve();
+        };
+
+        img.onerror = () => {
+          reject(new Error("Failed to load image"));
+        };
+
+        img.src = url;
+      });
+    } catch (err) {
+      setImageError(true);
+    }
+  }
+
+  // Use safePreloadImage in all preloading and image loading logic
+  useEffect(() => {
+    if (!results.length) return
+    // Preload current, next, and previous images efficiently
+    const idxs = [currentPage - 1, currentPage, currentPage - 2].filter(i => i >= 0 && i < results.length)
+    idxs.forEach(idx => {
+      const r = results[idx]
+      if (r) safePreloadImage(r)
+    })
+  }, [currentPage, results])
+
+  // Use safePreloadImage for currentResult when it changes
+  useEffect(() => {
+    if (currentResult) safePreloadImage(currentResult)
+  }, [currentResult])
+
+  // Simple image error handler
+  const handleImageError = useCallback(() => {
+    setImageError(true);
+    setImageLoaded(false);
+
+    // Only try to refresh if we have a result
+    if (currentResult) {
+      setIsRetrying(true);
+      refreshSignedUrl(currentResult)
+        .then(url => {
+          setIsRetrying(false);
+          if (!url) {
+            setImageError(true);
+          }
+        })
+        .catch(() => {
+          setIsRetrying(false);
+          setImageError(true);
+        });
+    }
+  }, [currentResult, refreshSignedUrl])
+
+  // Simple image retry handler
+  const handleImageRetry = async (result: OCRResult | undefined) => {
+    if (!result || isRetrying) return;
+
+    setIsRetrying(true);
+    setImageError(false);
+    setImageLoaded(false);
+    setRetryCount(prev => prev + 1);
+
+    try {
+      // Try to get a fresh URL
+      const url = await refreshSignedUrl(result);
+
+      if (!url) {
+        setImageError(true);
+      }
+    } catch (err) {
+      setImageError(true);
+    } finally {
+      setIsRetrying(false);
+    }
+  }
 
   // Move getStatusDisplay inside the component
   const getStatusDisplay = (status: string, currentPage?: number, totalPages?: number) => {
@@ -249,14 +617,23 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
           })
         }, LOADING_TIMEOUT)
 
-        const queue = await db.getQueue()
-        const doc = queue.find((item) => item.id === params.id)
-        if (!doc) {
-          setError("Document not found in the processing queue")
+        // Import the Supabase client
+        const { createClient } = await import('@/utils/supabase/client')
+        const supabase = createClient()
+
+        // Fetch the document by ID
+        const { data: doc, error: docError } = await supabase
+          .from('documents')
+          .select('*')
+          .eq('id', params.id)
+          .single()
+
+        if (docError || !doc) {
+          setError("Document not found in the database")
           toast({
             variant: "destructive",
             title: "Document Not Found",
-            description: "The requested document could not be found in the processing queue.",
+            description: "The requested document could not be found.",
           })
           return
         }
@@ -268,8 +645,43 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
           return
         }
 
-        const docResults = await db.getResults(params.id)
+        // Fetch OCR results for the document
+
+        // First, check if the document has a user_id field and if it matches the current user
+        if (doc.user_id) {
+          // Get the current user
+          const { data: { user } } = await supabase.auth.getUser();
+
+          // Check if the document belongs to the current user
+          if (user && doc.user_id !== user.id) {
+            setError("You don't have permission to view this document");
+            toast({
+              variant: "destructive",
+              title: "Access Denied",
+              description: "You don't have permission to view this document.",
+            });
+            return;
+          }
+        }
+
+        // Try to fetch OCR results with document_id field
+        const { data: docResults, error: resultsError } = await supabase
+          .from('ocr_results')
+          .select('*')
+          .eq('document_id', params.id);
+
+        // If no results found with document_id, try with documentId field
+        let finalResults = docResults;
         if (!docResults || docResults.length === 0) {
+          const { data: altResults } = await supabase
+            .from('ocr_results')
+            .select('*')
+            .eq('documentId', params.id);
+
+          finalResults = altResults;
+        }
+
+        if (resultsError || !finalResults || finalResults.length === 0) {
           setError("No OCR results found for this document")
           toast({
             variant: "destructive",
@@ -278,7 +690,24 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
           })
           return
         }
-        setResults(docResults.sort((a, b) => a.pageNumber - b.pageNumber))
+
+        // Standardize field names to camelCase
+        const standardizedResults = finalResults.map((result: OCRResult) => {
+          // Create a standardized result with camelCase fields
+          return {
+            ...result,
+            // Ensure we have camelCase versions of all fields
+            documentId: result.documentId || result.document_id,
+            pageNumber: result.pageNumber || result.page_number,
+            imageUrl: result.imageUrl || result.image_url,
+            storagePath: result.storagePath || result.storage_path
+          };
+        });
+
+        // Sort by page number
+        setResults(standardizedResults.sort((a: OCRResult, b: OCRResult) => {
+          return (a.pageNumber || 0) - (b.pageNumber || 0);
+        }))
 
         clearTimeout(timeoutId)
       } catch (err) {
@@ -306,28 +735,53 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     setIsRetrying(false)
   }, [])
 
-  // Preload image when URL changes
+  // Simple image loading effect
   useEffect(() => {
-    if (!currentResult?.imageUrl) return
+    if (!currentResult) return;
 
-    const img = new Image()
-    img.onload = () => {
-      setImageLoaded(true)
-      setImageError(false)
-      setIsRetrying(false)
-    }
-    img.onerror = () => {
-      setImageError(true)
-      setImageLoaded(false)
-      setIsRetrying(false)
-    }
-    img.src = currentResult.imageUrl
+    // If we have a URL, use it directly
+    if (currentResult.imageUrl) {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
 
-    return () => {
-      img.onload = null
-      img.onerror = null
+      img.onload = () => {
+        setImageLoaded(true);
+        setImageError(false);
+        setIsRetrying(false);
+      };
+
+      img.onerror = () => {
+        setImageError(true);
+        setImageLoaded(false);
+        setIsRetrying(false);
+      };
+
+      img.src = currentResult.imageUrl;
+
+      return () => {
+        img.onload = null;
+        img.onerror = null;
+      };
+    } else if (currentResult.storagePath) {
+      // If no URL but we have a storage path, try to get a URL
+      setIsRetrying(true);
+      refreshSignedUrl(currentResult)
+        .then(url => {
+          if (url) {
+            setImageError(false);
+          } else {
+            setImageError(true);
+          }
+          setIsRetrying(false);
+        })
+        .catch(() => {
+          setImageError(true);
+          setIsRetrying(false);
+        });
+    } else {
+      setImageError(true);
     }
-  }, [currentResult?.imageUrl])
+  }, [currentResult, refreshSignedUrl]);
 
   // Reset states when page changes
   useEffect(() => {
@@ -336,36 +790,110 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     setIsRetrying(false)
   }, [currentPage])
 
-  // Add preloading logic
+  // Improve preloading logic with expiration checks
   useEffect(() => {
     if (!results.length) return
 
     const preloadImages = async () => {
       const currentIdx = currentPage - 1
+      if (currentIdx < 0 || currentIdx >= results.length) return
+
+      // First, check if the current page's URL is expired or about to expire
+      const currentResult = results[currentIdx]
+      if (currentResult && currentResult.id && currentResult.imageUrl && imageCache.isUrlExpired(currentResult.id)) {
+        console.log(`[ImagePreload] Current page URL is expired or about to expire, refreshing for page ${currentPage}`)
+
+        // Get the storage path from cache if available
+        let storagePath = currentResult.storagePath
+        if (!storagePath && currentResult.id) {
+          storagePath = imageCache.getStoragePath(currentResult.id)
+        }
+
+        if (storagePath) {
+          try {
+            // Try to refresh the URL
+            const newUrl = await refreshSignedUrl({
+              ...currentResult,
+              storagePath
+            })
+
+            if (newUrl && newUrl !== currentResult.imageUrl) {
+              console.log(`[ImagePreload] Successfully refreshed URL for current page ${currentPage}`)
+            }
+          } catch (error) {
+            console.error(`[ImagePreload] Error refreshing URL for current page ${currentPage}:`, error)
+          }
+        }
+      }
+
       const pagesToPreload = [
-        // Current page
+        // Current page (highest priority)
         currentIdx,
-        // Next 2 pages
+        // Next page
         currentIdx + 1,
+        // Next 2 pages
         currentIdx + 2,
         // Previous page
         currentIdx - 1
       ].filter(idx => idx >= 0 && idx < results.length)
 
-      for (const idx of pagesToPreload) {
-        const result = results[idx]
-        if (result?.imageUrl) {
-          try {
-            await imageCache.preload(result.imageUrl)
-          } catch (error) {
-            console.error(`Failed to preload image for page ${idx + 1}:`, error)
-          }
-        }
+      // Log once at the beginning what we're trying to preload
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`[ImagePreload] Preloading pages: ${pagesToPreload.map(i => i + 1).join(', ')}`)
       }
+
+      // Load all in parallel for efficiency
+      await Promise.allSettled(
+        pagesToPreload.map(async (idx) => {
+        const result = results[idx]
+          if (!result) return
+
+          // Skip pages we're already loading
+          if (idx === currentIdx && imageLoaded) return
+
+          // Check if URL is expired or about to expire
+          if (result.id && result.imageUrl && imageCache.isUrlExpired(result.id)) {
+            console.log(`[ImagePreload] URL expired or about to expire for page ${result.pageNumber}, refreshing`)
+
+            // Get the storage path from cache if available
+            let storagePath = result.storagePath
+            if (!storagePath && result.id) {
+              storagePath = imageCache.getStoragePath(result.id)
+            }
+
+            if (storagePath) {
+              try {
+                // Try to refresh the URL
+                await refreshSignedUrl({
+                  ...result,
+                  storagePath
+                })
+          } catch (error) {
+                console.error(`[ImagePreload] Error refreshing URL for page ${result.pageNumber}:`, error)
+              }
+            }
+          }
+
+          // Now try to preload the image if we have a URL
+          if (result.imageUrl) {
+            try {
+              await imageCache.preload(result.imageUrl, result.id)
+              console.log(`[ImagePreload] Successfully preloaded page ${result.pageNumber}`)
+            } catch (error) {
+              // Handle silently - logged in the preload method
+            }
+          }
+        })
+      )
     }
 
+    // Run preloading with a small delay to prioritize rendering
+    const timer = setTimeout(() => {
     preloadImages()
-  }, [currentPage, results])
+    }, 200)
+
+    return () => clearTimeout(timer)
+  }, [currentPage, results, refreshSignedUrl, imageLoaded])
 
   // Clear cache when component unmounts or document changes
   useEffect(() => {
@@ -373,95 +901,6 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
       imageCache.clear()
     }
   }, [params.id])
-
-  // Function to refresh a signed URL using the storage path
-  const refreshSignedUrl = useCallback(async (result: OCRResult | undefined): Promise<string | undefined> => {
-    if (!result || !result.storagePath) return undefined;
-
-    try {
-      // Import the Supabase client
-      const { supabase } = await import('@/lib/database/utils');
-
-      // Create a signed URL that expires in 24 hours (86400 seconds)
-      const { data, error } = await supabase.storage
-        .from('ocr-documents')
-        .createSignedUrl(result.storagePath, 86400);
-
-      if (error || !data?.signedUrl) {
-        console.error('Error generating signed URL:', error);
-        return undefined;
-      }
-
-      // Update the result in our local state
-      setResults(prev => prev.map(r => {
-        if (r.id === result.id) {
-          return { ...r, imageUrl: data.signedUrl };
-        }
-        return r;
-      }));
-
-      return data.signedUrl;
-    } catch (error) {
-      console.error('Error refreshing signed URL:', error);
-      return undefined;
-    }
-  }, []);
-
-  // Handle image loading
-  const handleImageRetry = async (result: OCRResult | undefined) => {
-    if (!result || isRetrying) return;
-
-    setIsRetrying(true);
-    setImageError(false);
-    setImageLoaded(false);
-    setRetryCount(prev => prev + 1);
-
-    // Try to refresh the signed URL if available
-    let imageUrl = result.imageUrl;
-    if (result.storagePath) {
-      const refreshedUrl = await refreshSignedUrl(result);
-      if (refreshedUrl) {
-        imageUrl = refreshedUrl;
-      }
-    }
-
-    if (!imageUrl) {
-      setIsRetrying(false);
-      setImageError(true);
-      setImageLoaded(false);
-      toast({
-        variant: "destructive",
-        title: "Failed to Load",
-        description: "Could not generate a valid URL for this image.",
-      });
-      return;
-    }
-
-    // Load the image with the new URL
-    const img = new Image();
-    img.onload = () => {
-      setIsRetrying(false);
-      setImageLoaded(true);
-      setImageError(false);
-      toast({
-        title: "Success",
-        description: "Image loaded successfully.",
-      });
-    };
-    img.onerror = () => {
-      setIsRetrying(false);
-      setImageError(true);
-      setImageLoaded(false);
-      toast({
-        variant: "destructive",
-        title: "Failed to Load",
-        description: retryCount >= 2
-          ? "Multiple attempts failed. The image might be corrupted."
-          : "Failed to load image. Please try again.",
-      });
-    };
-    img.src = imageUrl;
-  }
 
   const handleCopyText = useCallback(async () => {
     if (!currentResult?.text || isCopying) return
@@ -567,45 +1006,30 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     }
   }
 
-  // Update image loading logic
+  // Update image loading logic with improved caching
   const handleImageLoad = useCallback(() => {
     setImageLoaded(true)
     setImageError(false)
-    if (imageRef.current) {
+
+    // Cache the image if it's not already cached
+    if (imageRef.current && currentResult?.imageUrl && currentResult?.id) {
+      if (!imageCache.has(currentResult.imageUrl)) {
+        // Create a new image for caching to avoid reference issues
+        const img = new Image();
+        img.src = currentResult.imageUrl;
+        img.crossOrigin = "anonymous";
+        imageCache.set(currentResult.imageUrl, img, currentResult.id);
+
+        if (process.env.NODE_ENV === 'development') {
+          console.log(`[ImageLoad] Cached image for page ${currentPage}`);
+        }
+      }
+
       // Start at 100% zoom
       setZoomLevel(100)
       setPanPosition({ x: 0, y: 0 })
     }
-  }, [])
-
-  const handleImageError = useCallback(async () => {
-    setImageError(true)
-    setImageLoaded(false)
-
-    // If this is the first error, try to refresh the URL automatically
-    if (retryCount === 0 && currentResult?.storagePath) {
-      try {
-        setIsRetrying(true)
-        const refreshedUrl = await refreshSignedUrl(currentResult)
-        if (refreshedUrl) {
-          // The URL has been refreshed in the state, so the image will reload
-          setImageError(false)
-          setRetryCount(prev => prev + 1)
-          return
-        }
-      } catch (error) {
-        console.error('Error auto-refreshing image URL:', error)
-      } finally {
-        setIsRetrying(false)
-      }
-    }
-
-    toast({
-      variant: "destructive",
-      title: "Image Load Error",
-      description: "Failed to load image preview. You can still view the extracted text.",
-    })
-  }, [toast, retryCount, currentResult, refreshSignedUrl])
+  }, [currentResult, currentPage])
 
   const handleSearch = useCallback((query: string) => {
     setSearchQuery(query)
@@ -1267,11 +1691,14 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
               <AlertCircle className="h-6 w-6 text-muted-foreground" />
             </div>
             <div className="space-y-2">
-              <h3 className="font-semibold">Failed to Load Preview</h3>
+              <h3 className="font-semibold">Image Load Error</h3>
               <p className="text-sm text-muted-foreground">
                 {retryCount >= maxRetries
                   ? "Multiple attempts to load the image have failed. The file might be corrupted or temporarily unavailable."
                   : "The image preview couldn't be loaded. You can try again or continue with the extracted text."}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                You can still view the extracted text in the panel on the right.
               </p>
               {remainingRetries > 0 && (
                 <p className="text-xs text-muted-foreground">
@@ -1469,7 +1896,9 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
       )
     }
 
-    if (!currentResult?.imageUrl) {
+    const imageUrl = currentResult?.imageUrl;
+
+    if (!imageUrl) {
       return (
         <div className="w-full h-full flex items-center justify-center">
           <div className="relative w-full h-full border-2 border-dashed rounded-lg bg-muted/5">
@@ -1481,8 +1910,8 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
       )
     }
 
-    const cachedImage = imageCache.get(currentResult.imageUrl)
-    const showLoadingState = !imageLoaded && !cachedImage
+    const cachedImage = imageCache.get(imageUrl);
+    const showLoadingState = !imageLoaded && !cachedImage;
 
     return (
       <div
@@ -1523,9 +1952,10 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               ref={imageRef}
-              key={`${currentResult.imageUrl}-${retryCount}`}
-              src={currentResult.imageUrl}
+              key={`${imageUrl}-${retryCount}`}
+              src={imageUrl}
               alt={`Page ${currentPage}`}
+              crossOrigin="anonymous"
               className={cn(
                 "max-h-[calc(100vh-14rem)] w-auto rounded-lg select-none",
                 (imageLoaded || cachedImage) && !imageError ? "opacity-100" : "opacity-0",
@@ -1537,9 +1967,45 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
               draggable={false}
               loading="eager"
               decoding="async"
+              fetchPriority="high"
+              style={{
+                // Force hardware acceleration to prevent flickering
+                transform: 'translateZ(0)',
+                backfaceVisibility: 'hidden',
+                WebkitBackfaceVisibility: 'hidden',
+                // Ensure image doesn't disappear
+                minHeight: imageLoaded ? 'auto' : '200px',
+                minWidth: imageLoaded ? 'auto' : '200px',
+              }}
             />
 
-            {imageError && renderImageError()}
+            {imageError && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-muted/10 rounded-lg border-2 border-dashed border-muted p-8">
+                <AlertCircle className="h-10 w-10 text-muted-foreground mb-4" />
+                <h3 className="text-lg font-medium mb-2">Image Preview Unavailable</h3>
+                <p className="text-sm text-muted-foreground text-center mb-4">
+                  The image preview could not be loaded. This may be due to a temporary issue or the file may be unavailable.
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleImageRetry(currentResult)}
+                  disabled={isRetrying}
+                  className="min-w-[120px]"
+                >
+                  {isRetrying ? (
+                    <>
+                      <div className="h-4 w-4 border-2 border-primary/30 border-t-primary rounded-full animate-spin mr-2" />
+                      Retrying...
+                    </>
+                  ) : retryCount >= 3 ? (
+                    "Try Again"
+                  ) : (
+                    "Retry Loading"
+                  )}
+                </Button>
+              </div>
+            )}
           </div>
         </div>
       </div>

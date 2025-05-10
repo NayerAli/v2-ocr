@@ -1,8 +1,8 @@
 // Document management operations
 
+import { getSupabaseClient, isSupabaseConfigured, mapToProcessingStatus, camelToSnake } from '../utils'
 import { getUser } from '../../auth'
 import type { ProcessingStatus } from '@/types'
-import { supabase, isSupabaseConfigured, mapToProcessingStatus, camelToSnake } from '../utils'
 
 /**
  * Get all documents for the current user
@@ -27,7 +27,7 @@ export async function getDocuments(): Promise<ProcessingStatus[]> {
 
   // Build the query
   console.log('[DEBUG] Building Supabase query');
-  const query = supabase
+  const query = getSupabaseClient()
     .from('documents')
     .select('*')
     .eq('user_id', user.id)
@@ -72,7 +72,7 @@ export async function getDocument(id: string): Promise<ProcessingStatus | null> 
 
   // Build the query
   console.log('[DEBUG] Building Supabase query');
-  const query = supabase
+  const query = getSupabaseClient()
     .from('documents')
     .select('*')
     .eq('id', id)
@@ -149,7 +149,7 @@ export async function saveDocument(document: Partial<ProcessingStatus>): Promise
   try {
     // Upsert to Supabase
     console.log('[DEBUG] Executing Supabase upsert operation');
-    const { data, error } = await supabase
+    const { data, error } = await getSupabaseClient()
       .from('documents')
       .upsert(snakeCaseDocument, { onConflict: 'id' })
       .select()
@@ -192,7 +192,7 @@ export async function deleteDocument(id: string): Promise<boolean> {
   try {
     // First, check if the document exists and belongs to the user
     console.log('[DEBUG] Verifying document ownership');
-    const { data: document, error: documentError } = await supabase
+    const { data: document, error: documentError } = await getSupabaseClient()
       .from('documents')
       .select('id, storage_path, thumbnail_path')
       .eq('id', id)
@@ -207,7 +207,7 @@ export async function deleteDocument(id: string): Promise<boolean> {
     // Delete the document from storage if it exists
     if (document.storage_path) {
       console.log('[DEBUG] Deleting document from storage:', document.storage_path);
-      const { error: storageError } = await supabase
+      const { error: storageError } = await getSupabaseClient()
         .storage
         .from('documents')
         .remove([document.storage_path])
@@ -221,7 +221,7 @@ export async function deleteDocument(id: string): Promise<boolean> {
     // Delete the thumbnail from storage if it exists
     if (document.thumbnail_path) {
       console.log('[DEBUG] Deleting thumbnail from storage:', document.thumbnail_path);
-      const { error: thumbnailError } = await supabase
+      const { error: thumbnailError } = await getSupabaseClient()
         .storage
         .from('thumbnails')
         .remove([document.thumbnail_path])
@@ -234,7 +234,7 @@ export async function deleteDocument(id: string): Promise<boolean> {
 
     // Delete OCR results for this document
     console.log('[DEBUG] Deleting OCR results for document:', id);
-    const { error: resultsError } = await supabase
+    const { error: resultsError } = await getSupabaseClient()
       .from('ocr_results')
       .delete()
       .eq('document_id', id)
@@ -247,7 +247,7 @@ export async function deleteDocument(id: string): Promise<boolean> {
 
     // Delete the document from the database
     console.log('[DEBUG] Deleting document from database:', id);
-    const { error } = await supabase
+    const { error } = await getSupabaseClient()
       .from('documents')
       .delete()
       .eq('id', id)

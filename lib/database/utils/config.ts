@@ -1,19 +1,14 @@
 // Configuration utilities for Supabase
 
-import { getSupabaseClient } from '../../supabase/singleton-client'
 import { debugLog } from '../../log'
+import { createClient as createClientBrowser } from '@/utils/supabase/client'
 
-// Get the singleton Supabase client
-export const supabase = getSupabaseClient()
+export function getSupabaseClient() {
+  // Always use the browser client to ensure client-side compatibility
+  return createClientBrowser()
+}
 
 // Check if Supabase is configured
 export function isSupabaseConfigured(): boolean {
-  debugLog('[DEBUG] Checking Supabase configuration');
-  debugLog('[DEBUG] NEXT_PUBLIC_SUPABASE_URL:', process.env.NEXT_PUBLIC_SUPABASE_URL ? 'Present' : 'Missing');
-  debugLog('[DEBUG] NEXT_PUBLIC_SUPABASE_ANON_KEY:', process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ? 'Present' : 'Missing');
-
-  const isConfigured = !!process.env.NEXT_PUBLIC_SUPABASE_URL && !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  debugLog('[DEBUG] Supabase is configured:', isConfigured);
-
-  return isConfigured;
+  return Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
 }

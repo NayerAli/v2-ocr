@@ -3,8 +3,9 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from './auth-provider'
-import { createBrowserClient } from '@supabase/ssr'
 import { debugLog, debugError } from '@/lib/log'
+import { createClient } from '@/utils/supabase/client'
+import { useSession } from '@supabase/auth-helpers-react'
 
 interface AuthCheckProps {
   children: React.ReactNode
@@ -39,24 +40,21 @@ export function AuthCheck({ children, redirectTo = '/auth/login' }: AuthCheckPro
 
         // If no user in context, check with Supabase directly
         if (!isLoading) {
-          // Create a Supabase client for the browser
-          const supabase = createBrowserClient(
-            process.env.NEXT_PUBLIC_SUPABASE_URL!,
-            process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-          )
+          // Create a Supabase client using our utility function
+          const supabase = createClient()
 
-          // No user in context, check with Supabase directly
-          const { data, error } = await supabase.auth.getSession()
+          // Use getUser() instead of getSession() for security
+          const { data, error } = await supabase.auth.getUser()
 
           if (error) {
-            debugError('[DEBUG] AuthCheck: Error getting session:', error.message)
+            debugError('[DEBUG] AuthCheck: Error getting user:', error.message)
             setIsAuthenticated(false)
-          } else if (data.session) {
-            // Session found
-            debugLog('[DEBUG] AuthCheck: Session found for user:', data.session.user.email)
+          } else if (data.user) {
+            // User found
+            debugLog('[DEBUG] AuthCheck: User found:', data.user.email)
             setIsAuthenticated(true)
           } else {
-            // No session found from Supabase
+            // No user found from Supabase
             // Try to refresh the session
             try {
               const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession()
@@ -87,39 +85,6 @@ export function AuthCheck({ children, redirectTo = '/auth/login' }: AuthCheckPro
     }
 
     verifyAuth()
-
-    // Check cookies directly as a fallback
-    if (typeof document !== 'undefined') {
-      const cookies = document.cookie.split(';').map(c => c.trim());
-      const hasAuthCookie = cookies.some(c =>
-        c.startsWith('sb-auth-token=') ||
-        c.startsWith(`sb-${window.location.hostname}-auth-token=`) ||
-        c.includes('-auth-token=')
-      );
-
-      if (hasAuthCookie) {
-        debugLog('AuthCheck: Auth cookie found')
-        // If we have a cookie but no user yet, wait for the auth state to update
-        if (!user && isLoading) {
-          debugLog('AuthCheck: Waiting for auth state to update...')
-        } else if (!user && !isLoading) {
-          debugLog('AuthCheck: Auth cookie exists but no user, forcing refresh')
-          // Force a refresh of the auth state
-          const supabase = createBrowserClient(
-            process.env.NEXT_PUBLIC_SUPABASE_URL!,
-            process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-          )
-
-          supabase.auth.getSession().then(({ data }) => {
-            if (data.session) {
-              debugLog('AuthCheck: Session refreshed for user:', data.session.user.email)
-              setIsAuthenticated(true)
-              setIsVerifying(false)
-            }
-          })
-        }
-      }
-    }
   }, [user, isLoading])
 
   useEffect(() => {
@@ -127,10 +92,8 @@ export function AuthCheck({ children, redirectTo = '/auth/login' }: AuthCheckPro
     if (!isVerifying && !isAuthenticated) {
       debugLog('AuthCheck: Not authenticated, redirecting to:', redirectTo)
 
-      // Use a safer approach for server-side rendering
-      // We can't use window.location.pathname directly, and router.pathname doesn't exist in App Router
-      // So we'll use a default path of '/' for simplicity
-      const currentPath = '/'
+      // Get the current path for the redirect
+      const currentPath = typeof window !== 'undefined' ? window.location.pathname : '/'
       const fullRedirectUrl = `${redirectTo}?redirect=${encodeURIComponent(currentPath)}`
 
       router.push(fullRedirectUrl)

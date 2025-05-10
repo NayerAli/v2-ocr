@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { Suspense } from 'react'
 import { LoginForm } from '@/components/auth/login-form'
+import { createClient } from '@/utils/supabase/client'
 
 export default function LoginPage() {
   return (

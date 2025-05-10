@@ -1,6 +1,6 @@
 // User profile service for user profile management
 
-import { getSupabaseClient } from './supabase/singleton-client'
+import { createClient } from '@/utils/supabase/server'
 import { getUser } from './auth'
 
 interface UserProfile {
@@ -26,7 +26,7 @@ class UserProfileService {
   private cacheTTL: number
 
   constructor() {
-    this.supabase = getSupabaseClient()
+    this.supabase = createClient()
     this.cache = new Map()
     this.cacheTTL = 5 * 60 * 1000 // 5 minutes
   }

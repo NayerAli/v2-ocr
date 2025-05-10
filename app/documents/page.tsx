@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, useCallback } from "react"
 import Link from "next/link"
 // Router is not used in this component
 // import { useRouter } from "next/navigation"
-import { Search, Filter, Upload } from "lucide-react"
+import { Search, Filter, Upload, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -22,6 +22,7 @@ import { retryDocument } from "@/lib/tests/document-status-validation"
 // Auth hook is not directly used in this component
 // import { useAuth } from "@/components/auth/auth-provider"
 import { AuthCheck } from "@/components/auth/auth-check"
+import { useAuth } from "@/components/auth/auth-provider"
 // These UI components are not used in this file
 // import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 
@@ -29,8 +30,7 @@ export default function DocumentsPage() {
   const { isInitialized } = useSettingsInit()
   const { language } = useLanguage()
   const { toast } = useToast()
-  // These variables are not used in this component
-  // const { user } = useAuth()
+  const { user, authLoading } = useAuth()
   // const router = useRouter()
   const [documents, setDocuments] = useState<ProcessingStatus[]>([])
   const [isLoadingData, setIsLoadingData] = useState(true)
@@ -48,47 +48,36 @@ export default function DocumentsPage() {
 
   // Load documents when initialized
   useEffect(() => {
-    // Load documents from the database when initialized
-    if (!isInitialized) return
-
-    console.log('Documents page: Initialized, loading documents for user')
+    // Only load when auth and settings are ready
+    if (!isInitialized || authLoading || !user) return
+    console.log('Documents page: Authenticated and initialized, loading documents')
     setIsLoadingData(true)
-
-    db.getQueue().then(queue => {
-      console.log('Documents page: Documents loaded:', queue.length)
-      setDocuments(queue)
-      setIsLoadingData(false)
-    }).catch(error => {
-      console.error('Error loading documents:', error)
-      setIsLoadingData(false)
-    })
-  }, [isInitialized])
+    db.getQueue()
+      .then(queue => {
+        console.log('Documents page: Documents loaded:', queue.length)
+        setDocuments(queue)
+      })
+      .catch(error => console.error('Error loading documents:', error))
+      .finally(() => setIsLoadingData(false))
+  }, [isInitialized, authLoading, user])
 
   useEffect(() => {
+    if (!isInitialized || authLoading || !user) return
     let isSubscribed = true
-
-    // Setup polling for document updates
     const loadDocuments = async () => {
-      if (!isInitialized) return
-
       try {
         const queue = await db.getQueue()
-        if (isSubscribed) {
-          setDocuments(queue)
-        }
+        if (isSubscribed) setDocuments(queue)
       } catch (error) {
-        console.error("Error loading documents:", error)
+        console.error("Error polling documents:", error)
       }
     }
-
-    // Setup polling without loading state
     const interval = setInterval(() => loadDocuments(), 3000)
-
     return () => {
       isSubscribed = false
       clearInterval(interval)
     }
-  }, [isInitialized])
+  }, [isInitialized, authLoading, user])
 
   const getSortedDocuments = useCallback((docs: ProcessingStatus[], sort: string, order: "asc" | "desc") => {
     return [...docs].sort((a, b) => {
@@ -340,6 +329,59 @@ export default function DocumentsPage() {
             disabled={isLoadingData}
           >
             <Filter className={cn("h-4 w-4 transition-transform", sortOrder === "desc" && "rotate-180")} />
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={async () => {
+              setIsLoadingData(true);
+              
+              // Check for stuck documents first
+              try {
+                const checkResponse = await fetch('/api/documents/process', {
+                  method: 'GET',
+                  headers: {
+                    'Content-Type': 'application/json'
+                  }
+                });
+                
+                if (checkResponse.ok) {
+                  const checkResult = await checkResponse.json();
+                  if (checkResult.stuckDocuments > 0) {
+                    toast({
+                      title: 'Stuck Documents Fixed',
+                      description: `Reset ${checkResult.stuckDocuments} document(s) that were stuck in processing`,
+                    });
+                  }
+                }
+              } catch (error) {
+                console.error('[DEBUG] Error checking for stuck documents:', error);
+              }
+              
+              // Then refresh the document list
+              try {
+                const queue = await db.getQueue();
+                setDocuments(queue);
+                toast({
+                  title: 'Documents Refreshed',
+                  description: 'Document list has been refreshed',
+                });
+              } catch (error) {
+                console.error('[DEBUG] Error refreshing documents:', error);
+                toast({
+                  title: t('error', language) || 'Error',
+                  description: 'Failed to refresh document list',
+                  variant: 'destructive'
+                });
+              } finally {
+                setIsLoadingData(false);
+              }
+            }}
+            className="h-10 w-10"
+            disabled={isLoadingData}
+            title={t('refreshDocuments', language) || 'Refresh Documents'}
+          >
+            <RefreshCw className="h-4 w-4" />
           </Button>
         </div>
       </div>

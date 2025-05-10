@@ -221,6 +221,12 @@ export class MistralOCRProvider implements OCRProvider {
         // Log success
         console.log(`[Mistral] Successfully processed image page ${pageNumber}/${totalPages}`);
 
+        // Ensure text is never empty
+        if (!extractedText) {
+          console.warn('[Mistral] OCR returned empty text. Setting default message.');
+          extractedText = 'No text was extracted from this image. Please try again or use a different OCR provider.';
+        }
+
         return {
           id: crypto.randomUUID(),
           documentId: "",
@@ -561,6 +567,12 @@ export class MistralOCRProvider implements OCRProvider {
 
     // Log success
     console.log(`[Mistral] Successfully processed PDF with ${totalPages} page(s)`);
+
+    // Ensure text is never empty
+    if (!extractedText) {
+      console.warn('[Mistral] OCR returned empty text for PDF. Setting default message.');
+      extractedText = 'No text was extracted from this PDF. Please try again or use a different OCR provider.';
+    }
 
     return {
       id: crypto.randomUUID(),

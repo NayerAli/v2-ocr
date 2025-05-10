@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { userSettingsService } from '@/lib/user-settings-service'
-import { createServerSupabaseClient } from '@/lib/server-auth'
+import { createClient } from '@/utils/supabase/server'
 
 /**
  * GET /api/settings/user
@@ -9,7 +9,7 @@ import { createServerSupabaseClient } from '@/lib/server-auth'
 export async function GET(request: Request) {
   try {
     // Get the current user using server-side auth
-    const supabase = createServerSupabaseClient()
+    const supabase = await createClient()
 
     // First try to get the session
     const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
@@ -131,7 +131,7 @@ export async function GET(request: Request) {
 export async function PUT(request: Request) {
   try {
     // Get the current user using server-side auth
-    const supabase = createServerSupabaseClient()
+    const supabase = await createClient()
 
     // First try to get the session
     const { data: sessionData, error: sessionError } = await supabase.auth.getSession()

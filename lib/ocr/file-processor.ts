@@ -4,8 +4,12 @@ import { renderPageToBase64, loadPDF } from "../pdf-utils";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import type { OCRProvider } from "./providers/types";
 import { MistralOCRProvider } from "./providers/mistral";
-import { getUser } from "@/lib/auth";
-import { getSupabaseClient } from "@/lib/supabase/singleton-client";
+import { createFallbackOCRProvider } from "./providers/fallback-provider";
+import { authCompat } from "@/lib/auth-compat";
+import { createClient } from '@/utils/supabase/server'
+import { serverAuthHelper } from "@/lib/server-auth-helper";
+import { fileToBase64, base64ToBlob } from "./file-utils";
+import { FallbackOCRProvider } from "./providers/fallback-provider";
 
 // Configuration
 const STORAGE_CONFIG = {
@@ -18,6 +22,7 @@ const STORAGE_CONFIG = {
 export class FileProcessor {
   private processingSettings: ProcessingSettings;
   private ocrProvider: OCRProvider;
+  private extractedTexts: Record<string, string> = {};
 
   constructor(processingSettings: ProcessingSettings, ocrProvider: OCRProvider) {
     this.processingSettings = processingSettings;
@@ -30,7 +35,8 @@ export class FileProcessor {
    */
   private async loadSettings(): Promise<void> {
     const { userSettingsService } = await import('@/lib/user-settings-service');
-    this.processingSettings = await userSettingsService.getProcessingSettings();
+    // Use the serverContext option to ensure consistent settings in background processing
+    this.processingSettings = await userSettingsService.getProcessingSettings({ serverContext: true });
   }
 
   /**
@@ -65,7 +71,13 @@ export class FileProcessor {
     // @ts-expect-error - Accessing private property for debugging
     const useSystemKey = this.ocrProvider.settings?.useSystemKey;
 
-    // Simplified check: if there's an API key with length > 0, it's valid
+    // If using system key is enabled, consider it valid regardless of API key
+    if (useSystemKey) {
+      infoLog('[DEBUG] Using system key for OCR provider');
+      return true;
+    }
+
+    // Otherwise check for API key presence
     const isValid = !!apiKey && apiKey.length > 0;
 
     infoLog('[DEBUG] OCR provider API key check:', {
@@ -88,22 +100,41 @@ export class FileProcessor {
     const { infoLog } = await import('@/lib/log');
     infoLog(`[Process] Starting ${status.filename}`);
 
-    // Verify we have a valid OCR provider before processing
-    if (!await this.hasValidOCRProvider()) {
-      infoLog(`[Process] No valid OCR provider available for processing ${status.filename}`);
-      throw new Error("No valid OCR provider available");
+    // Ensure we have a user ID
+    if (!status.user_id) {
+      infoLog('[Process] Warning: No user ID in status object');
+      try {
+        const { getUser } = await import('@/lib/auth');
+        const user = await getUser();
+        if (user) {
+          status.user_id = user.id;
+          infoLog(`[Process] Retrieved user ID from auth: ${status.user_id}`);
+        }
+      } catch (userError) {
+        infoLog('[Process] Could not retrieve user ID from auth');
+        throw new Error("User ID missing from status object and could not be retrieved");
+      }
+    }
+
+    // Check if we have a valid OCR provider
+    const hasValidProvider = await this.hasValidOCRProvider();
+    if (!hasValidProvider) {
+      infoLog(`[Process] No valid OCR provider available for processing ${status.filename}, but continuing with fallback provider`);
+      // We'll continue with the fallback provider that was set in the constructor
     }
 
     // For images
     if (status.file.type.startsWith("image/")) {
-      const base64 = await this.fileToBase64(status.file);
+      const base64 = await fileToBase64(status.file);
       if (signal.aborted) throw new Error("Processing aborted");
       infoLog(`[Process] Processing image: ${status.filename}`);
-      const user = await getUser();
-      if (!user) throw new Error("User not authenticated");
 
-      // Generate a unique ID for the OCR result
-      const resultId = crypto.randomUUID();
+      // Use the user ID from the status object instead of trying to authenticate
+      if (!status.user_id) {
+        throw new Error("User ID missing from status object");
+      }
+
+      const userId = status.user_id;
 
       // Use the storage path from the status object (already uploaded in queue manager)
       const path = status.storagePath;
@@ -114,24 +145,24 @@ export class FileProcessor {
       infoLog(`[Process] Using existing image at path: ${path}`);
 
       // Generate a signed URL for the image
-      const imageUrl = await this.generateSignedUrl(path);
+      const imageUrl = await this.generateSignedUrl(path, userId);
       infoLog(`[Process] Generated signed URL for image: ${imageUrl.substring(0, 50)}...`);
 
       // Process the image with OCR
-      const result = await this.ocrProvider.processImage(base64, signal);
-      result.id = resultId; // Use the same ID we generated for the file name
-      result.documentId = status.id;
-      result.pageNumber = 1; // Set page number to 1 for images
-      result.totalPages = 1; // Set total pages to 1 for images
-      result.storagePath = path;
-      result.imageUrl = imageUrl; // Use the signed URL instead of base64
-
-      // Import database service for saving the result
-      const { db } = await import('@/lib/database');
+      infoLog(`[OCR] Using ${this.ocrProvider.constructor.name} to process image`);
+      const result = await this.processImage(base64, status.id, userId, path, signal);
 
       // Save the result to the database
-      await db.saveResults(status.id, [result]);
-      infoLog(`[Process] Saved result for image: ${status.filename}`);
+      const saved = await this.saveOCRResult(result, status);
+      if (saved) {
+        infoLog(`[Process] Saved result for image: ${status.filename}`);
+      } else {
+        infoLog(`[Process] Failed to save result for image: ${status.filename}`);
+        // Mark the result with an error flag to indicate save failure
+        result.error = "Failed to save OCR result to database";
+        // Throw an error to mark the document as failed
+        throw new Error("Failed to save OCR result to database. Document processing cannot be completed.");
+      }
 
       infoLog(`[Process] Completed image: ${status.filename}`);
       return [result];
@@ -152,10 +183,66 @@ export class FileProcessor {
 
         // Load PDF using our optimized loading function
         infoLog(`[Process] Loading PDF file...`);
-        const pdf = await loadPDF(status.file);
-        const numPages = pdf.numPages;
-        status.totalPages = numPages;
-        infoLog(`[Process] Successfully loaded PDF with ${numPages} pages`);
+        let pdf;
+        let numPages;
+
+        // For server-side processing, we'll use a simplified approach
+        // that doesn't rely on PDF.js for page extraction
+        const isServer = typeof window === 'undefined';
+
+        if (isServer) {
+          // In server environment, we'll use a simplified approach
+          infoLog(`[Process] Using simplified server-side PDF processing`);
+
+          try {
+            // Use proper PDF parsing to get the actual page count
+            infoLog(`[Process] Loading PDF on server using PDF.js`);
+
+            // Convert File to Buffer
+            const arrayBuffer = await status.file.arrayBuffer();
+            const buffer = Buffer.from(arrayBuffer);
+
+            // Use the loadPDFServer function to properly load the PDF
+            const { loadPDFServer } = await import('../pdf-utils-server');
+            const serverPdf = await loadPDFServer(buffer);
+
+            // Get the actual page count
+            numPages = serverPdf.numPages;
+            status.totalPages = numPages;
+
+            infoLog(`[Process] Successfully loaded PDF with ${numPages} actual pages`);
+
+            // Use the properly loaded PDF
+            pdf = serverPdf;
+          } catch (error) {
+            infoLog(`[Process] Error in simplified PDF processing: ${error}`);
+            throw new Error(`Failed to process PDF: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          }
+        } else {
+          // In browser environment, use the client-side PDF loading with PDF.js
+          try {
+            infoLog(`[Process] Using client-side PDF loading with PDF.js`);
+            pdf = await loadPDF(status.file);
+            numPages = pdf.numPages;
+            status.totalPages = numPages;
+            infoLog(`[Process] Successfully loaded PDF with ${numPages} pages`);
+          } catch (pdfError) {
+            // Handle PDF loading errors specifically
+            infoLog(`[Process] Error loading PDF with PDF.js: ${pdfError}`);
+
+            // Check for Promise.withResolvers error
+            if (pdfError instanceof Error && pdfError.message.includes('Promise.withResolvers')) {
+              throw new Error("Failed to load PDF: Promise.withResolvers is not a function. This is a compatibility issue with PDF.js.");
+            }
+
+            // Check for worker-related errors
+            if (pdfError instanceof Error && (pdfError.message.includes('worker') || pdfError.message.includes('Worker'))) {
+              throw new Error(`Failed to load PDF: Worker error. Try using disableWorker: true. Details: ${pdfError.message}`);
+            }
+
+            throw pdfError;
+          }
+        }
 
         // Only attempt direct PDF processing with Mistral provider
         if (this.ocrProvider instanceof MistralOCRProvider) {
@@ -165,7 +252,7 @@ export class FileProcessor {
 
             try {
               // Convert PDF to base64
-              const base64Data = await this.fileToBase64(status.file);
+              const base64Data = await fileToBase64(status.file);
               infoLog(`[Process] Successfully converted PDF to base64`);
 
               // Check if cancelled
@@ -174,11 +261,12 @@ export class FileProcessor {
                 throw new Error("Processing aborted");
               }
 
-              // Get the current user
-              const user = await getUser();
-              if (!user) {
-                throw new Error("User not authenticated");
+              // Use the user ID from the status object instead of trying to authenticate
+              if (!status.user_id) {
+                throw new Error("User ID missing from status object");
               }
+
+              const userId = status.user_id;
 
               // Generate a unique ID for the OCR result
               const resultId = crypto.randomUUID();
@@ -192,7 +280,7 @@ export class FileProcessor {
               infoLog(`[Process] Using existing PDF at path: ${pdfPath}`);
 
               // Generate a signed URL for the PDF
-              const pdfUrl = await this.generateSignedUrl(pdfPath);
+              const pdfUrl = await this.generateSignedUrl(pdfPath, userId);
 
               // Process PDF directly
               infoLog(`[Process] Sending PDF to Mistral OCR API`);
@@ -202,15 +290,25 @@ export class FileProcessor {
               result.pageNumber = 1; // Set page number to 1 for direct processing
               result.totalPages = numPages;
               result.storagePath = pdfPath;
-              result.imageUrl = pdfUrl; // Use the signed URL instead of base64
+              // Set both camelCase and snake_case versions of the image URL field
+              result.imageUrl = pdfUrl; // camelCase version
+              result.image_url = pdfUrl; // snake_case version for database compatibility
               infoLog(`[Process] Generated signed URL for PDF: ${pdfUrl.substring(0, 50)}...`);
 
               // Import database service for saving the result
               const { db } = await import('@/lib/database');
 
-              // Save the result to the database
-              await db.saveResults(status.id, [result]);
-              infoLog(`[Process] Saved result for direct PDF processing: ${status.filename}`);
+              try {
+                // Save the result to the database
+                await db.saveResults(status.id, [result]);
+                infoLog(`[Process] Saved result for direct PDF processing: ${status.filename}`);
+              } catch (saveError) {
+                infoLog(`[Process] Failed to save result for direct PDF processing: ${status.filename}`);
+                // Mark the result with an error flag to indicate save failure
+                result.error = "Failed to save OCR result to database";
+                // Throw an error to mark the document as failed
+                throw new Error("Failed to save OCR result to database. Document processing cannot be completed.");
+              }
 
               infoLog(`[Process] Completed PDF direct processing: ${status.filename}`);
               return [result];
@@ -238,7 +336,7 @@ export class FileProcessor {
     throw new Error(`Unsupported file type: ${status.file.type}`);
   }
 
-  private async processPageByPage(pdf: PDFDocumentProxy, status: ProcessingStatus, signal: AbortSignal): Promise<OCRResult[]> {
+  private async processPageByPage(pdf: PDFDocumentProxy | any, status: ProcessingStatus, signal: AbortSignal): Promise<OCRResult[]> {
     // Load the latest settings before processing
     await this.loadSettings();
 
@@ -247,8 +345,21 @@ export class FileProcessor {
     // Import database service for immediate saving
     const { db } = await import('@/lib/database');
 
+    // Verify we have a valid PDF object
+    if (!pdf || typeof pdf.numPages !== 'number') {
+      infoLog(`[Process] Error: Invalid PDF object`);
+      throw new Error("Invalid PDF object");
+    }
+
     const numPages = pdf.numPages;
     infoLog(`[Process] PDF has ${numPages} pages`);
+
+    // Update the status with the actual page count
+    status.totalPages = numPages;
+
+    // Save to queue with updated page count
+    await db.saveToQueue(status);
+
     const results: OCRResult[] = [];
 
     // The original PDF file is already uploaded in the queue manager
@@ -259,6 +370,12 @@ export class FileProcessor {
     if (!status.storagePath) {
       infoLog(`[Process] Warning: Storage path is missing from status object`);
       // Continue processing anyway, as we can still process the PDF pages
+    }
+
+    // Ensure we have a valid user ID before starting
+    if (!status.user_id) {
+      infoLog(`[Process] Error: User ID missing from status object`);
+      throw new Error("User ID is required for processing");
     }
 
     // Get only the required processing settings with minimal defaults
@@ -315,29 +432,27 @@ export class FileProcessor {
             await db.saveResults(status.id, [batchResults[i]]);
 
             // Update progress after each page
-            status.progress = Math.floor((pageNum / numPages) * 100);
+            const processedCount = pageNum; // Number of pages processed so far
+            const progressPercentage = Math.floor((processedCount / numPages) * 100);
+            status.progress = progressPercentage;
             status.currentPage = pageNum;
+
+            // Ensure original_filename is set before saving to queue
+            if (!status.originalFilename) {
+              status.originalFilename = status.filename;
+            }
+
+            // Save to queue with updated progress
             await db.saveToQueue(status);
 
-            infoLog(`[Process] Saved result for page ${pageNum}, progress: ${status.progress}%`);
+            // Log progress
+            infoLog(`[Process] Saved result for page ${pageNum}, progress: ${progressPercentage}%`);
+
+            // Force a small delay between pages to allow downstream systems to process
+            await new Promise(resolve => setTimeout(resolve, 200));
           }
 
           chunkResults.push(...batchResults);
-
-          // Force garbage collection after each batch if available
-          if (typeof window !== 'undefined' && window.gc) {
-            try {
-              window.gc();
-            } catch {
-              // Ignore if gc is not available
-            }
-          }
-
-          // Update progress after each batch
-          status.progress = Math.floor((batchEndPage / numPages) * 100);
-          status.currentPage = batchEndPage;
-          await db.saveToQueue(status);
-          infoLog(`[Process] Progress: ${status.progress}% (${batchEndPage}/${numPages} pages)`);
         }
 
         results.push(...chunkResults);
@@ -356,6 +471,12 @@ export class FileProcessor {
       // Update progress after each chunk
       status.progress = Math.floor((endPage / numPages) * 100);
       status.currentPage = endPage;
+
+      // Ensure original_filename is set before saving to queue
+      if (!status.originalFilename) {
+        status.originalFilename = status.filename;
+      }
+
       await db.saveToQueue(status);
       infoLog(`[Process] Progress: ${status.progress}% (${endPage}/${numPages} pages)`);
     }
@@ -376,98 +497,121 @@ export class FileProcessor {
     return results;
   }
 
-  private async processPage(pdf: PDFDocumentProxy, pageNum: number, status: ProcessingStatus, signal: AbortSignal): Promise<OCRResult> {
-    // Import the log module at the beginning to avoid issues
+  private async processPage(pdf: PDFDocumentProxy | any, pageNum: number, status: ProcessingStatus, signal: AbortSignal): Promise<OCRResult> {
     const { infoLog } = await import('@/lib/log');
-    const supabase = getSupabaseClient();
 
     try {
       infoLog(`[Process] Starting to process page ${pageNum} of ${status.filename}`);
-      const page = await pdf.getPage(pageNum);
-      const base64Data = await renderPageToBase64(page);
-      if (signal.aborted) throw new Error("Processing aborted");
-      infoLog(`[Process] Processing page ${pageNum} of ${status.filename}`);
-      status.currentPage = pageNum;
 
-      const user = await getUser();
-      if (!user) throw new Error("User not authenticated");
-
-      // Generate a unique ID for the OCR result
-      const resultId = crypto.randomUUID();
-
-      const blob = await this.base64ToBlob(base64Data, 'image/jpeg');
-      // Use the new naming convention: Page_(page_number).(image_extension)
-      const path = `${user.id}/${status.id}/Page_${pageNum}_${resultId}.jpg`;
-      let uploadSuccessful = false;
-
-      try {
-          infoLog(`[Process] Uploading page ${pageNum} to ${path}`);
-          const { error: uploadError } = await supabase
-            .storage
-            .from(STORAGE_CONFIG.storageBucket)
-            .upload(path, blob, { upsert: true });
-
-          if (uploadError) {
-            infoLog(`[Process] Error uploading page ${pageNum} to storage:`, uploadError);
-            // Do not throw here, let OCR proceed but mark upload as failed
-          } else {
-            uploadSuccessful = true;
-            infoLog(`[Process] Successfully uploaded page ${pageNum} to ${path}`);
-          }
-      } catch (uploadCatchError) {
-          infoLog(`[Process] Exception during upload for page ${pageNum}:`, uploadCatchError);
-          // Mark upload as failed
+      // Ensure we have a valid user ID before starting
+      if (!status.user_id) {
+        infoLog(`[Process] Error: User ID missing from status object`);
+        throw new Error("User ID is required for processing");
       }
 
+      const userId = status.user_id;
+
+      // Get the page from the PDF
+      const page = await pdf.getPage(pageNum);
+
+      // Generate a unique ID for this page result
+      const resultId = crypto.randomUUID();
+
+      // Create a consistent storage path for the rendered page
+      // Format: userId/documentId/Page_pageNum_uniqueId.png
+      const pagePath = `${userId}/${status.id}/Page_${pageNum}_${resultId}.png`;
+
+      // Render the page to a base64 image
+      const isServer = typeof window === 'undefined';
+      let base64Data: string;
+
+      try {
+        if (isServer) {
+          const { renderPageToBase64Server } = await import('../pdf-utils-server');
+          infoLog(`[Process] Rendering page ${pageNum} on server with scale 2.0`);
+          base64Data = await renderPageToBase64Server(page, 2.0);
+          infoLog(`[Process] Page ${pageNum} rendered successfully on server, data length: ${base64Data?.length || 0}`);
+        } else {
+          infoLog(`[Process] Rendering page ${pageNum} in browser`);
+          base64Data = await renderPageToBase64(page);
+          infoLog(`[Process] Page ${pageNum} rendered successfully in browser, data length: ${base64Data?.length || 0}`);
+        }
+      } catch (renderError) {
+        infoLog(`[Process] Error rendering page ${pageNum}: ${renderError instanceof Error ? renderError.message : String(renderError)}`);
+        throw new Error(`Failed to render page ${pageNum}: ${renderError instanceof Error ? renderError.message : String(renderError)}`);
+      }
+
+      if (signal.aborted) throw new Error("Processing aborted");
+
+      // Upload the rendered page to storage
+      infoLog(`[Process] Uploading rendered page ${pageNum} to storage`);
+
+      // Validate and clean the base64 data
+      const { validateAndCleanBase64 } = await import('@/lib/file-utils');
+      const cleanBase64 = validateAndCleanBase64(base64Data);
+
+      if (!cleanBase64) {
+        infoLog(`[Process] Error: Invalid base64 data for page ${pageNum}`);
+        throw new Error(`Invalid base64 data for page ${pageNum}`);
+      }
+
+      // Convert base64 to blob - use PNG for better quality
+      const blob = await base64ToBlob(cleanBase64, 'image/png');
+
+      // Upload to storage
+      const supabase = createClient();
+      const { error: uploadError } = await supabase
+        .storage
+        .from(STORAGE_CONFIG.storageBucket)
+        .upload(pagePath, blob, { upsert: true });
+
+      if (uploadError) {
+        infoLog(`[Process] Error uploading page ${pageNum} to storage:`, uploadError);
+        throw new Error(`Failed to upload rendered page ${pageNum} to storage`);
+      }
+
+      infoLog(`[Process] Successfully uploaded page ${pageNum} to ${pagePath}`);
+
+      // Generate a signed URL for the uploaded page
+      const { data: urlData, error: urlError } = await supabase
+        .storage
+        .from(STORAGE_CONFIG.storageBucket)
+        .createSignedUrl(pagePath, STORAGE_CONFIG.signedUrlExpiry);
+
+      if (urlError || !urlData?.signedUrl) {
+        infoLog(`[Process] Error generating signed URL for page ${pageNum}:`, urlError);
+        throw new Error(`Failed to generate signed URL for page ${pageNum}`);
+      }
+
+      const pageUrl = urlData.signedUrl;
+      infoLog(`[Process] Generated signed URL for page ${pageNum}`);
+
+      // Process the page with OCR
+      infoLog(`[Process] Processing page ${pageNum} with ${this.ocrProvider.constructor.name}, data length: ${cleanBase64.length}`);
+
       const result = await this.ocrProvider.processImage(
-        base64Data,
+        cleanBase64,
         signal,
-        undefined,
+        'image/png',
         pageNum,
         status.totalPages
       );
 
-      // Set the result ID to match the one used in the file name
+      // Set additional fields on the result
       result.id = resultId;
+      result.documentId = status.id;
+      result.user_id = userId;
+      result.pageNumber = pageNum;
+      result.totalPages = status.totalPages;
+      result.storagePath = pagePath;
+      result.imageUrl = pageUrl;
+      result.image_url = pageUrl; // Add snake_case version for database compatibility
 
-      // IMPORTANT: Only set storagePath and generate URL if upload was successful
-      if (uploadSuccessful) {
-        result.storagePath = path;
-
-        // Generate a signed URL for the page image
-        try {
-          const imageUrl = await this.generateSignedUrl(path);
-          infoLog(`[Process] Generated signed URL for page ${pageNum}: ${imageUrl.substring(0, 50)}...`);
-          result.imageUrl = imageUrl; // Use the signed URL instead of base64
-        } catch (urlError) {
-          infoLog(`[Process] Error generating signed URL for page ${pageNum}:`, urlError);
-        }
-      } else {
-        result.storagePath = undefined; // Ensure path is not set if upload failed
-        infoLog(`[Process] storagePath not set for page ${pageNum} due to upload failure.`);
-      }
-
-      // Check if we got a rate limit response
-      if (result.rateLimitInfo?.isRateLimited) {
-        infoLog(`[Process] Rate limited on page ${pageNum} of ${status.filename}. Retry after ${result.rateLimitInfo.retryAfter}s`);
-      }
-
-      // Clean up page resources
-      try {
-        if (page && typeof page.cleanup === 'function') {
-          page.cleanup();
-        }
-      } catch {
-        // Ignore cleanup errors
-      }
-
-      infoLog(`[Process] Completed page ${pageNum}`);
+      infoLog(`[Process] Completed page ${pageNum}, text length: ${result.text.length}`);
       return result;
     } catch (error) {
       infoLog(`[Process] Error processing page ${pageNum} of ${status.filename}:`, error);
-
-      // Create an error result
-      const errorResult: OCRResult = {
+      return {
         id: crypto.randomUUID(),
         documentId: status.id,
         text: `Error processing page ${pageNum}: ${error instanceof Error ? error.message : String(error)}`,
@@ -478,39 +622,10 @@ export class FileProcessor {
         totalPages: status.totalPages,
         error: error instanceof Error ? error.message : String(error)
       };
-
-      // Check if it's a rate limit error
-      if (error instanceof Error &&
-          (error.message.includes("429") || error.message.toLowerCase().includes("rate limit"))) {
-        // Extract retry time if available
-        const retryMatch = error.message.match(/retry after (\d+)/i);
-        const retryAfter = retryMatch ? parseInt(retryMatch[1], 10) : 60; // Default to 60s
-
-        errorResult.rateLimitInfo = {
-          isRateLimited: true,
-          retryAfter,
-          retryAt: new Date(Date.now() + (retryAfter * 1000)).toISOString()
-        };
-
-        infoLog(`[Process] Rate limit error on page ${pageNum}. Retry after ${retryAfter}s`);
-      }
-
-      return errorResult;
     }
   }
 
-  private async fileToBase64(file: File): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve((reader.result as string).split(",")[1]);
-      reader.onerror = (error) => reject(new Error(`Failed to read file: ${error}`));
-      reader.readAsDataURL(file);
-    });
-  }
-
-  private async base64ToBlob(base64: string, contentType: string = ''): Promise<Blob> {
-    return fetch(`data:${contentType};base64,${base64}`).then(res => res.blob());
-  }
+  // File conversion methods have been moved to file-utils.ts
 
   private async processInBatches<T>(promises: Promise<T>[], batchSize: number): Promise<T[]> {
     const results: T[] = [];
@@ -524,31 +639,27 @@ export class FileProcessor {
     return results;
   }
 
-  private getExtensionForMime(mimeType: string): string {
-    switch (mimeType) {
-      case 'image/jpeg':
-        return '.jpg';
-      case 'image/png':
-        return '.png';
-      case 'image/gif':
-        return '.gif';
-      default:
-        throw new Error(`Unsupported image MIME type: ${mimeType}`);
-    }
-  }
+  // MIME type handling has been moved to file-utils.ts
 
   /**
    * Generate a signed URL for a file in Supabase storage
    */
-  private async generateSignedUrl(storagePath: string): Promise<string> {
+  private async generateSignedUrl(storagePath: string, userId?: string): Promise<string> {
     try {
-      const supabase = getSupabaseClient();
-      const user = await getUser();
+      const supabase = createClient();
 
-      if (!user) {
+      // If no user ID is provided, try to authenticate
+      if (!userId) {
         const { infoLog } = await import('@/lib/log');
-        infoLog('[Process] User not authenticated. Cannot generate signed URL.');
-        return '';
+        infoLog('[Process] No user ID provided for signed URL generation. Trying to authenticate...');
+
+        const user = await authCompat.getUser();
+        if (!user) {
+          infoLog('[Process] User not authenticated. Cannot generate signed URL.');
+          return '';
+        }
+
+        userId = user.id;
       }
 
       // Create a signed URL that expires in the configured time
@@ -567,6 +678,132 @@ export class FileProcessor {
       const { infoLog } = await import('@/lib/log');
       infoLog('[Process] Exception in generateSignedUrl:', error);
       return '';
+    }
+  }
+
+  /**
+   * Save OCR result to the database
+   */
+  private async saveOCRResult(result: OCRResult, status: ProcessingStatus): Promise<boolean> {
+    try {
+      const { db } = await import('@/lib/database');
+      const { infoLog } = await import('@/lib/log');
+      infoLog('Attempting to save results for document ID:', status.id);
+
+      // Ensure critical fields are set
+      if (!result.documentId) {
+        result.documentId = status.id;
+      }
+
+      // Make sure user_id is always present
+      if (!result.user_id && status.user_id) {
+        result.user_id = status.user_id;
+        infoLog(`Setting user_id from status: ${status.user_id}`);
+      }
+
+      // Double-check we have a user_id before saving
+      if (!result.user_id) {
+        infoLog('WARNING: No user_id available for OCR result. Attempting to get from document...');
+
+        try {
+          // First try to get user ID from the document
+          const { serverAuthHelper } = await import('@/lib/server-auth-helper');
+          const user = await serverAuthHelper.getUserByDocumentId(status.id);
+          if (user?.id) {
+            result.user_id = user.id;
+            infoLog(`Retrieved user_id from document via server auth helper: ${user.id}`);
+          } else {
+            // If that fails, try the regular auth method
+            const { getUser } = await import('@/lib/auth');
+            const authUser = await getUser();
+            if (authUser?.id) {
+              result.user_id = authUser.id;
+              infoLog(`Retrieved user_id from auth: ${authUser.id}`);
+            }
+          }
+        } catch (userError) {
+          infoLog('Could not retrieve user from any source in saveOCRResult');
+        }
+
+        // If still no user_id, this is a critical error
+        if (!result.user_id) {
+          infoLog('ERROR: Cannot save OCR result without user_id');
+          return false;
+        }
+      }
+
+      await db.saveResults(status.id, [result]);
+      infoLog(`Successfully saved result for documentId: ${status.id}, userId: ${result.user_id}`);
+      return true;
+    } catch (error) {
+      console.error('Error saving OCR result:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Process a single image and return OCR result
+   */
+  private async processImage(base64: string, documentId: string, userId: string, path: string, signal: AbortSignal, options?: {
+    pageNumber?: number;
+    totalPages?: number;
+  }): Promise<OCRResult> {
+    try {
+      const { infoLog } = await import('@/lib/log');
+
+      // Validate and clean the base64 data
+      const { validateAndCleanBase64 } = await import('@/lib/file-utils');
+      const cleanBase64 = validateAndCleanBase64(base64);
+
+      if (!cleanBase64) {
+        infoLog(`[OCR] Error: Invalid base64 data for image`);
+        throw new Error(`Invalid base64 data for image`);
+      }
+
+      // Generate unique ID for the result
+      const resultId = crypto.randomUUID();
+
+      // Generate signed URL for the image
+      const imageUrl = await this.generateSignedUrl(path, userId);
+      infoLog(`Generated signed URL for image: ${imageUrl.substring(0, 50)}...`);
+
+      // Process the image with OCR
+      const pageNumber = options?.pageNumber || 1;
+      const totalPages = options?.totalPages || 1;
+      infoLog(`[OCR] Using ${this.ocrProvider.constructor.name} to process image for page ${pageNumber}/${totalPages}, data length: ${cleanBase64.length}`);
+
+      // Pass the page number and total pages to the OCR provider
+      const result = await this.ocrProvider.processImage(
+        cleanBase64,
+        signal,
+        'image/jpeg', // fileType for image processing
+        pageNumber,
+        totalPages
+      );
+
+      // Ensure text field is set (never null)
+      if (result.text === null || result.text === undefined) {
+        infoLog(`[OCR] Warning: OCR result text is null or undefined. Setting to empty string.`);
+        result.text = '';
+      }
+
+      // Set additional fields
+      result.id = resultId;
+      result.documentId = documentId;
+      result.user_id = userId; // Use snake_case for database compatibility
+      result.pageNumber = options?.pageNumber || 1;
+      result.totalPages = options?.totalPages || 1;
+      result.storagePath = path;
+
+      // Set both camelCase and snake_case versions of the image URL field
+      // This ensures compatibility with both code and database expectations
+      result.imageUrl = imageUrl;
+      result.image_url = imageUrl; // Add snake_case version for database compatibility
+
+      return result;
+    } catch (error) {
+      console.error('Error processing image:', error);
+      throw error;
     }
   }
 }

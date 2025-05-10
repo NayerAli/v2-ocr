@@ -19,11 +19,21 @@ export interface OCRResult {
   boundingBox?: BoundingBox
   error?: string
   user_id?: string
+  provider?: string
   rateLimitInfo?: {
     isRateLimited: boolean
     retryAfter: number
     retryAt: string
   }
+
+  // Snake case versions for database compatibility
+  document_id?: string
+  processing_time?: number
+  page_number?: number
+  total_pages?: number
+  storage_path?: string
+  image_url?: string
+  bounding_box?: BoundingBox
 }
 
 export interface ProcessingStatus {
@@ -46,7 +56,9 @@ export interface ProcessingStatus {
   results?: OCRResult[]
   createdAt: Date
   updatedAt: Date
-  user_id?: string
+  user_id?: string // Use snake_case for database compatibility
+  // Deprecated: userId should not be used, use user_id instead
+  userId?: string
   rateLimitInfo?: {
     isRateLimited: boolean
     retryAfter: number

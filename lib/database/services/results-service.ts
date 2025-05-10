@@ -1,10 +1,11 @@
 // Results-related database operations
 
+import { mapToOCRResult } from '../utils/mappers'
+import { getSupabaseClient, isSupabaseConfigured } from '../utils/config'
+import { getContextClient, isServerContext } from '../utils/service-client'
 import { getUser } from '../../auth'
+import { infoLog } from '../../log'
 import type { OCRResult } from '@/types'
-// camelToSnake is imported but not used in this file
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-import { supabase, isSupabaseConfigured, mapToOCRResult, camelToSnake } from '../utils'
 
 /**
  * Get OCR results for a document
@@ -15,33 +16,50 @@ export async function getResults(documentId: string): Promise<OCRResult[]> {
     return []
   }
 
-  // Get the current user
-  const user = await getUser()
+  // Get the appropriate client based on context
+  const isServer = isServerContext();
+  let client;
+
+  if (isServer) {
+    // In server context, use the service client to bypass RLS
+    client = getContextClient(getSupabaseClient());
+    infoLog('Using service client for getting OCR results in server context');
+  } else {
+    // In client context, use the regular client with user authentication
+    client = getSupabaseClient();
+  }
+
+  // Get the current user (only needed in client context)
+  let userId = null;
+  if (!isServer) {
+    const user = await getUser();
+    userId = user?.id;
+  }
 
   // Build the query
-  let query = supabase
+  let query = client
     .from('ocr_results')
     .select('*')
-    .eq('document_id', documentId)
+    .eq('document_id', documentId);
 
-  // If user is authenticated, filter by user_id
-  if (user) {
-    query = query.eq('user_id', user.id)
+  // If in client context and user is authenticated, filter by user_id
+  if (!isServer && userId) {
+    query = query.eq('user_id', userId);
   }
 
   // Order by page number
-  query = query.order('page_number', { ascending: true })
+  query = query.order('page_number', { ascending: true });
 
   // Execute the query
-  const { data, error } = await query
+  const { data, error } = await query;
 
   if (error) {
-    console.error('Error fetching results:', error)
-    return []
+    console.error('Error fetching results:', error);
+    return [];
   }
 
-  const results = data.map(mapToOCRResult)
-  return results
+  const results = data.map(mapToOCRResult);
+  return results;
 }
 
 /**
@@ -53,22 +71,76 @@ export async function saveResults(documentId: string, results: OCRResult[]): Pro
     return
   }
 
-  // First, verify that the document exists in the documents table
-  const { data: document, error: documentError } = await supabase
+  // Skip empty results
+  if (!results || results.length === 0) {
+    console.warn('No results to save for document:', documentId);
+    return;
+  }
+
+  // Get the appropriate client based on context
+  const client = isServerContext()
+    ? getContextClient(getSupabaseClient())
+    : getSupabaseClient();
+
+  if (isServerContext()) {
+    infoLog('Using service client for saving OCR results in server context');
+  }
+
+  // First, try to get the document from the documents table
+  const { data: document, error: documentError } = await client
     .from('documents')
     .select('id, user_id')
     .eq('id', documentId)
     .single()
 
-  if (documentError || !document) {
-    console.error('Error: Document not found. Cannot save results.', documentError)
+  let documentData = document;
+
+  if (documentError || !documentData) {
+    console.error('Error: Document not found on first attempt. Retrying with delay...', documentError)
     console.log('Attempting to save results for document ID:', documentId)
-    return
+
+    // Wait a short time and try again - this helps with race conditions
+    await new Promise(resolve => setTimeout(resolve, 500))
+
+    // Second attempt to get the document
+    const { data: retryDocument, error: retryError } = await client
+      .from('documents')
+      .select('id, user_id')
+      .eq('id', documentId)
+      .single()
+
+    if (retryError || !retryDocument) {
+      console.error('Error: Document still not found after retry. Cannot save results.', retryError)
+      // Instead of returning, we'll continue with the user ID from the results if available
+    } else {
+      // Use the retry document if found
+      documentData = retryDocument;
+    }
   }
 
   // Get the current user
   const user = await getUser()
-  const userId = user?.id || document.user_id || null
+
+  // Try to get userId from multiple sources with fallbacks
+  let userId = null
+
+  // First priority: user from auth
+  if (user) {
+    userId = user.id
+  }
+  // Second priority: document user_id
+  else if (documentData && documentData.user_id) {
+    userId = documentData.user_id
+  }
+  // Third priority: first result's user_id
+  else if (results.length > 0) {
+    userId = results[0].user_id || (results[0] as any).userId
+  }
+
+  // If we still don't have a userId, log error but continue
+  if (!userId) {
+    console.error('Warning: No user ID found for results. This may cause issues with data retrieval.')
+  }
 
   // Prepare results for Supabase with required fields
   const supabaseResults = results.map(result => {
@@ -80,26 +152,44 @@ export async function saveResults(documentId: string, results: OCRResult[]): Pro
       totalPages,
       storagePath,
       boundingBox,
-      imageUrl, // Add imageUrl to the list of properties to convert to snake_case
+      imageUrl, // camelCase version
       ...rest
     } = result;
 
+    // We don't need to extract userId since we're using the validated userId from above
+
+    // Remove any properties that don't match the database schema
+    // This prevents errors like "Could not find the 'userId' column"
+    const cleanedRest = { ...rest };
+    if ('userId' in cleanedRest) delete cleanedRest.userId;
+
+    // Ensure text is never null or undefined
+    const resultText = result.text !== null && result.text !== undefined ? result.text : '';
+    console.log(`Saving OCR result for document ${documentId || result.document_id}, page ${pageNumber || result.page_number || 1}, text length: ${resultText.length}`);
+
+    // Add more debugging for empty text
+    if (resultText.length === 0) {
+      console.warn(`WARNING: Empty text for document ${documentId || result.document_id}, page ${pageNumber || result.page_number || 1}`);
+    }
+
+    // Handle both camelCase and snake_case versions of fields
     const preparedResult = {
-      ...rest, // Include remaining properties
-      document_id: documentId, // Always use the parameter value for document_id
+      ...cleanedRest, // Include remaining properties (cleaned)
+      document_id: documentId || result.document_id || documentId, // Use the document ID from the result or parameter
       id: result.id || crypto.randomUUID(),
-      user_id: userId,
-      text: result.text || '',
+      user_id: userId, // Always use the validated userId from above
+      text: resultText, // Use the validated text
       confidence: result.confidence || 0,
       language: result.language || 'en',
-      processing_time: processingTime || (result as unknown as Record<string, unknown>).processing_time as number || result.processingTime || 0,
-      page_number: pageNumber || (result as unknown as Record<string, unknown>).page_number as number || result.pageNumber || 1,
-      total_pages: totalPages || (result as unknown as Record<string, unknown>).total_pages as number || result.totalPages || 1,
-      storage_path: storagePath || null,
-      image_url: imageUrl || null, // Add image_url field with snake_case
-      bounding_box: boundingBox || (result as unknown as Record<string, unknown>).bounding_box as string || result.boundingBox || null,
+      processing_time: processingTime || result.processing_time || 0,
+      page_number: pageNumber || result.page_number || 1,
+      total_pages: totalPages || result.total_pages || 1,
+      storage_path: storagePath || result.storage_path || null,
+      // Handle both imageUrl (camelCase) and image_url (snake_case)
+      image_url: imageUrl || result.image_url || null,
+      bounding_box: boundingBox || result.bounding_box || null,
       error: result.error || null,
-      provider: (result as unknown as Record<string, unknown>).provider as string || 'unknown'
+      provider: result.provider || 'unknown'
     }
     return preparedResult
   })
@@ -119,7 +209,7 @@ export async function saveResults(documentId: string, results: OCRResult[]): Pro
         const batch = supabaseResults.slice(i, i + MAX_BATCH_SIZE);
         console.log(`Processing batch ${Math.floor(i / MAX_BATCH_SIZE) + 1}/${Math.ceil(supabaseResults.length / MAX_BATCH_SIZE)} (${batch.length} records)`);
 
-        const { error } = await supabase
+        const { data, error } = await client
           .from('ocr_results')
           .upsert(batch, { onConflict: 'document_id,page_number,user_id' });
 
@@ -128,10 +218,13 @@ export async function saveResults(documentId: string, results: OCRResult[]): Pro
           // Continue with next batch instead of failing the entire operation
           continue;
         }
+        
+        // Log successful save
+        console.log(`Successfully saved batch ${Math.floor(i / MAX_BATCH_SIZE) + 1}, affected rows:`, data ? data.length : 'unknown');
       }
     } else {
       // For smaller result sets, upsert all at once
-      const { error } = await supabase
+      const { data, error } = await client
         .from('ocr_results')
         .upsert(supabaseResults, { onConflict: 'document_id,page_number,user_id' });
 
@@ -139,6 +232,9 @@ export async function saveResults(documentId: string, results: OCRResult[]): Pro
         console.error('Error saving results:', error);
         return;
       }
+      
+      // Log successful save with count
+      console.log('Successfully saved result for documentId:', documentId, 'userId:', userId, 'affected rows:', data ? data.length : 'unknown');
     }
   } catch (err) {
     console.error('Exception saving results:', err);

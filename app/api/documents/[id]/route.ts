@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { logApiRequestToConsole } from "@/lib/server-console-logger"
-import { createServerSupabaseClient } from "@/lib/server-auth"
+import { createClient } from "@/utils/supabase/server"
 
 /**
  * GET /api/documents/[id]
@@ -14,79 +14,29 @@ export async function GET(
 
   try {
     // Get the current user using server-side auth
-    const supabase = createServerSupabaseClient()
+    const supabase = await createClient()
 
-    // First try to get the session
-    const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
+    // Use getUser() instead of getSession() for security
+    const { data: userData, error: userError } = await supabase.auth.getUser()
 
-    let user = null;
-
-    if (sessionData?.session?.user) {
-      console.log('[SERVER] User authenticated from session:', sessionData.session.user.email)
-      user = sessionData.session.user
-    } else {
-      // If no session, try to get the user directly
-      const { data: userData, error: userError } = await supabase.auth.getUser()
-
-      if (userData?.user) {
-        console.log('[SERVER] User authenticated from getUser:', userData.user.email)
-        user = userData.user
-      } else {
-        // Try to extract user from cookies directly as a last resort
-        try {
-          // Get the cookies from the request
-          const cookieHeader = req.headers.get('cookie') || ''
-          const cookies = cookieHeader.split(';').map(c => c.trim())
-
-          // Find auth cookies
-          const authCookie = cookies.find(c =>
-            c.startsWith('sb-auth-token=') ||
-            c.startsWith('sb-localhost:8000-auth-token=') ||
-            c.includes('-auth-token=')
-          )
-
-          if (authCookie) {
-            // Extract the token value
-            const tokenValue = authCookie.split('=')[1]
-            if (tokenValue) {
-              // Parse the token
-              try {
-                const tokenData = JSON.parse(decodeURIComponent(tokenValue))
-                if (tokenData.access_token) {
-                  // Set the session manually
-                  const { data: manualSessionData, error: manualSessionError } =
-                    await supabase.auth.setSession({
-                      access_token: tokenData.access_token,
-                      refresh_token: tokenData.refresh_token || ''
-                    })
-
-                  if (manualSessionData?.user) {
-                    console.log('[SERVER] User authenticated from manual token:', manualSessionData.user.email)
-                    user = manualSessionData.user
-                  } else if (manualSessionError) {
-                    console.error('[SERVER] Error setting manual session:', manualSessionError.message)
-                  }
-                }
-              } catch (parseError) {
-                console.error('[SERVER] Error parsing auth token:', parseError)
-              }
-            }
-          }
-        } catch (cookieError) {
-          console.error('[SERVER] Error extracting user from cookies:', cookieError)
-        }
-
-        // If still no user, return unauthorized
-        if (!user) {
-          console.error('[SERVER] GET /api/documents/[id] - Unauthorized, no user found. Auth session missing!',
-                      sessionError?.message || userError?.message);
-          return NextResponse.json(
-            { error: 'Unauthorized' },
-            { status: 401 }
-          )
-        }
-      }
+    if (userError) {
+      console.error('[SERVER] GET /api/documents/[id] - User error:', userError.message)
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      )
     }
+
+    if (!userData.user) {
+      console.error('[SERVER] GET /api/documents/[id] - No user found')
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      )
+    }
+
+    const user = userData.user
+    console.log('[SERVER] User authenticated:', user.email)
 
     // Get the document directly from Supabase instead of using db.getDocument
     const { data: document, error: documentError } = await supabase
