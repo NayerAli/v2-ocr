@@ -2,6 +2,12 @@ import { redirect } from 'next/navigation';
 import { getServerUser } from '@/lib/server-auth';
 
 /**
+ * Tell Next.js this is a dynamic route that should not be statically generated
+ * This prevents the "Request is not defined" error during build
+ */
+export const dynamic = 'force-dynamic';
+
+/**
  * Server component for documents page
  * This component validates user authentication on the server before rendering the client component
  */

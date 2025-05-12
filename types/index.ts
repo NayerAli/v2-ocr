@@ -7,33 +7,33 @@ interface BoundingBox {
 
 export interface OCRResult {
   id: string
-  documentId: string
+  document_id: string
   text: string
   confidence: number
   language: string
-  processingTime: number
-  pageNumber: number
+  processing_time: number
+  page_number: number
+  total_pages?: number
+  storage_path?: string
+  image_url?: string // URL to the image in storage (signed URL)
+  bounding_box?: BoundingBox
+  error?: string
+  user_id?: string
+  provider?: string
+
+  // CamelCase versions for client-side compatibility
+  documentId?: string
+  processingTime?: number
+  pageNumber?: number
   totalPages?: number
   storagePath?: string
   imageUrl?: string // URL to the image in storage (signed URL)
   boundingBox?: BoundingBox
-  error?: string
-  user_id?: string
-  provider?: string
   rateLimitInfo?: {
     isRateLimited: boolean
     retryAfter: number
     retryAt: string
   }
-
-  // Snake case versions for database compatibility
-  document_id?: string
-  processing_time?: number
-  page_number?: number
-  total_pages?: number
-  storage_path?: string
-  image_url?: string
-  bounding_box?: BoundingBox
 }
 
 export interface ProcessingStatus {

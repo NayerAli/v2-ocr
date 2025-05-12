@@ -141,6 +141,11 @@ export function createOCRProvider(settings: OCRSettings, azureRateLimiter: Azure
         break;
       case "microsoft":
         infoLog('[DEBUG] Creating Microsoft Vision provider');
+        if (!azureRateLimiter) {
+          infoLog('[ERROR] AzureRateLimiter is not defined. Falling back to fallback OCR provider.');
+          provider = createFallbackOCRProvider();
+          break;
+        }
         provider = new MicrosoftVisionProvider(updatedSettings, azureRateLimiter);
         break;
       case "mistral":

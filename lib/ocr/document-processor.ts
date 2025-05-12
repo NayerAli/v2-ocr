@@ -9,6 +9,8 @@ import { downloadFileFromStorage } from './storage-utils'
 import { AzureRateLimiter } from './rate-limiter'
 import { serverLog, serverError } from '@/lib/log'
 import { serverAuthHelper } from '@/lib/server-auth-helper'
+import { initializePDFJS } from '@/lib/pdf-init'
+import type { OCRSettings } from '@/types';
 
 // Global rate limiter instance to be shared across all processing
 const globalRateLimiter = new AzureRateLimiter()
@@ -23,7 +25,6 @@ export async function initializeProcessing() {
 
   try {
     // Initialize PDF.js
-    const { initializePDFJS } = await import('@/lib/pdf-init')
     await initializePDFJS()
     serverLog(requestId, `PDF.js initialized successfully`)
 
@@ -207,10 +208,8 @@ export async function processDocumentNow(documentId: string): Promise<Processing
     serverLog(requestId, `Creating OCR provider: ${ocrSettings.provider}`)
     let ocrProvider
     try {
-      // Ensure useSystemKey is correctly set
-      ocrSettings.useSystemKey = true
-
-      ocrProvider = await createOCRProvider(ocrSettings, azureRateLimiter)
+      // Respect user-provided API key and useSystemKey from settings
+      ocrProvider = await createOCRProvider(ocrSettings, globalRateLimiter)
       serverLog(requestId, `OCR provider created successfully`)
     } catch (providerError) {
       serverError(requestId, `Error creating OCR provider: ${providerError instanceof Error ? providerError.message : String(providerError)}`)

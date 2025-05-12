@@ -4,12 +4,10 @@ import { renderPageToBase64, loadPDF } from "../pdf-utils";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import type { OCRProvider } from "./providers/types";
 import { MistralOCRProvider } from "./providers/mistral";
-import { createFallbackOCRProvider } from "./providers/fallback-provider";
 import { authCompat } from "@/lib/auth-compat";
 import { createClient } from '@/utils/supabase/server'
-import { serverAuthHelper } from "@/lib/server-auth-helper";
 import { fileToBase64, base64ToBlob } from "./file-utils";
-import { FallbackOCRProvider } from "./providers/fallback-provider";
+import { loadPDFServer } from "../pdf-utils-server";
 
 // Configuration
 const STORAGE_CONFIG = {
@@ -203,7 +201,6 @@ export class FileProcessor {
             const buffer = Buffer.from(arrayBuffer);
 
             // Use the loadPDFServer function to properly load the PDF
-            const { loadPDFServer } = await import('../pdf-utils-server');
             const serverPdf = await loadPDFServer(buffer);
 
             // Get the actual page count
@@ -336,6 +333,69 @@ export class FileProcessor {
     throw new Error(`Unsupported file type: ${status.file.type}`);
   }
 
+  /**
+   * Get effective processing settings with proper fallback logic
+   * 1. Try user settings first
+   * 2. Fall back to system settings if user settings aren't available
+   * 3. Use default values as a last resort
+   */
+  private async getEffectiveProcessingSettings(userId: string): Promise<{
+    pagesPerChunk: number;
+    concurrentChunks: number;
+    pagesPerBatch: number;
+  }> {
+    const { infoLog } = await import('@/lib/log');
+
+    // Default values as a last resort
+    const defaults = {
+      pagesPerChunk: 2,
+      concurrentChunks: 5,
+      pagesPerBatch: 3
+    };
+
+    try {
+      // First try to get from user settings
+      if (userId) {
+        const { userSettingsService } = await import('@/lib/user-settings-service');
+        userSettingsService.setUserId(userId);
+        const userSettings = await userSettingsService.getProcessingSettings({ forceRefresh: true });
+
+        if (userSettings) {
+          infoLog(`[Process] Using processing settings from user settings for user ${userId}`);
+          return {
+            pagesPerChunk: userSettings.pagesPerChunk || defaults.pagesPerChunk,
+            concurrentChunks: userSettings.concurrentChunks || defaults.concurrentChunks,
+            pagesPerBatch: userSettings.pagesPerBatch || userSettings.pagesPerChunk || defaults.pagesPerBatch
+          };
+        }
+      }
+
+      // If user settings aren't available, try system settings
+      try {
+        const { systemSettingsService } = await import('@/lib/system-settings-service');
+        const systemSettings = await systemSettingsService.getProcessingSettings();
+
+        if (systemSettings) {
+          infoLog(`[Process] Using processing settings from system settings`);
+          return {
+            pagesPerChunk: systemSettings.pagesPerChunk || defaults.pagesPerChunk,
+            concurrentChunks: systemSettings.concurrentChunks || defaults.concurrentChunks,
+            // Since pagesPerBatch might not exist in the system settings type, fall back to pagesPerChunk
+            pagesPerBatch: (systemSettings as any).pagesPerBatch || systemSettings.pagesPerChunk || defaults.pagesPerBatch
+          };
+        }
+      } catch (systemError) {
+        infoLog(`[Process] Error getting system settings: ${systemError}`);
+      }
+    } catch (error) {
+      infoLog(`[Process] Error getting processing settings: ${error}`);
+    }
+
+    // Use defaults as a last resort
+    infoLog(`[Process] Using default processing settings`);
+    return defaults;
+  }
+
   private async processPageByPage(pdf: PDFDocumentProxy | any, status: ProcessingStatus, signal: AbortSignal): Promise<OCRResult[]> {
     // Load the latest settings before processing
     await this.loadSettings();
@@ -378,12 +438,15 @@ export class FileProcessor {
       throw new Error("User ID is required for processing");
     }
 
-    // Get only the required processing settings with minimal defaults
+    // Get processing settings with proper fallback logic
+    const processingSettings = await this.getEffectiveProcessingSettings(status.user_id);
+
+    // Get only the required processing settings with proper fallbacks
     const {
-      pagesPerChunk = 2,
-      concurrentChunks = 1,
-      pagesPerBatch = pagesPerChunk
-    } = this.processingSettings;
+      pagesPerChunk,
+      concurrentChunks,
+      pagesPerBatch
+    } = processingSettings;
 
     const chunks = Math.ceil(numPages / pagesPerChunk);
     infoLog(`[Process] Processing PDF in ${chunks} chunks of ${pagesPerChunk} pages each`);
@@ -613,13 +676,18 @@ export class FileProcessor {
       infoLog(`[Process] Error processing page ${pageNum} of ${status.filename}:`, error);
       return {
         id: crypto.randomUUID(),
+        // Include both camelCase and snake_case versions for compatibility
         documentId: status.id,
+        document_id: status.id,
         text: `Error processing page ${pageNum}: ${error instanceof Error ? error.message : String(error)}`,
         confidence: 0,
         language: "unknown",
         processingTime: 0,
+        processing_time: 0,
         pageNumber: pageNum,
+        page_number: pageNum,
         totalPages: status.totalPages,
+        total_pages: status.totalPages,
         error: error instanceof Error ? error.message : String(error)
       };
     }

@@ -664,22 +664,14 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
           }
         }
 
-        // Try to fetch OCR results with document_id field
+        // Fetch OCR results with document_id field
         const { data: docResults, error: resultsError } = await supabase
           .from('ocr_results')
           .select('*')
           .eq('document_id', params.id);
 
-        // If no results found with document_id, try with documentId field
-        let finalResults = docResults;
-        if (!docResults || docResults.length === 0) {
-          const { data: altResults } = await supabase
-            .from('ocr_results')
-            .select('*')
-            .eq('documentId', params.id);
-
-          finalResults = altResults;
-        }
+        // Use the results directly
+        const finalResults = docResults;
 
         if (resultsError || !finalResults || finalResults.length === 0) {
           setError("No OCR results found for this document")
@@ -697,10 +689,10 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
           return {
             ...result,
             // Ensure we have camelCase versions of all fields
-            documentId: result.documentId || result.document_id,
-            pageNumber: result.pageNumber || result.page_number,
-            imageUrl: result.imageUrl || result.image_url,
-            storagePath: result.storagePath || result.storage_path
+            documentId: result.document_id,
+            pageNumber: result.page_number,
+            imageUrl: result.image_url,
+            storagePath: result.storage_path
           };
         });
 
