@@ -1,0 +1,10 @@
+# Supabase configuration
+POSTGRES_PASSWORD=postgres
+JWT_SECRET=super-secret-jwt-token-for-ocr-app
+ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTl9.OXLF4x3HLCppanDypoIVwN_4Lj1J1ikMlmGSgUJupFc
+SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5OX0.QAvQ69sJO1S2jN-mgccJK9suHt1F2FaQn8fUHZZvPM4
+
+# OCR application configuration
+NODE_ENV=production
+NEXT_PUBLIC_SUPABASE_URL=http://localhost:8000
+NEXT_PUBLIC_SUPABASE_ANON_KEY=${ANON_KEY} 
