@@ -27,7 +27,7 @@ export async function loadPDF(file: File) {
     }
     const pdfJsParams = typeof window !== 'undefined' ? ((window as ExtendedWindow).pdfJsParams || {}) : {};
 
-    // Load the PDF with optimized parameters
+    // Load the PDF with optimized parameters for PDF.js 4.x
     const pdf = await pdfjsLib.getDocument({
       data: arrayBuffer,
       ...pdfJsParams
@@ -46,47 +46,118 @@ export async function loadPDF(file: File) {
   }
 }
 
-export async function renderPageToBase64(page: PDFPageProxy): Promise<string> {
-  const canvas = document.createElement("canvas")
-  const context = canvas.getContext("2d", {
-    alpha: true,
-    willReadFrequently: true
-  })
-  if (!context) throw new Error("Could not get canvas context")
-
-  try {
-    // Use a simpler approach with reasonable defaults
-    // Standard 150 DPI is good enough for OCR and avoids memory issues
-    const scale = 150 / 72 // Convert from PDF points to pixels
-    const viewport = page.getViewport({ scale })
-
-    // Set canvas dimensions
-    canvas.width = Math.floor(viewport.width)
-    canvas.height = Math.floor(viewport.height)
-
-    // Clear canvas with white background
-    context.fillStyle = "white"
-    context.fillRect(0, 0, canvas.width, canvas.height)
-
-    // Render the page
-    await page.render({
-      canvasContext: context,
-      viewport: viewport,
-    }).promise
-
-    // Use JPEG for better compression
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.8)
-
-    // Extract base64 data
-    const base64Data = dataUrl.split(",")[1]
-
-    return base64Data
-  } catch (error) {
-    console.error("Error rendering PDF page:", error)
-    throw new Error("Failed to render PDF page")
-  } finally {
-    // Clean up resources
-    canvas.width = 0
-    canvas.height = 0
+export async function renderPageToBase64(page: PDFPageProxy) {
+  // Higher scale for better quality
+  const scale = 1.5
+  
+  // Get viewport
+  const viewport = page.getViewport({ scale })
+  
+  // Create canvas
+  const canvas = document.createElement('canvas')
+  canvas.width = viewport.width
+  canvas.height = viewport.height
+  
+  // Get canvas context
+  const context = canvas.getContext('2d')
+  
+  if (!context) {
+    throw new Error("Could not get canvas context")
   }
+  
+  // Prepare rendering context
+  const renderContext = {
+    canvasContext: context,
+    viewport
+  }
+  
+  // Render the page
+  await page.render(renderContext).promise
+  
+  // Get base64
+  try {
+    const base64 = canvas.toDataURL('image/jpeg', 0.8).split(',')[1]
+    return base64
+  } catch (error) {
+    console.error("Error converting canvas to base64:", error)
+    throw error
+  }
+}
+
+export async function createPDFThumbnail(file: File) {
+  try {
+    // Load the PDF
+    const pdf = await loadPDF(file)
+    
+    // Get the first page
+    const page = await pdf.getPage(1)
+    
+    // Render to base64
+    const base64 = await renderPageToBase64(page)
+    
+    return `data:image/jpeg;base64,${base64}`
+  } catch (error) {
+    console.error("Error creating PDF thumbnail:", error)
+    return ''
+  }
+}
+
+export async function createImageThumbnail(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => {
+      // Create a small canvas
+      const canvas = document.createElement('canvas')
+      const MAX_WIDTH = 100
+      const MAX_HEIGHT = 100
+      
+      // Calculate dimensions
+      let width = img.width
+      let height = img.height
+      
+      if (width > height) {
+        if (width > MAX_WIDTH) {
+          height *= MAX_WIDTH / width
+          width = MAX_WIDTH
+        }
+      } else {
+        if (height > MAX_HEIGHT) {
+          width *= MAX_HEIGHT / height
+          height = MAX_HEIGHT
+        }
+      }
+      
+      canvas.width = width
+      canvas.height = height
+      
+      // Draw image
+      const ctx = canvas.getContext('2d')
+      if (!ctx) {
+        reject(new Error("Could not get canvas context"))
+        return
+      }
+      
+      ctx.drawImage(img, 0, 0, width, height)
+      
+      // Get base64
+      resolve(canvas.toDataURL('image/jpeg', 0.8))
+    }
+    
+    img.onerror = () => {
+      reject(new Error("Failed to load image"))
+    }
+    
+    img.src = URL.createObjectURL(file)
+  })
+}
+
+export function formatFileSize(bytes: number): string {
+  if (bytes === 0) return '0 Bytes'
+  
+  const k = 1024
+  const sizes = ['Bytes', 'KB', 'MB', 'GB']
+  
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
 }

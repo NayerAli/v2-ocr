@@ -239,9 +239,19 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     try {
       // Generate a new signed URL
       const { supabase } = await import('@/lib/database/utils');
+      const { getUser } = await import('@/lib/auth');
+      const user = await getUser();
+      
+      if (!user) {
+        console.error('User not authenticated, cannot generate signed URL');
+        return undefined;
+      }
+      
+      // Add the user ID to the storage path to match how files are uploaded
+      const userPath = `${user.id}/${result.storagePath}`;
       const { data, error } = await supabase.storage
         .from('ocr-documents')
-        .createSignedUrl(result.storagePath, 86400);
+        .createSignedUrl(userPath, 86400);
 
       if (error || !data?.signedUrl) {
         console.error(`Error generating signed URL for page ${result.pageNumber}:`, error);
@@ -270,6 +280,15 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     const resultsWithUrls = [...results];
     let hasUpdates = false;
 
+    // Get the current user
+    const { getUser } = await import('@/lib/auth');
+    const user = await getUser();
+
+    if (!user) {
+      console.error('User not authenticated, cannot generate signed URLs');
+      return results;
+    }
+
     // Process all results in parallel for efficiency
     const updatePromises = results.map(async (result, index) => {
       // Skip results that don't have a storage path
@@ -287,11 +306,13 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
       }
 
       try {
-        // Generate a new signed URL
+        // Generate a new signed URL with the user ID in the path
         const { supabase } = await import('@/lib/database/utils');
+        const userPath = `${user.id}/${result.storagePath}`;
+        
         const { data, error } = await supabase.storage
           .from('ocr-documents')
-          .createSignedUrl(result.storagePath, 86400);
+          .createSignedUrl(userPath, 86400);
 
         if (error || !data?.signedUrl) {
           console.error(`Error generating signed URL for page ${result.pageNumber}:`, error);

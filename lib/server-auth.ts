@@ -7,6 +7,7 @@ import type { User, Session } from '@supabase/supabase-js'
 import type { Database } from '@/types/supabase'
 import { cookies } from 'next/headers'
 import { debugError, middlewareLog } from './log'
+import { createServerClient } from './supabase/config'
 
 /**
  * Create a Supabase client for server-side use
@@ -62,23 +63,8 @@ export function createServerSupabaseClient() {
     debugError('Server: Error extracting auth token from cookie:', e)
   }
 
-  // Create the Supabase client
-  const client = createClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      auth: {
-        persistSession: true,
-        autoRefreshToken: true,
-        detectSessionInUrl: false
-      },
-      global: {
-        headers: {
-          cookie: cookieString
-        }
-      }
-    }
-  )
+  // Create the Supabase client with centralized configuration
+  const client = createServerClient(cookieString)
 
   // Supabase client created with auth token
 

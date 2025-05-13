@@ -263,8 +263,8 @@ export class FileProcessor {
 
     // Get only the required processing settings with minimal defaults
     const {
-      pagesPerChunk = 2,
-      concurrentChunks = 1,
+      pagesPerChunk = 3,
+      concurrentChunks = 3,
       pagesPerBatch = pagesPerChunk
     } = this.processingSettings;
 
