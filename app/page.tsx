@@ -411,20 +411,6 @@ export default function DashboardPage() {
           </p>
         </div>
 
-        {!isConfigured && (
-          <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
-            <AlertTitle>{t('configureRequired', language)}</AlertTitle>
-            <AlertDescription className="mt-2">
-              <p className="mb-2">{t('configureMessage', language)}</p>
-              <Button variant="secondary" size="sm" onClick={() => router.push('/settings')}>
-                {t('configureSettings', language)}
-                <ArrowRight className="ml-2 h-4 w-4" />
-              </Button>
-            </AlertDescription>
-          </Alert>
-        )}
-
         {/* Upload Section */}
         <div className="relative">
           {!user && !isAuthLoading ? (
@@ -455,7 +441,7 @@ export default function DashboardPage() {
           ) : (
             // Upload card for authenticated users
             <>
-              {isConfigured && !settings.ocr.apiKey && (
+              {isConfigured && !settings.ocr.apiKey && !settings.ocr.useSystemKey && (
                 <Alert variant="destructive" className="mb-4">
                   <AlertCircle className="h-4 w-4" />
                   <AlertTitle>API Key Missing</AlertTitle>
@@ -524,7 +510,7 @@ export default function DashboardPage() {
                 }}
                 onRemove={handleRemoveFromQueue}
                 onCancel={handleCancel}
-                disabled={!isConfigured || !isInitialized}
+                disabled={!isInitialized}
                 maxFileSize={settings.upload.maxFileSize}
                 maxSimultaneousUploads={settings.upload.maxSimultaneousUploads}
                 allowedFileTypes={settings.upload.allowedFileTypes}

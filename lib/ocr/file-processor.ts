@@ -65,14 +65,16 @@ export class FileProcessor {
     // @ts-expect-error - Accessing private property for debugging
     const useSystemKey = this.ocrProvider.settings?.useSystemKey;
 
-    // Simplified check: if there's an API key with length > 0, it's valid
-    const isValid = !!apiKey && apiKey.length > 0;
+    // Consider the provider valid if:
+    // 1. There's an API key with length > 0, OR
+    // 2. System key usage is enabled (useSystemKey is true or undefined/null - default is true)
+    const isValid = (!!apiKey && apiKey.length > 0) || useSystemKey !== false;
 
     infoLog('[DEBUG] OCR provider API key check:', {
       isValid,
       apiKeyPresent: !!apiKey,
       apiKeyLength: apiKey ? apiKey.length : 0,
-      useSystemKey: !!useSystemKey
+      useSystemKey: useSystemKey !== false
     });
 
     return isValid;

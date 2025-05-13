@@ -14,7 +14,7 @@ export function useSettingsInit(): UseSettingsInitResult {
 
   // Check if settings are valid
   const isConfigured = Boolean(
-    settings.ocr.apiKey &&
+    (settings.ocr.useSystemKey || settings.ocr.apiKey) &&
     (settings.ocr.provider !== "microsoft" || settings.ocr.region)
   )
 
@@ -31,14 +31,15 @@ export function useSettingsInit(): UseSettingsInitResult {
       debugLog('[DEBUG] useSettingsInit - Initial settings check');
       debugLog('[DEBUG] useSettingsInit - hasCheckedSettings:', hasCheckedSettings);
       debugLog('[DEBUG] useSettingsInit - apiKey:', settings.ocr.apiKey ? 'Present' : 'Missing');
+      debugLog('[DEBUG] useSettingsInit - useSystemKey:', settings.ocr.useSystemKey);
       debugLog('[DEBUG] useSettingsInit - provider:', settings.ocr.provider);
     }
 
     // Skip if we've already checked
     if (hasCheckedSettings) return
 
-    // Check if settings are valid
-    const hasValidSettings = settings.ocr.apiKey &&
+    // Check if settings are valid - considering both user API key and system key option
+    const hasValidSettings = (settings.ocr.useSystemKey || settings.ocr.apiKey) &&
       (settings.ocr.provider !== "microsoft" || settings.ocr.region)
 
     // Update initialization state
@@ -49,7 +50,7 @@ export function useSettingsInit(): UseSettingsInitResult {
     if (process.env.NODE_ENV === 'development' && !hasCheckedSettings) {
       debugLog('[DEBUG] useSettingsInit - Settings check complete');
     }
-  }, [settings.ocr.apiKey, settings.ocr.provider, settings.ocr.region, hasCheckedSettings])
+  }, [settings.ocr.apiKey, settings.ocr.provider, settings.ocr.region, settings.ocr.useSystemKey, hasCheckedSettings])
 
   // Update initialization when settings change
   useEffect(() => {
@@ -58,15 +59,16 @@ export function useSettingsInit(): UseSettingsInitResult {
       if (process.env.NODE_ENV === 'development' && Math.random() < 0.01) {
         debugLog('[DEBUG] useSettingsInit - Settings changed, rechecking');
         debugLog('[DEBUG] useSettingsInit - apiKey:', settings.ocr.apiKey ? 'Present' : 'Missing');
+        debugLog('[DEBUG] useSettingsInit - useSystemKey:', settings.ocr.useSystemKey);
         debugLog('[DEBUG] useSettingsInit - provider:', settings.ocr.provider);
       }
 
-      const hasValidSettings = Boolean(settings.ocr.apiKey &&
+      const hasValidSettings = Boolean((settings.ocr.useSystemKey || settings.ocr.apiKey) &&
         (settings.ocr.provider !== "microsoft" || settings.ocr.region))
 
       setIsInitialized(hasValidSettings)
     }
-  }, [settings.ocr.apiKey, settings.ocr.provider, settings.ocr.region, hasCheckedSettings])
+  }, [settings.ocr.apiKey, settings.ocr.provider, settings.ocr.region, settings.ocr.useSystemKey, hasCheckedSettings])
 
   return {
     isInitialized,
