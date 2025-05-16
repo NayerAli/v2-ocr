@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import { Loader2, AlertCircle, Eye, EyeOff, Lock, Server, CheckCircle, Info } from "lucide-react"
+import { Loader2, AlertCircle, Eye, EyeOff, Lock, Server, CheckCircle } from "lucide-react"
 import { useSettings } from "@/store/settings"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -348,7 +348,7 @@ export default function SettingsPage() {
                   <Label htmlFor="api-key" className="text-sm">🔑 {t('accessKey', language)}</Label>
                   <p className="text-xs text-muted-foreground">{t('accessKeyDescription', language)}</p>
 
-                  <Alert className="mb-2" variant="info">
+                  <Alert className="mb-2">
                     <Server className="h-4 w-4" />
                     <AlertTitle>System API Key Available</AlertTitle>
                     <AlertDescription>

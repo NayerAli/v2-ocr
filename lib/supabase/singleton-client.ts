@@ -1,4 +1,3 @@
-import type { Database } from '@/types/supabase'
 import { createBrowserClient } from './config'
 
 // Create a singleton Supabase client to be used across the application

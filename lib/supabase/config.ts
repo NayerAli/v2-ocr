@@ -11,7 +11,20 @@ export const getDefaultOptions = (cookies?: string) => {
       storageKey: 'sb-auth-token',
       flowType: 'pkce'
     }
-  } as any
+  } as {
+    auth: {
+      persistSession: boolean;
+      autoRefreshToken: boolean;
+      detectSessionInUrl: boolean;
+      storageKey: string;
+      flowType: 'pkce';
+    };
+    global?: {
+      headers: {
+        cookie: string;
+      };
+    };
+  }
 
   // Add cookies to headers if provided
   if (cookies) {
@@ -30,20 +43,20 @@ export function createServerClient(cookieString: string) {
   // Extract auth token directly from cookie string if possible
   let authToken = null;
   let refreshToken = '';
-  
+
   try {
     if (cookieString) {
       const cookies = cookieString.split(';').map(c => c.trim());
-      
+
       // Try to find auth cookie with standard and environment-specific names
       const authCookieNames = ['sb-auth-token', 'sb-localhost:8000-auth-token'];
-      
+
       // Add Supabase project reference if in production
       const projectRef = process.env.NEXT_PUBLIC_SUPABASE_URL?.split('//')[1]?.split('.')[0];
       if (projectRef && !authCookieNames.includes(`sb-${projectRef}-auth-token`)) {
         authCookieNames.push(`sb-${projectRef}-auth-token`);
       }
-      
+
       // Try each auth cookie
       for (const cookieName of authCookieNames) {
         const authCookie = cookies.find(c => c.startsWith(`${cookieName}=`));
@@ -51,7 +64,7 @@ export function createServerClient(cookieString: string) {
           try {
             const cookieValue = decodeURIComponent(authCookie.split('=')[1]);
             const authData = JSON.parse(cookieValue);
-            
+
             if (authData.access_token) {
               authToken = authData.access_token;
               refreshToken = authData.refresh_token || '';
@@ -66,14 +79,14 @@ export function createServerClient(cookieString: string) {
   } catch (e) {
     console.error('Error extracting auth token from cookies', e);
   }
-  
+
   // Create client with standard options
   const client = createClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     getDefaultOptions(cookieString)
   );
-  
+
   // Set session directly if token was found
   if (authToken) {
     try {
@@ -83,7 +96,7 @@ export function createServerClient(cookieString: string) {
       console.error('Error setting session on Supabase client', e);
     }
   }
-  
+
   return client;
 }
 
@@ -94,4 +107,4 @@ export function createBrowserClient() {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     getDefaultOptions()
   )
-} 
+}

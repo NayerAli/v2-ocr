@@ -51,9 +51,9 @@ class SystemSettingsService {
 
     // Default settings
     const defaultSettings: ProcessingSettings = {
-      maxConcurrentJobs: 2,
-      pagesPerChunk: 2,
-      concurrentChunks: 1,
+      maxConcurrentJobs: 3,
+      pagesPerChunk: 5,
+      concurrentChunks: 3,
       retryAttempts: 2,
       retryDelay: 1000
     }

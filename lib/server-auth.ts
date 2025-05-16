@@ -2,9 +2,7 @@
 // IMPORTANT: This file should only be imported in App Router components (app directory)
 // It uses next/headers which is not compatible with Pages Router (pages directory)
 
-import { createClient } from '@supabase/supabase-js'
 import type { User, Session } from '@supabase/supabase-js'
-import type { Database } from '@/types/supabase'
 import { cookies } from 'next/headers'
 import { debugError, middlewareLog } from './log'
 import { createServerClient } from './supabase/config'
