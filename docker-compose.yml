@@ -1,181 +1,18 @@
 version: '3.8'
 
 services:
-  # Next.js OCR Application
   ocr-app:
+    # Build the production image using the multi-stage Dockerfile
     build:
       context: .
       dockerfile: Dockerfile
-      args:
-        - NEXT_PUBLIC_SUPABASE_URL=http://kong:8000
-        - NEXT_PUBLIC_SUPABASE_ANON_KEY=${ANON_KEY}
-    restart: always
+
+    # Load environment variables for Supabase and OCR providers
+    env_file:
+      - .env.local
+
+    # Expose the app on port 3000
     ports:
-      - "3000:3000"
-    environment:
-      - NODE_ENV=production
-      - NEXT_PUBLIC_SUPABASE_URL=http://kong:8000
-      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${ANON_KEY}
-      - SUPABASE_SERVICE_ROLE_KEY=${SERVICE_ROLE_KEY}
-    depends_on:
-      - supabase-db
-      - kong
-    networks:
-      - ocr-network
+      - '3005:3000'
 
-  # Supabase setup - using official Docker images
-  supabase-db:
-    image: supabase/postgres:15.1.0
     restart: always
-    volumes:
-      - supabase-db-data:/var/lib/postgresql/data
-      - ./supabase/migrations:/docker-entrypoint-initdb.d
-    environment:
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
-      - POSTGRES_USER=postgres
-      - POSTGRES_DB=postgres
-    ports:
-      - "5432:5432"
-    command: postgres -c config_file=/etc/postgresql/postgresql.conf
-    networks:
-      - ocr-network
-
-  # Supabase API - Studio
-  studio:
-    image: supabase/studio:20230327-9f82147
-    restart: always
-    ports:
-      - "3010:3000"
-    environment:
-      SUPABASE_URL: http://kong:8000
-      STUDIO_PG_META_URL: http://meta:8080
-      SUPABASE_ANON_KEY: ${ANON_KEY}
-      SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY}
-    depends_on:
-      - kong
-    networks:
-      - ocr-network
-
-  # Supabase API - Kong
-  kong:
-    image: kong:2.8.1
-    restart: always
-    ports:
-      - "8000:8000"
-    environment:
-      KONG_DATABASE: "off"
-      KONG_DECLARATIVE_CONFIG: /var/lib/kong/kong.yml
-      KONG_PLUGINS: request-transformer,cors,key-auth,acl
-    volumes:
-      - ./supabase/kong.yml:/var/lib/kong/kong.yml
-    depends_on:
-      - auth
-      - rest
-      - realtime
-    networks:
-      - ocr-network
-
-  # Supabase API - Auth
-  auth:
-    image: supabase/gotrue:v2.12.0
-    restart: always
-    environment:
-      GOTRUE_API_HOST: 0.0.0.0
-      GOTRUE_API_PORT: 9999
-      GOTRUE_DB_DRIVER: postgres
-      GOTRUE_DB_CONNECTION_STRING: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@supabase-db:5432/postgres
-      GOTRUE_SITE_URL: http://localhost:3000
-      GOTRUE_JWT_SECRET: ${JWT_SECRET:-super-secret-jwt-token-for-ocr-app}
-      GOTRUE_JWT_EXP: 3600
-      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
-      GOTRUE_DISABLE_SIGNUP: "false"
-    depends_on:
-      - supabase-db
-    networks:
-      - ocr-network
-
-  # Supabase API - REST
-  rest:
-    image: postgrest/postgrest:v10.1.2
-    restart: always
-    environment:
-      PGRST_DB_URI: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@supabase-db:5432/postgres
-      PGRST_DB_SCHEMA: public,storage
-      PGRST_DB_ANON_ROLE: anon
-      PGRST_JWT_SECRET: ${JWT_SECRET:-super-secret-jwt-token-for-ocr-app}
-      PGRST_DB_USE_LEGACY_GUCS: "false"
-    depends_on:
-      - supabase-db
-    networks:
-      - ocr-network
-
-  # Supabase API - Realtime
-  realtime:
-    image: supabase/realtime:v2.3.0
-    restart: always
-    environment:
-      DB_HOST: supabase-db
-      DB_PORT: 5432
-      DB_NAME: postgres
-      DB_USER: postgres
-      DB_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      PORT: 4000
-      JWT_SECRET: ${JWT_SECRET:-super-secret-jwt-token-for-ocr-app}
-      REPLICATION_MODE: RLS
-      REPLICATION_POLL_INTERVAL: 100
-      SECURE_CHANNELS: "true"
-      SLOT_NAME: supabase_realtime
-    depends_on:
-      - supabase-db
-    networks:
-      - ocr-network
-
-  # Supabase API - Storage
-  storage:
-    image: supabase/storage-api:v0.21.4
-    restart: always
-    environment:
-      ANON_KEY: ${ANON_KEY}
-      SERVICE_KEY: ${SERVICE_ROLE_KEY}
-      TENANT_ID: tenant_id
-      REST_URL: http://rest:3000
-      REGION: us-east-1
-      GLOBAL_S3_BUCKET: ocr-storage
-      ENABLE_IMAGE_TRANSFORMATION: "true"
-      POSTGREST_URL: http://rest:3000
-      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@supabase-db:5432/postgres
-      PGRST_JWT_SECRET: ${JWT_SECRET:-super-secret-jwt-token-for-ocr-app}
-      FILE_SIZE_LIMIT: 10485760
-      FILE_STORAGE_BACKEND: file
-      STORAGE_BACKEND: file
-      FILE_STORAGE_UPLOAD_DIRECTORY: /var/lib/storage
-    volumes:
-      - ocr-storage-data:/var/lib/storage
-    depends_on:
-      - rest
-    networks:
-      - ocr-network
-
-  # Supabase API - Meta
-  meta:
-    image: supabase/postgres-meta:v0.61.0
-    restart: always
-    environment:
-      PG_META_PORT: 8080
-      PG_META_DB_HOST: supabase-db
-      PG_META_DB_PORT: 5432
-      PG_META_DB_NAME: postgres
-      PG_META_DB_USER: postgres
-      PG_META_DB_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-    depends_on:
-      - supabase-db
-    networks:
-      - ocr-network
-
-volumes:
-  supabase-db-data:
-  ocr-storage-data:
-
-networks:
-  ocr-network:
-    driver: bridge 

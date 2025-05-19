@@ -85,8 +85,4 @@ storybook-static/
 .nyc_output/
 
 # IMPORTANT: Don't ignore critical deployment files
-!deploy.sh
-!docker-compose.yml
-!supabase/migrations/
-!supabase/kong.yml
-!docker-env-example
+!.env.example
