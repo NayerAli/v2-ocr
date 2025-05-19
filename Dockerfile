@@ -2,8 +2,8 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 # Copy package manifests and install production deps
-COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
+COPY package.json ./
+RUN npm install
 
 # Copy source and build
 COPY . .
