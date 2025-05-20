@@ -18,11 +18,6 @@ export function SupabaseError() {
 
   if (!showError) return null
 
-  const openSetupInstructions = () => {
-    // Using optional chaining for type safety
-    window?.open?.('https://github.com/NayerAli/v2-ocr#supabase-setup', '_blank', 'noopener,noreferrer')
-  }
-
   return (
     <Alert variant="destructive" className="mb-4">
       <AlertCircle className="h-4 w-4" />
@@ -40,9 +35,11 @@ export function SupabaseError() {
         </pre>
         <Button
           variant="outline"
-          onClick={openSetupInstructions}
+          asChild
         >
-          View Setup Instructions
+          <a href="https://github.com/NayerAli/v2-ocr#supabase-setup" target="_blank" rel="noopener noreferrer">
+            View Setup Instructions
+          </a>
         </Button>
       </AlertDescription>
     </Alert>
