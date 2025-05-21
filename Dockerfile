@@ -5,9 +5,9 @@ WORKDIR /app
 COPY package.json ./
 RUN npm install
 
+COPY .env.local .env.local
 # Copy source and build
 COPY . .
-COPY .env.local .env.local
 RUN npm run build
 
 # 2. Runner stage: setup production image
