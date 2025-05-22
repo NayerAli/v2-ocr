@@ -26,9 +26,9 @@ const DEFAULT_OCR_SETTINGS: OCRSettings = {
 }
 
 const DEFAULT_PROCESSING_SETTINGS: ProcessingSettings = {
-  maxConcurrentJobs: 1,
-  pagesPerChunk: 2,
-  concurrentChunks: 1,
+  maxConcurrentJobs: 3,
+  pagesPerChunk: 3,
+  concurrentChunks: 3,
   retryAttempts: 2,
   retryDelay: 1000,
   pagesPerBatch: 3

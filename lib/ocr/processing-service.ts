@@ -140,11 +140,13 @@ export async function getProcessingService(settings: ServiceSettings) {
       ...components
     };
 
-    // Initialize asynchronously
-    console.log('[DEBUG] Initializing service asynchronously');
-    initializeService(serviceState).catch(err => {
+    // Initialize and await before returning API
+    console.log('[DEBUG] Initializing service with latest settings');
+    try {
+      await initializeService(serviceState);
+    } catch (err) {
       console.error('[DEBUG] Processing service initialization error:', err);
-    });
+    }
   } else if (
     JSON.stringify(serviceState.ocrSettings) !== JSON.stringify(settings.ocr) ||
     JSON.stringify(serviceState.processingSettings) !== JSON.stringify(settings.processing) ||
@@ -201,11 +203,13 @@ export async function getProcessingService(settings: ServiceSettings) {
       console.error('[DEBUG] Error handling in-flight jobs:', error);
     }
 
-    // Initialize with new settings
+    // Initialize with new settings and await before returning API
     console.log('[DEBUG] Reinitializing service with new settings');
-    initializeService(serviceState).catch(err => {
+    try {
+      await initializeService(serviceState);
+    } catch (err) {
       console.error('[DEBUG] Processing service reinitialization error:', err);
-    });
+    }
   } else {
     console.log('[DEBUG] Using existing service instance, settings unchanged');
 
@@ -353,10 +357,13 @@ export async function getProcessingService(settings: ServiceSettings) {
         console.error('[DEBUG] Error handling in-flight jobs:', error);
       }
 
-      // Initialize with new settings
-      initializeService(serviceState).catch(err =>
-        console.error('[ProcessingService] Settings update error:', err)
-      );
+      // Initialize with new settings and await before returning
+      console.log('[ProcessingService] Reinitializing service with updated settings');
+      try {
+        await initializeService(serviceState);
+      } catch (err) {
+        console.error('[ProcessingService] Settings update error:', err);
+      }
     }
   };
 }
