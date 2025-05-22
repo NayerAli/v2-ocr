@@ -1,12 +1,10 @@
-import { createClient } from '@supabase/supabase-js'
-import type { Database } from '@/types/supabase'
-
-// Initialize Supabase client
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+import { createClient } from './supabase/client'
 
 // Check if Supabase credentials are available
-const hasCredentials = Boolean(supabaseUrl && supabaseKey)
+const hasCredentials = Boolean(
+  process.env.NEXT_PUBLIC_SUPABASE_URL && 
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+)
 
 if (!hasCredentials) {
   console.error('Supabase credentials not found. Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY environment variables.')
@@ -20,23 +18,10 @@ if (!hasCredentials) {
   }
 }
 
-// Create the Supabase client with a fallback URL if not configured
-// This prevents the 'Invalid URL' error but the client won't work without proper credentials
-const fallbackUrl = 'http://localhost:8000' // This is just a placeholder
-
-// Configure the Supabase client with proper auth settings
+// Use our new SSR client implementation
 export const supabase = hasCredentials
-  ? createClient<Database>(supabaseUrl, supabaseKey, {
-      auth: {
-        persistSession: true,
-        autoRefreshToken: true,
-        detectSessionInUrl: true,
-        // Use cookies for session storage to ensure server-side authentication works
-        storageKey: 'sb-auth-token',
-        flowType: 'pkce'
-      }
-    })
-  : createClient<Database>(fallbackUrl, 'fallback-key')
+  ? createClient()
+  : null // Better to return null than a fake client
 
 // Helper function to check if Supabase is properly configured
 export const isSupabaseConfigured = (): boolean => {

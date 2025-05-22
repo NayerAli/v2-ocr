@@ -14,78 +14,85 @@ export async function GET(
 
   try {
     // Get the current user using server-side auth
-    const supabase = createServerSupabaseClient()
+    const supabase = await createServerSupabaseClient()
 
-    // First try to get the session
-    const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
+    // First try to get the user directly (more secure than using session user)
+    const { data: userData, error: userError } = await supabase.auth.getUser()
 
     let user = null;
 
-    if (sessionData?.session?.user) {
-      console.log('[SERVER] User authenticated from session:', sessionData.session.user.email)
-      user = sessionData.session.user
-    } else {
-      // If no session, try to get the user directly
-      const { data: userData, error: userError } = await supabase.auth.getUser()
+    if (userData?.user) {
+      console.log('[SERVER] User authenticated from getUser:', userData.user.email)
+      user = userData.user
+    } else if (userError) {
+      console.error('[SERVER] GET /api/documents/[id] - Error getting user:', userError.message)
+      
+      // Fallback to session if getUser fails
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
+      
+      if (sessionError) {
+        console.error('[SERVER] GET /api/documents/[id] - Session error:', sessionError.message)
+      }
 
-      if (userData?.user) {
-        console.log('[SERVER] User authenticated from getUser:', userData.user.email)
-        user = userData.user
-      } else {
-        // Try to extract user from cookies directly as a last resort
-        try {
-          // Get the cookies from the request
-          const cookieHeader = req.headers.get('cookie') || ''
-          const cookies = cookieHeader.split(';').map(c => c.trim())
+      if (sessionData?.session?.user) {
+        console.warn('[SERVER] GET /api/documents/[id] - Using session user as fallback (less secure)')
+        user = sessionData.session.user
+      }
+    }
+    
+    // If still no user, try to extract from cookies as last resort
+    if (!user) {
+      try {
+        // Get the cookies from the request
+        const cookieHeader = req.headers.get('cookie') || ''
+        const cookies = cookieHeader.split(';').map(c => c.trim())
 
-          // Find auth cookies
-          const authCookie = cookies.find(c =>
-            c.startsWith('sb-auth-token=') ||
-            c.startsWith('sb-localhost:8000-auth-token=') ||
-            c.includes('-auth-token=')
-          )
+        // Find auth cookies
+        const authCookie = cookies.find(c =>
+          c.startsWith('sb-auth-token=') ||
+          c.startsWith('sb-localhost:8000-auth-token=') ||
+          c.includes('-auth-token=')
+        )
 
-          if (authCookie) {
-            // Extract the token value
-            const tokenValue = authCookie.split('=')[1]
-            if (tokenValue) {
-              // Parse the token
-              try {
-                const tokenData = JSON.parse(decodeURIComponent(tokenValue))
-                if (tokenData.access_token) {
-                  // Set the session manually
-                  const { data: manualSessionData, error: manualSessionError } =
-                    await supabase.auth.setSession({
-                      access_token: tokenData.access_token,
-                      refresh_token: tokenData.refresh_token || ''
-                    })
+        if (authCookie) {
+          // Extract the token value
+          const tokenValue = authCookie.split('=')[1]
+          if (tokenValue) {
+            // Parse the token
+            try {
+              const tokenData = JSON.parse(decodeURIComponent(tokenValue))
+              if (tokenData.access_token) {
+                // Set the session manually
+                const { data: manualSessionData, error: manualSessionError } =
+                  await supabase.auth.setSession({
+                    access_token: tokenData.access_token,
+                    refresh_token: tokenData.refresh_token || ''
+                  })
 
-                  if (manualSessionData?.user) {
-                    console.log('[SERVER] User authenticated from manual token:', manualSessionData.user.email)
-                    user = manualSessionData.user
-                  } else if (manualSessionError) {
-                    console.error('[SERVER] Error setting manual session:', manualSessionError.message)
-                  }
+                if (manualSessionData?.user) {
+                  console.log('[SERVER] User authenticated from manual token:', manualSessionData.user.email)
+                  user = manualSessionData.user
+                } else if (manualSessionError) {
+                  console.error('[SERVER] Error setting manual session:', manualSessionError.message)
                 }
-              } catch (parseError) {
-                console.error('[SERVER] Error parsing auth token:', parseError)
               }
+            } catch (parseError) {
+              console.error('[SERVER] Error parsing auth token:', parseError)
             }
           }
-        } catch (cookieError) {
-          console.error('[SERVER] Error extracting user from cookies:', cookieError)
         }
-
-        // If still no user, return unauthorized
-        if (!user) {
-          console.error('[SERVER] GET /api/documents/[id] - Unauthorized, no user found. Auth session missing!',
-                      sessionError?.message || userError?.message);
-          return NextResponse.json(
-            { error: 'Unauthorized' },
-            { status: 401 }
-          )
-        }
+      } catch (cookieError) {
+        console.error('[SERVER] Error extracting user from cookies:', cookieError)
       }
+    }
+    
+    // If still no user, return unauthorized
+    if (!user) {
+      console.error('[SERVER] GET /api/documents/[id] - Unauthorized, no user found. Auth session missing!')
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      )
     }
 
     // Get the document directly from Supabase instead of using db.getDocument
@@ -144,78 +151,85 @@ export async function PUT(
 
   try {
     // Get the current user using server-side auth
-    const supabase = createServerSupabaseClient()
+    const supabase = await createServerSupabaseClient()
 
-    // First try to get the session
-    const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
+    // First try to get the user directly (more secure than using session user)
+    const { data: userData, error: userError } = await supabase.auth.getUser()
 
     let user = null;
 
-    if (sessionData?.session?.user) {
-      console.log('[SERVER] User authenticated from session:', sessionData.session.user.email)
-      user = sessionData.session.user
-    } else {
-      // If no session, try to get the user directly
-      const { data: userData, error: userError } = await supabase.auth.getUser()
+    if (userData?.user) {
+      console.log('[SERVER] User authenticated from getUser:', userData.user.email)
+      user = userData.user
+    } else if (userError) {
+      console.error('[SERVER] PUT /api/documents/[id] - Error getting user:', userError.message)
+      
+      // Fallback to session if getUser fails
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
+      
+      if (sessionError) {
+        console.error('[SERVER] PUT /api/documents/[id] - Session error:', sessionError.message)
+      }
 
-      if (userData?.user) {
-        console.log('[SERVER] User authenticated from getUser:', userData.user.email)
-        user = userData.user
-      } else {
-        // Try to extract user from cookies directly as a last resort
-        try {
-          // Get the cookies from the request
-          const cookieHeader = req.headers.get('cookie') || ''
-          const cookies = cookieHeader.split(';').map(c => c.trim())
+      if (sessionData?.session?.user) {
+        console.warn('[SERVER] PUT /api/documents/[id] - Using session user as fallback (less secure)')
+        user = sessionData.session.user
+      }
+    }
+    
+    // If still no user, try to extract from cookies as last resort
+    if (!user) {
+      try {
+        // Get the cookies from the request
+        const cookieHeader = req.headers.get('cookie') || ''
+        const cookies = cookieHeader.split(';').map(c => c.trim())
 
-          // Find auth cookies
-          const authCookie = cookies.find(c =>
-            c.startsWith('sb-auth-token=') ||
-            c.startsWith('sb-localhost:8000-auth-token=') ||
-            c.includes('-auth-token=')
-          )
+        // Find auth cookies
+        const authCookie = cookies.find(c =>
+          c.startsWith('sb-auth-token=') ||
+          c.startsWith('sb-localhost:8000-auth-token=') ||
+          c.includes('-auth-token=')
+        )
 
-          if (authCookie) {
-            // Extract the token value
-            const tokenValue = authCookie.split('=')[1]
-            if (tokenValue) {
-              // Parse the token
-              try {
-                const tokenData = JSON.parse(decodeURIComponent(tokenValue))
-                if (tokenData.access_token) {
-                  // Set the session manually
-                  const { data: manualSessionData, error: manualSessionError } =
-                    await supabase.auth.setSession({
-                      access_token: tokenData.access_token,
-                      refresh_token: tokenData.refresh_token || ''
-                    })
+        if (authCookie) {
+          // Extract the token value
+          const tokenValue = authCookie.split('=')[1]
+          if (tokenValue) {
+            // Parse the token
+            try {
+              const tokenData = JSON.parse(decodeURIComponent(tokenValue))
+              if (tokenData.access_token) {
+                // Set the session manually
+                const { data: manualSessionData, error: manualSessionError } =
+                  await supabase.auth.setSession({
+                    access_token: tokenData.access_token,
+                    refresh_token: tokenData.refresh_token || ''
+                  })
 
-                  if (manualSessionData?.user) {
-                    console.log('[SERVER] User authenticated from manual token:', manualSessionData.user.email)
-                    user = manualSessionData.user
-                  } else if (manualSessionError) {
-                    console.error('[SERVER] Error setting manual session:', manualSessionError.message)
-                  }
+                if (manualSessionData?.user) {
+                  console.log('[SERVER] User authenticated from manual token:', manualSessionData.user.email)
+                  user = manualSessionData.user
+                } else if (manualSessionError) {
+                  console.error('[SERVER] Error setting manual session:', manualSessionError.message)
                 }
-              } catch (parseError) {
-                console.error('[SERVER] Error parsing auth token:', parseError)
               }
+            } catch (parseError) {
+              console.error('[SERVER] Error parsing auth token:', parseError)
             }
           }
-        } catch (cookieError) {
-          console.error('[SERVER] Error extracting user from cookies:', cookieError)
         }
-
-        // If still no user, return unauthorized
-        if (!user) {
-          console.error('[SERVER] PUT /api/documents/[id] - Unauthorized, no user found. Auth session missing!',
-                      sessionError?.message || userError?.message);
-          return NextResponse.json(
-            { error: 'Unauthorized' },
-            { status: 401 }
-          )
-        }
+      } catch (cookieError) {
+        console.error('[SERVER] Error extracting user from cookies:', cookieError)
       }
+    }
+    
+    // If still no user, return unauthorized
+    if (!user) {
+      console.error('[SERVER] PUT /api/documents/[id] - Unauthorized, no user found. Auth session missing!')
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      )
     }
 
     // Get the document directly from Supabase instead of using db.getDocument
@@ -330,78 +344,85 @@ export async function DELETE(
 
   try {
     // Get the current user using server-side auth
-    const supabase = createServerSupabaseClient()
+    const supabase = await createServerSupabaseClient()
 
-    // First try to get the session
-    const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
+    // First try to get the user directly (more secure than using session user)
+    const { data: userData, error: userError } = await supabase.auth.getUser()
 
     let user = null;
 
-    if (sessionData?.session?.user) {
-      console.log('[SERVER] User authenticated from session:', sessionData.session.user.email)
-      user = sessionData.session.user
-    } else {
-      // If no session, try to get the user directly
-      const { data: userData, error: userError } = await supabase.auth.getUser()
+    if (userData?.user) {
+      console.log('[SERVER] User authenticated from getUser:', userData.user.email)
+      user = userData.user
+    } else if (userError) {
+      console.error('[SERVER] DELETE /api/documents/[id] - Error getting user:', userError.message)
+      
+      // Fallback to session if getUser fails
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
+      
+      if (sessionError) {
+        console.error('[SERVER] DELETE /api/documents/[id] - Session error:', sessionError.message)
+      }
 
-      if (userData?.user) {
-        console.log('[SERVER] User authenticated from getUser:', userData.user.email)
-        user = userData.user
-      } else {
-        // Try to extract user from cookies directly as a last resort
-        try {
-          // Get the cookies from the request
-          const cookieHeader = req.headers.get('cookie') || ''
-          const cookies = cookieHeader.split(';').map(c => c.trim())
+      if (sessionData?.session?.user) {
+        console.warn('[SERVER] DELETE /api/documents/[id] - Using session user as fallback (less secure)')
+        user = sessionData.session.user
+      }
+    }
+    
+    // If still no user, try to extract from cookies as last resort
+    if (!user) {
+      try {
+        // Get the cookies from the request
+        const cookieHeader = req.headers.get('cookie') || ''
+        const cookies = cookieHeader.split(';').map(c => c.trim())
 
-          // Find auth cookies
-          const authCookie = cookies.find(c =>
-            c.startsWith('sb-auth-token=') ||
-            c.startsWith('sb-localhost:8000-auth-token=') ||
-            c.includes('-auth-token=')
-          )
+        // Find auth cookies
+        const authCookie = cookies.find(c =>
+          c.startsWith('sb-auth-token=') ||
+          c.startsWith('sb-localhost:8000-auth-token=') ||
+          c.includes('-auth-token=')
+        )
 
-          if (authCookie) {
-            // Extract the token value
-            const tokenValue = authCookie.split('=')[1]
-            if (tokenValue) {
-              // Parse the token
-              try {
-                const tokenData = JSON.parse(decodeURIComponent(tokenValue))
-                if (tokenData.access_token) {
-                  // Set the session manually
-                  const { data: manualSessionData, error: manualSessionError } =
-                    await supabase.auth.setSession({
-                      access_token: tokenData.access_token,
-                      refresh_token: tokenData.refresh_token || ''
-                    })
+        if (authCookie) {
+          // Extract the token value
+          const tokenValue = authCookie.split('=')[1]
+          if (tokenValue) {
+            // Parse the token
+            try {
+              const tokenData = JSON.parse(decodeURIComponent(tokenValue))
+              if (tokenData.access_token) {
+                // Set the session manually
+                const { data: manualSessionData, error: manualSessionError } =
+                  await supabase.auth.setSession({
+                    access_token: tokenData.access_token,
+                    refresh_token: tokenData.refresh_token || ''
+                  })
 
-                  if (manualSessionData?.user) {
-                    console.log('[SERVER] User authenticated from manual token:', manualSessionData.user.email)
-                    user = manualSessionData.user
-                  } else if (manualSessionError) {
-                    console.error('[SERVER] Error setting manual session:', manualSessionError.message)
-                  }
+                if (manualSessionData?.user) {
+                  console.log('[SERVER] User authenticated from manual token:', manualSessionData.user.email)
+                  user = manualSessionData.user
+                } else if (manualSessionError) {
+                  console.error('[SERVER] Error setting manual session:', manualSessionError.message)
                 }
-              } catch (parseError) {
-                console.error('[SERVER] Error parsing auth token:', parseError)
               }
+            } catch (parseError) {
+              console.error('[SERVER] Error parsing auth token:', parseError)
             }
           }
-        } catch (cookieError) {
-          console.error('[SERVER] Error extracting user from cookies:', cookieError)
         }
-
-        // If still no user, return unauthorized
-        if (!user) {
-          console.error('[SERVER] DELETE /api/documents/[id] - Unauthorized, no user found. Auth session missing!',
-                      sessionError?.message || userError?.message);
-          return NextResponse.json(
-            { error: 'Unauthorized' },
-            { status: 401 }
-          )
-        }
+      } catch (cookieError) {
+        console.error('[SERVER] Error extracting user from cookies:', cookieError)
       }
+    }
+    
+    // If still no user, return unauthorized
+    if (!user) {
+      console.error('[SERVER] DELETE /api/documents/[id] - Unauthorized, no user found. Auth session missing!')
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      )
     }
 
     // Get the document directly from Supabase instead of using db.getDocument

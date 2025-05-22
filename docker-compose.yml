@@ -1,16 +1,32 @@
 services:
-  ocr-app:
-    # Build the production image using the multi-stage Dockerfile
+  # ---- Production ----
+  app:
+    profiles: ["prod"]
     build:
       context: .
-      dockerfile: Dockerfile
+      target: prod
+    env_file: .env.local  # tes clés arrivent ici
+    ports: ["3000:3000"]
 
-    # Load environment variables for Supabase and OCR providers
-    env_file:
-      - .env.local
+  # ---- Développement ----
+  dev:
+    profiles: ["dev"]
+    build:
+      context: .
+      target: dev
+    env_file: .env.local
+    ports: ["3000:3000"]
+    volumes:
+      - .:/app                 # hot-reload
+      - node_modules:/app/node_modules
+    develop:
+      watch:                   # Compose Watch 2024
+        - action: sync
+          path: .
+          target: /app
+          ignore: [node_modules/]
+        - action: rebuild
+          path: package*.json
 
-    # Expose the app on port 3000
-    ports:
-      - '3005:3000'
-
-    restart: always
+volumes:
+  node_modules:

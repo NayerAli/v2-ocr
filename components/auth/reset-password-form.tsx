@@ -34,6 +34,9 @@ export function ResetPasswordForm() {
 
     try {
       setIsLoading(true)
+      if (!supabase) {
+        throw new Error('Supabase client is not configured. Please contact support.')
+      }
       const { error } = await supabase.auth.updateUser({ password })
 
       if (error) {

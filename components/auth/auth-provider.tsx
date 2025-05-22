@@ -3,7 +3,7 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import type { User, Session } from '@supabase/supabase-js'
-import { getSupabaseClient } from '@/lib/supabase/singleton-client'
+import { createClient } from '@/lib/supabase/client'
 import { debugLog, debugError } from '@/lib/log'
 
 type AuthContextType = {
@@ -23,7 +23,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const router = useRouter()
-  const supabase = getSupabaseClient()
+  const supabase = createClient()
 
   useEffect(() => {
     // Get initial session
@@ -144,27 +144,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (data.session) {
           debugLog('Auth Provider: Session expires at:', new Date(data.session.expires_at! * 1000).toLocaleString())
           debugLog('Auth Provider: Access token:', data.session.access_token ? 'Present' : 'Missing')
-
-          // Manually set the cookie to ensure it's available for server-side requests
-          // This is a critical step to ensure the middleware can detect the session
-          if (typeof document !== 'undefined') {
-            const cookieValue = JSON.stringify({
-              access_token: data.session.access_token,
-              refresh_token: data.session.refresh_token,
-              expires_at: data.session.expires_at
-            })
-
-            // Set the cookie with appropriate options
-            document.cookie = `sb-auth-token=${encodeURIComponent(cookieValue)};path=/;max-age=${60 * 60 * 24 * 7};SameSite=Lax`
-
-            // Also set the project-specific cookie name that Supabase might use
-            const projectId = process.env.NEXT_PUBLIC_SUPABASE_URL?.split('//')[1]?.split('.')[0]
-            if (projectId) {
-              document.cookie = `sb-${projectId}-auth-token=${encodeURIComponent(cookieValue)};path=/;max-age=${60 * 60 * 24 * 7};SameSite=Lax`
-            }
-
-            debugLog('Auth Provider: Cookies manually set')
-          }
 
           // Verify the session was stored
           if (typeof window !== 'undefined') {

@@ -1,27 +1,32 @@
-FROM node:20-alpine AS builder
+# syntax=docker/dockerfile:1
+ARG NODE_IMAGE=node:20-alpine
+
+# --------- 1. Dépendances (cache npm) ---------
+FROM ${NODE_IMAGE} AS deps
 WORKDIR /app
+COPY package.json package-lock.json ./
+RUN --mount=type=cache,id=npm,target=/root/.npm \
+    npm ci
+RUN npm prune --omit=dev
 
-# Copy package manifests and install production deps
-COPY package.json ./
-RUN npm install
-
-COPY .env.local .env.local
-# Copy source and build
+# --------- 2. Environnement de dev ---------
+FROM deps AS dev
+ENV NODE_ENV=development
 COPY . .
-RUN npm run build
+CMD ["npm","run","dev"]
 
-# 2. Runner stage: setup production image
-FROM node:20-alpine AS runner
-WORKDIR /app
+# --------- 3. Image prod ---------
+FROM deps AS prod
 ENV NODE_ENV=production
-
-# Copy only what's needed
-COPY --from=builder /app/package.json ./
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/.next ./.next
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/next.config.mjs ./
-
-# Expose and start
+COPY . .
+RUN npm run build && npm prune --omit=dev
+# on extrait uniquement la sortie "standalone"
+RUN mkdir -p /opt \
+  && cp -a .next/standalone/. /opt/ \
+  && cp -a .next/static /opt/.next/static \
+  && cp -a public /opt/public \
+  && cp package.json /opt/
+  
+WORKDIR /opt
 EXPOSE 3000
-CMD ["npm", "run", "start"] 
+CMD ["node", "server.js"]

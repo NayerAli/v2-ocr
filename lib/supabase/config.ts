@@ -1,3 +1,4 @@
+import { createServerClient as createSSRServerClient } from '@supabase/ssr'
 import { createClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/supabase'
 
@@ -36,6 +37,23 @@ export const getDefaultOptions = (cookies?: string) => {
   }
 
   return options
+}
+
+/**
+ * Custom fetch implementation that handles network errors gracefully
+ */
+export const customFetch = (url: RequestInfo | URL, init?: RequestInit) => {
+  return fetch(url, init).catch((err: Error) => {
+    console.error('Supabase fetch error:', err)
+    // For AggregateError or network errors, implement retry logic
+    if (err.name === 'AggregateError' || err.message?.includes('fetch failed')) {
+      console.warn('Retrying Supabase request due to network error')
+      // Add a small delay before retry to avoid overwhelming the network
+      return new Promise(resolve => setTimeout(resolve, 500))
+        .then(() => fetch(url, init))
+    }
+    throw err
+  })
 }
 
 // Create a client for server-side use with cookies
@@ -80,14 +98,36 @@ export function createServerClient(cookieString: string) {
     console.error('Error extracting auth token from cookies', e);
   }
 
-  // Create client with standard options
-  const client = createClient<Database>(
+  // Create client with SSR approach
+  const client = createSSRServerClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    getDefaultOptions(cookieString)
+    {
+      cookies: {
+        get(name: string) {
+          if (cookieString) {
+            const cookies = cookieString.split(';').map(c => c.trim())
+            const cookie = cookies.find(c => c.startsWith(`${name}=`))
+            if (cookie) {
+              return decodeURIComponent(cookie.split('=')[1])
+            }
+          }
+          return undefined
+        },
+        set() {
+          // This is handled by the middleware
+        },
+        remove() {
+          // This is handled by the middleware
+        },
+      },
+      global: {
+        fetch: customFetch
+      }
+    }
   );
 
-  // Set session directly if token was found
+  // Set session directly if token was found (for backward compatibility)
   if (authToken) {
     try {
       // Need to set this immediately and synchronously to ensure the session is available
@@ -102,9 +142,41 @@ export function createServerClient(cookieString: string) {
 
 // Create a client for client-side use
 export function createBrowserClient() {
+  // Get project reference for the proper cookie name
+  const projectRef = process.env.NEXT_PUBLIC_SUPABASE_URL!.split('//')[1]!.split('.')[0]!
+  
   return createClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    getDefaultOptions()
+    {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: false,
+        storageKey: `sb-${projectRef}-auth-token`,
+        flowType: 'pkce',
+        // Use cookies instead of localStorage for auth state
+        // This enables the cookie to be accessible across subdomains if needed
+        storage: {
+          getItem: (key) => {
+            if (typeof document === 'undefined') return null
+            const value = document.cookie
+              .split(';')
+              .find((c) => c.trim().startsWith(`${key}=`))
+            if (!value) return null
+            return decodeURIComponent(value.split('=')[1])
+          },
+          setItem: (key, value) => {
+            if (typeof document === 'undefined') return
+            // Set secure cookies with proper attributes
+            document.cookie = `${key}=${encodeURIComponent(value)}; path=/; max-age=31536000; SameSite=Lax; ${location.protocol === 'https:' ? 'Secure;' : ''}`
+          },
+          removeItem: (key) => {
+            if (typeof document === 'undefined') return
+            document.cookie = `${key}=; path=/; max-age=0`
+          }
+        }
+      }
+    }
   )
 }

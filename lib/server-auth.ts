@@ -3,75 +3,17 @@
 // It uses next/headers which is not compatible with Pages Router (pages directory)
 
 import type { User, Session } from '@supabase/supabase-js'
-import { cookies } from 'next/headers'
 import { debugError, middlewareLog } from './log'
-import { createServerClient } from './supabase/config'
+import { createClient } from './supabase/server'
 
 /**
  * Create a Supabase client for server-side use
  */
-export function createServerSupabaseClient() {
-  const cookieStore = cookies()
-
-  // Get all cookies as a string
-  const cookieString = cookieStore.toString()
-
-  // Try to extract the auth token directly
-  let authToken = null
-  try {
-    // Look for Supabase auth cookies
-    // Get all cookies and find any that match the Supabase auth pattern
-    const allCookies = cookieStore.getAll()
-
-    // First try the specific cookie names we know about
-    let authCookie = cookieStore.get('sb-auth-token') ||
-                    cookieStore.get('sb-localhost:8000-auth-token') ||
-                    cookieStore.get('sb-localhost-auth-token') ||
-                    cookieStore.get('sb-uvhjupgcggyuopxbirnp-auth-token')
-
-    // If not found, try to find any cookie that matches the pattern
-    if (!authCookie) {
-      authCookie = allCookies.find(cookie =>
-        cookie.name.startsWith('sb-') && cookie.name.includes('-auth-token')
-      )
-    }
-
-    // These logs will only show in development
-    if (process.env.NODE_ENV !== 'production') {
-      console.log('Server-Auth: Found cookies:', allCookies.map(c => c.name))
-      if (authCookie) {
-        console.log('Server-Auth: Using auth cookie:', authCookie.name)
-      }
-    }
-
-    if (authCookie) {
-      const cookieValue = decodeURIComponent(authCookie.value)
-
-      try {
-        const authData = JSON.parse(cookieValue)
-
-        if (authData.access_token) {
-          authToken = authData.access_token
-        }
-      } catch (parseError) {
-        debugError('Server-Auth: Error parsing cookie value:', parseError)
-      }
-    }
-  } catch (e) {
-    debugError('Server: Error extracting auth token from cookie:', e)
-  }
-
-  // Create the Supabase client with centralized configuration
-  const client = createServerClient(cookieString)
-
-  // Supabase client created with auth token
-
-  // If we found an auth token, set it directly
-  if (authToken) {
-    client.auth.setSession({ access_token: authToken, refresh_token: '' })
-  }
-
-  return client
+export async function createServerSupabaseClient() {
+  // Create the Supabase client with SSR configuration
+  const supabase = await createClient()
+  
+  return supabase
 }
 
 /**
@@ -79,7 +21,7 @@ export function createServerSupabaseClient() {
  */
 export async function getServerSession(): Promise<Session | null> {
   try {
-    const supabase = createServerSupabaseClient()
+    const supabase = await createServerSupabaseClient()
     const { data, error } = await supabase.auth.getSession()
 
     if (error) {
@@ -92,64 +34,10 @@ export async function getServerSession(): Promise<Session | null> {
       return data.session
     }
 
-    // Try to manually parse the session from cookies as a fallback
-    try {
-      const cookieStore = cookies()
-      const allCookies = cookieStore.getAll()
-
-      // First try the specific cookie names we know about
-      let authCookie = cookieStore.get('sb-auth-token') ||
-                      cookieStore.get('sb-localhost:8000-auth-token') ||
-                      cookieStore.get('sb-localhost-auth-token') ||
-                      cookieStore.get('sb-uvhjupgcggyuopxbirnp-auth-token')
-
-      // If not found, try to find any cookie that matches the pattern
-      if (!authCookie) {
-        authCookie = allCookies.find(cookie =>
-          cookie.name.startsWith('sb-') && cookie.name.includes('-auth-token')
-        )
-      }
-
-      // Only log in development
-      if (process.env.NODE_ENV !== 'production') {
-        console.log('[Server-Auth] Found cookies:', allCookies.map(c => c.name))
-      }
-
-      if (authCookie) {
-        // Only log in development
-        if (process.env.NODE_ENV !== 'production') {
-          console.log('[Server-Auth] Found auth cookie, attempting to parse')
-        }
-
-        const cookieValue = decodeURIComponent(authCookie.value)
-        const authData = JSON.parse(cookieValue)
-
-        if (authData.access_token) {
-          // Only log in development
-          if (process.env.NODE_ENV !== 'production') {
-            console.log('[Server-Auth] Manually parsed auth token from cookie')
-          }
-
-          // Verify the token
-          const { data: userData, error: userError } = await supabase.auth.getUser(authData.access_token)
-
-          if (!userError && userData?.user) {
-            // Only log in development
-            if (process.env.NODE_ENV !== 'production') {
-              console.log('[Server-Auth] Manually verified user from token:', userData.user.email)
-            }
-            return { user: userData.user, ...authData } as Session
-          }
-        }
-      }
-    } catch {
-      debugError('[Server-Auth] Error parsing auth cookie')
-    }
-
     middlewareLog('debug', '[Server-Auth] No session found')
     return null
-  } catch {
-    debugError('[Server-Auth] Exception getting session')
+  } catch (e) {
+    debugError('[Server-Auth] Exception getting session', e)
     return null
   }
 }
@@ -166,7 +54,7 @@ export async function getServerUser(): Promise<User | null> {
     }
 
     // If no session, try to get the user directly
-    const supabase = createServerSupabaseClient()
+    const supabase = await createServerSupabaseClient()
     const { data, error } = await supabase.auth.getUser()
 
     if (error) {
@@ -181,8 +69,8 @@ export async function getServerUser(): Promise<User | null> {
 
     middlewareLog('debug', '[Server] No user found')
     return null
-  } catch {
-    debugError('[Server] Exception getting user')
+  } catch (e) {
+    debugError('[Server] Exception getting user', e)
     return null
   }
 }

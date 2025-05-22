@@ -140,7 +140,7 @@ class UserSettingsService {
           .from('user_settings')
           .select('ocr_settings')
           .eq('id', user.id)
-          .single());
+          .maybeSingle());
       } else {
         // Fall back to authenticated client
         console.log('[DEBUG] Using authenticated client to fetch OCR settings');
@@ -149,7 +149,7 @@ class UserSettingsService {
           .from('user_settings')
           .select('ocr_settings')
           .eq('id', user.id)
-          .single());
+          .maybeSingle());
       }
 
       if (error) {
@@ -160,6 +160,12 @@ class UserSettingsService {
 
       if (!data) {
         console.log('[DEBUG] User OCR settings not found (no data), using defaults');
+        
+        // Try to create default settings if they don't exist
+        this.createDefaultSettings().catch(err => {
+          console.error('[DEBUG] Error creating default settings:', err);
+        });
+        
         return DEFAULT_OCR_SETTINGS;
       }
 
@@ -206,8 +212,20 @@ class UserSettingsService {
 
       console.log('[DEBUG] Updated OCR settings:', updatedSettings);
 
-      // Get the authenticated Supabase client
+      // Try to get the service client first (server-side only)
+      const serviceClient = getServiceClient();
+      
+      // Get the authenticated Supabase client as fallback
       const authenticatedSupabase = getSupabaseClient();
+      
+      // Determine which client to use
+      const client = serviceClient || authenticatedSupabase;
+      
+      if (serviceClient) {
+        console.log('[DEBUG] Using service client for OCR settings update (bypasses RLS)');
+      } else {
+        console.log('[DEBUG] Using authenticated client for OCR settings update');
+      }
 
       // Variable to track errors across try/catch blocks
       let operationError = null;
@@ -215,7 +233,7 @@ class UserSettingsService {
 
       try {
         // First check if the user has a settings record
-        const { data: existingSettings, error: checkError } = await authenticatedSupabase
+        const { data: existingSettings, error: checkError } = await client
           .from('user_settings')
           .select('id')
           .eq('id', user.id)
@@ -243,7 +261,7 @@ class UserSettingsService {
 
           // Create a new record if one doesn't exist
           console.log('[DEBUG] Inserting new user settings with data:', JSON.stringify(insertData));
-          const { data: insertResponseData, error: insertError } = await authenticatedSupabase
+          const { data: insertResponseData, error: insertError } = await client
             .from('user_settings')
             .insert(insertData)
             .select()
@@ -257,7 +275,7 @@ class UserSettingsService {
             console.error('[DEBUG] Error inserting user settings:', insertError);
             // Try upsert as a fallback
             console.log('[DEBUG] Trying upsert as a fallback with data:', JSON.stringify(insertData));
-            const { data: upsertResponseData, error: upsertError } = await authenticatedSupabase
+            const { data: upsertResponseData, error: upsertError } = await client
               .from('user_settings')
               .upsert(insertData)
               .select()
@@ -285,7 +303,7 @@ class UserSettingsService {
           // Try a direct SQL query approach
           try {
             // Use a raw SQL query to update the settings
-            const { data: rawUpdateData, error: rawUpdateError } = await authenticatedSupabase
+            const { data: rawUpdateData, error: rawUpdateError } = await client
               .rpc('update_settings_direct', {
                 p_table: 'user_settings',
                 p_id: user.id,
@@ -296,7 +314,7 @@ class UserSettingsService {
             if (rawUpdateError) {
               console.error('[DEBUG] Raw update error:', rawUpdateError);
               // Fall back to the regular update
-              const { data: updateData, error: updateError } = await authenticatedSupabase
+              const { data: updateData, error: updateError } = await client
                 .from('user_settings')
                 .update(settingsData)
                 .eq('id', user.id)
@@ -318,11 +336,11 @@ class UserSettingsService {
           } catch (rawError) {
             console.error('[DEBUG] Raw update failed with exception:', rawError);
             // Fall back to the regular update
-            const { data: updateData, error: updateError } = await authenticatedSupabase
-              .from('user_settings')
-              .update(settingsData)
-              .eq('id', user.id)
-              .select();
+            const { data: updateData, error: updateError } = await client
+                .from('user_settings')
+                .update(settingsData)
+                .eq('id', user.id)
+                .select();
 
             if (updateData) {
               console.log('[DEBUG] Update response data:', JSON.stringify(updateData));
@@ -344,7 +362,7 @@ class UserSettingsService {
             };
 
             console.log('[DEBUG] Trying upsert with data:', JSON.stringify(upsertPayload));
-            const { data: upsertResponseData, error: upsertError } = await authenticatedSupabase
+            const { data: upsertResponseData, error: upsertError } = await client
               .from('user_settings')
               .upsert(upsertPayload)
               .select()
@@ -427,27 +445,37 @@ class UserSettingsService {
           .from('user_settings')
           .select('processing_settings')
           .eq('id', user.id)
-          .single());
+          .maybeSingle());
       } else {
         // Fall back to authenticated client
-        console.log('[DEBUG] Using authenticated client to fetch processing settings');
         const authenticatedSupabase = getSupabaseClient();
         ({ data, error } = await authenticatedSupabase
           .from('user_settings')
           .select('processing_settings')
           .eq('id', user.id)
-          .single());
+          .maybeSingle());
       }
 
-      if (error || !data) {
-        console.log('User processing settings not found, using defaults')
-        return DEFAULT_PROCESSING_SETTINGS
+      if (error) {
+        console.error('Error fetching processing settings:', error);
+        return DEFAULT_PROCESSING_SETTINGS;
+      }
+
+      if (!data) {
+        console.log('User processing settings not found, using defaults');
+        
+        // Try to create default settings if they don't exist
+        this.createDefaultSettings().catch(err => {
+          console.error('[DEBUG] Error creating default settings:', err);
+        });
+        
+        return DEFAULT_PROCESSING_SETTINGS;
       }
 
       // Update cache
-      this.cache.processing = data.processing_settings as ProcessingSettings
-      this.lastUpdate = now
-      return data.processing_settings as ProcessingSettings
+      this.cache.processing = data.processing_settings as ProcessingSettings;
+      this.lastUpdate = now;
+      return data.processing_settings as ProcessingSettings;
     } catch (error) {
       console.error('Error getting user processing settings:', error)
       return DEFAULT_PROCESSING_SETTINGS
@@ -485,8 +513,20 @@ class UserSettingsService {
 
       console.log('[DEBUG] Updated processing settings:', updatedSettings);
 
-      // Get the authenticated Supabase client
+      // Try to get the service client first (server-side only)
+      const serviceClient = getServiceClient();
+      
+      // Get the authenticated Supabase client as fallback
       const authenticatedSupabase = getSupabaseClient();
+      
+      // Determine which client to use
+      const client = serviceClient || authenticatedSupabase;
+      
+      if (serviceClient) {
+        console.log('[DEBUG] Using service client for processing settings update (bypasses RLS)');
+      } else {
+        console.log('[DEBUG] Using authenticated client for processing settings update');
+      }
 
       // Variable to track errors across try/catch blocks
       let operationError = null;
@@ -494,7 +534,7 @@ class UserSettingsService {
 
       try {
         // First check if the user has a settings record
-        const { data: existingSettings, error: checkError } = await authenticatedSupabase
+        const { data: existingSettings, error: checkError } = await client
           .from('user_settings')
           .select('id')
           .eq('id', user.id)
@@ -521,7 +561,7 @@ class UserSettingsService {
           };
 
           // Create a new record if one doesn't exist
-          const { error: insertError } = await authenticatedSupabase
+          const { error: insertError } = await client
             .from('user_settings')
             .insert(insertData)
 
@@ -531,7 +571,7 @@ class UserSettingsService {
             console.error('[DEBUG] Error inserting user settings:', insertError);
             // Try upsert as a fallback
             console.log('[DEBUG] Trying upsert as a fallback');
-            const { error: upsertError } = await authenticatedSupabase
+            const { error: upsertError } = await client
               .from('user_settings')
               .upsert(insertData)
 
@@ -549,7 +589,7 @@ class UserSettingsService {
         } else {
           console.log('[DEBUG] Existing settings found, updating record');
           // Update the existing record
-          const { error: updateError } = await authenticatedSupabase
+          const { error: updateError } = await client
             .from('user_settings')
             .update(settingsData)
             .eq('id', user.id)
@@ -566,7 +606,7 @@ class UserSettingsService {
               created_at: new Date().toISOString() // Include this for new records
             };
 
-            const { error: upsertError } = await authenticatedSupabase
+            const { error: upsertError } = await client
               .from('user_settings')
               .upsert(upsertData)
 
@@ -644,27 +684,37 @@ class UserSettingsService {
           .from('user_settings')
           .select('upload_settings')
           .eq('id', user.id)
-          .single());
+          .maybeSingle());
       } else {
         // Fall back to authenticated client
-        console.log('[DEBUG] Using authenticated client to fetch upload settings');
         const authenticatedSupabase = getSupabaseClient();
         ({ data, error } = await authenticatedSupabase
           .from('user_settings')
           .select('upload_settings')
           .eq('id', user.id)
-          .single());
+          .maybeSingle());
       }
 
-      if (error || !data) {
-        console.log('User upload settings not found, using defaults')
-        return DEFAULT_UPLOAD_SETTINGS
+      if (error) {
+        console.error('Error fetching upload settings:', error);
+        return DEFAULT_UPLOAD_SETTINGS;
+      }
+
+      if (!data) {
+        console.log('User upload settings not found, using defaults');
+        
+        // Try to create default settings if they don't exist
+        this.createDefaultSettings().catch(err => {
+          console.error('[DEBUG] Error creating default settings:', err);
+        });
+        
+        return DEFAULT_UPLOAD_SETTINGS;
       }
 
       // Update cache
-      this.cache.upload = data.upload_settings as UploadSettings
-      this.lastUpdate = now
-      return data.upload_settings as UploadSettings
+      this.cache.upload = data.upload_settings as UploadSettings;
+      this.lastUpdate = now;
+      return data.upload_settings as UploadSettings;
     } catch (error) {
       console.error('Error getting user upload settings:', error)
       return DEFAULT_UPLOAD_SETTINGS
@@ -702,8 +752,20 @@ class UserSettingsService {
 
       console.log('[DEBUG] Updated upload settings:', updatedSettings);
 
-      // Get the authenticated Supabase client
+      // Try to get the service client first (server-side only)
+      const serviceClient = getServiceClient();
+      
+      // Get the authenticated Supabase client as fallback
       const authenticatedSupabase = getSupabaseClient();
+      
+      // Determine which client to use
+      const client = serviceClient || authenticatedSupabase;
+      
+      if (serviceClient) {
+        console.log('[DEBUG] Using service client for upload settings update (bypasses RLS)');
+      } else {
+        console.log('[DEBUG] Using authenticated client for upload settings update');
+      }
 
       // Variable to track errors across try/catch blocks
       let operationError = null;
@@ -711,7 +773,7 @@ class UserSettingsService {
 
       try {
         // First check if the user has a settings record
-        const { data: existingSettings, error: checkError } = await authenticatedSupabase
+        const { data: existingSettings, error: checkError } = await client
           .from('user_settings')
           .select('id')
           .eq('id', user.id)
@@ -738,7 +800,7 @@ class UserSettingsService {
           };
 
           // Create a new record if one doesn't exist
-          const { error: insertError } = await authenticatedSupabase
+          const { error: insertError } = await client
             .from('user_settings')
             .insert(insertData)
 
@@ -748,7 +810,7 @@ class UserSettingsService {
             console.error('[DEBUG] Error inserting user settings:', insertError);
             // Try upsert as a fallback
             console.log('[DEBUG] Trying upsert as a fallback');
-            const { error: upsertError } = await authenticatedSupabase
+            const { error: upsertError } = await client
               .from('user_settings')
               .upsert(insertData)
 
@@ -766,7 +828,7 @@ class UserSettingsService {
         } else {
           console.log('[DEBUG] Existing settings found, updating record');
           // Update the existing record
-          const { error: updateError } = await authenticatedSupabase
+          const { error: updateError } = await client
             .from('user_settings')
             .update(settingsData)
             .eq('id', user.id)
@@ -783,7 +845,7 @@ class UserSettingsService {
               created_at: new Date().toISOString() // Include this for new records
             };
 
-            const { error: upsertError } = await authenticatedSupabase
+            const { error: upsertError } = await client
               .from('user_settings')
               .upsert(upsertData)
 
@@ -860,27 +922,37 @@ class UserSettingsService {
           .from('user_settings')
           .select('display_settings')
           .eq('id', user.id)
-          .single());
+          .maybeSingle());
       } else {
         // Fall back to authenticated client
-        console.log('[DEBUG] Using authenticated client to fetch display settings');
         const authenticatedSupabase = getSupabaseClient();
         ({ data, error } = await authenticatedSupabase
           .from('user_settings')
           .select('display_settings')
           .eq('id', user.id)
-          .single());
+          .maybeSingle());
       }
 
-      if (error || !data) {
-        console.log('User display settings not found, using defaults')
-        return DEFAULT_DISPLAY_SETTINGS
+      if (error) {
+        console.error('Error fetching display settings:', error);
+        return DEFAULT_DISPLAY_SETTINGS;
+      }
+
+      if (!data) {
+        console.log('User display settings not found, using defaults');
+        
+        // Try to create default settings if they don't exist
+        this.createDefaultSettings().catch(err => {
+          console.error('[DEBUG] Error creating default settings:', err);
+        });
+        
+        return DEFAULT_DISPLAY_SETTINGS;
       }
 
       // Update cache
-      this.cache.display = data.display_settings as DisplaySettings
-      this.lastUpdate = now
-      return data.display_settings as DisplaySettings
+      this.cache.display = data.display_settings as DisplaySettings;
+      this.lastUpdate = now;
+      return data.display_settings as DisplaySettings;
     } catch (error) {
       console.error('Error getting user display settings:', error)
       return DEFAULT_DISPLAY_SETTINGS
@@ -918,8 +990,20 @@ class UserSettingsService {
 
       console.log('[DEBUG] Updated display settings:', updatedSettings);
 
-      // Get the authenticated Supabase client
+      // Try to get the service client first (server-side only)
+      const serviceClient = getServiceClient();
+      
+      // Get the authenticated Supabase client as fallback
       const authenticatedSupabase = getSupabaseClient();
+      
+      // Determine which client to use
+      const client = serviceClient || authenticatedSupabase;
+      
+      if (serviceClient) {
+        console.log('[DEBUG] Using service client for display settings update (bypasses RLS)');
+      } else {
+        console.log('[DEBUG] Using authenticated client for display settings update');
+      }
 
       // Variable to track errors across try/catch blocks
       let operationError = null;
@@ -927,7 +1011,7 @@ class UserSettingsService {
 
       try {
         // First check if the user has a settings record
-        const { data: existingSettings, error: checkError } = await authenticatedSupabase
+        const { data: existingSettings, error: checkError } = await client
           .from('user_settings')
           .select('id')
           .eq('id', user.id)
@@ -954,7 +1038,7 @@ class UserSettingsService {
           };
 
           // Create a new record if one doesn't exist
-          const { error: insertError } = await authenticatedSupabase
+          const { error: insertError } = await client
             .from('user_settings')
             .insert(insertData)
 
@@ -964,7 +1048,7 @@ class UserSettingsService {
             console.error('[DEBUG] Error inserting user settings:', insertError);
             // Try upsert as a fallback
             console.log('[DEBUG] Trying upsert as a fallback');
-            const { error: upsertError } = await authenticatedSupabase
+            const { error: upsertError } = await client
               .from('user_settings')
               .upsert(insertData)
 
@@ -982,7 +1066,7 @@ class UserSettingsService {
         } else {
           console.log('[DEBUG] Existing settings found, updating record');
           // Update the existing record
-          const { error: updateError } = await authenticatedSupabase
+          const { error: updateError } = await client
             .from('user_settings')
             .update(settingsData)
             .eq('id', user.id)
@@ -999,7 +1083,7 @@ class UserSettingsService {
               created_at: new Date().toISOString() // Include this for new records
             };
 
-            const { error: upsertError } = await authenticatedSupabase
+            const { error: upsertError } = await client
               .from('user_settings')
               .upsert(upsertData)
 
@@ -1063,11 +1147,21 @@ class UserSettingsService {
     try {
       console.log('[DEBUG] Creating default settings for user:', user.id);
 
-      // Get the authenticated Supabase client
+      // Try to use the service client first (server-side only)
+      const serviceClient = getServiceClient();
       const authenticatedSupabase = getSupabaseClient();
+      
+      // Determine which client to use
+      const client = serviceClient || authenticatedSupabase;
+      
+      if (serviceClient) {
+        console.log('[DEBUG] Using service client for default settings creation (bypasses RLS)');
+      } else {
+        console.log('[DEBUG] Using authenticated client for default settings creation');
+      }
 
       // First check if the user already has settings
-      const { data: existingSettings, error: checkError } = await authenticatedSupabase
+      const { data: existingSettings, error: checkError } = await client
         .from('user_settings')
         .select('id')
         .eq('id', user.id)
@@ -1098,7 +1192,7 @@ class UserSettingsService {
       console.log('[DEBUG] Inserting default settings:', JSON.stringify(defaultSettings));
 
       // Insert default settings
-      const { data: insertResponseData, error: insertError } = await authenticatedSupabase
+      const { data: insertResponseData, error: insertError } = await client
         .from('user_settings')
         .insert(defaultSettings)
         .select();
@@ -1108,7 +1202,7 @@ class UserSettingsService {
 
         // Try upsert as a fallback
         console.log('[DEBUG] Trying upsert as a fallback for default settings');
-        const { data: upsertResponseData, error: upsertError } = await authenticatedSupabase
+        const { data: upsertResponseData, error: upsertError } = await client
           .from('user_settings')
           .upsert(defaultSettings)
           .select();

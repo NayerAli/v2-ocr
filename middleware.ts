@@ -1,145 +1,126 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
-import { createServerClient } from '@/lib/supabase/config'
+import { updateSession } from '@/lib/supabase/middleware'
 import { debugLog, debugError, prodLog, middlewareLog } from '@/lib/log'
 
 // This function can be marked `async` if using `await` inside
 export async function middleware(req: NextRequest) {
-  // Create a response object
-  const res = NextResponse.next()
-
   // Always log the request URL in all environments
   console.log('Middleware: Processing request for URL:', req.nextUrl.pathname)
 
-  // Create a temporary Supabase client for middleware using the centralized configuration
-  const cookies = req.headers.get('cookie') || ''
-  const supabase = createServerClient(cookies)
-
-  // Only log in development
-  if (process.env.NODE_ENV !== 'production') {
-    console.log('Middleware: Created Supabase client with URL:', process.env.NEXT_PUBLIC_SUPABASE_URL)
-  }
-
-  // Get the session from cookies and Supabase
-  let session = null
-
   try {
-    // Log cookies for debugging (only cookie names, not values)
-    const cookieHeader = req.headers.get('cookie') || 'No cookies'
+    // Use the updateSession function to create a Supabase client and handle session
+    const { supabase, response } = await updateSession(req)
 
-    // Try to extract the auth token from cookies directly
-    if (cookieHeader !== 'No cookies') {
-      const cookies = cookieHeader.split(';').map(c => c.trim())
-      const cookieNames = cookies.map(c => c.split('=')[0])
-      // Only log in development
-      if (process.env.NODE_ENV !== 'production') {
-        console.log('Middleware: Parsed cookies:', cookieNames)
-      }
-
-      // Look for Supabase auth cookies
-      const authCookieNames = cookies
-        .filter(c =>
-          c.startsWith('sb-auth-token=') ||
-          c.startsWith('sb-localhost-auth-token=') ||
-          c.startsWith('sb-localhost:8000-auth-token=') ||
-          c.startsWith('sb-uvhjupgcggyuopxbirnp-auth-token=') ||
-          c.includes('-auth-token=')
-        )
-        .map(c => c.split('=')[0])
-
-      if (authCookieNames.length > 0) {
-        // Only log in development
-        if (process.env.NODE_ENV !== 'production') {
-          console.log('Middleware: Found auth cookies:', authCookieNames)
-        }
-      }
+    // Check if user is authenticated
+    let user = null
+    let error = null
+    
+    try {
+      const { data, error: userError } = await supabase.auth.getUser()
+      user = data?.user
+      error = userError
+    } catch (e) {
+      console.error('Middleware: Error in auth.getUser():', e)
+      error = e
+    }
+    
+    if (error) {
+      console.error('Middleware: Error getting user:', error instanceof Error ? error.message : 'Unknown error')
     }
 
-    // Get the session from Supabase - our enhanced client will have already set the session if token was found
-    const { data, error } = await supabase.auth.getSession()
+    // Check auth condition based on route
+    const url = req.nextUrl.pathname
 
-    if (error) {
-      debugError('Middleware: Error getting session:', error.message)
-    } else if (data?.session) {
-      session = data.session
+    // Protected routes that require authentication
+    const protectedRoutes = ['/profile', '/settings', '/documents', '/api/settings/user']
+
+    // Auth routes that should redirect to home if already authenticated
+    const authRoutes = ['/auth/login', '/auth/signup', '/auth/forgot-password']
+
+    // Check if the route is protected
+    const isProtectedRoute = protectedRoutes.some(route => url.startsWith(route))
+
+    // Check if the route is an auth route
+    const isAuthRoute = authRoutes.some(route => url === route)
+
+    // Always log route checks in all environments
+    console.log('Middleware: Route check -', {
+      url,
+      isProtectedRoute,
+      isAuthRoute,
+      isAuthenticated: !!user
+    })
+
+    // If accessing a protected route without authentication, redirect to login
+    if (isProtectedRoute && !user) {
       // Only log in development
       if (process.env.NODE_ENV !== 'production') {
-        console.log('Middleware: Session found for user:', data.session.user.email)
+        console.log('Middleware: Redirecting to login from protected route:', url)
       }
-    } else {
-      // Only log in development
-      if (process.env.NODE_ENV !== 'production') {
-        console.log('Middleware: No session found from Supabase')
+      const redirectUrl = new URL('/auth/login', req.url)
+      redirectUrl.searchParams.set('redirect', url)
+
+      // Create a new response with redirect
+      const redirectResponse = NextResponse.redirect(redirectUrl)
+      
+      // Copy cookies from the response to the redirect response
+      const cookiesList = response.cookies.getAll()
+      for (const cookie of cookiesList) {
+        redirectResponse.cookies.set({
+          name: cookie.name,
+          value: cookie.value,
+          domain: cookie.domain,
+          expires: cookie.expires,
+          httpOnly: cookie.httpOnly,
+          maxAge: cookie.maxAge,
+          path: cookie.path,
+          sameSite: cookie.sameSite as "strict" | "lax" | "none" | undefined,
+          secure: cookie.secure
+        })
       }
       
-      // Our enhanced client should handle setting the session, but keep fallback just in case
-      const { data: userData } = await supabase.auth.getUser()
-      if (userData?.user) {
-        session = { user: userData.user } as any
-        if (process.env.NODE_ENV !== 'production') {
-          console.log('Middleware: User found from fallback:', userData.user.email)
-        }
+      return redirectResponse
+    }
+
+    // If accessing auth routes with authentication, redirect to home
+    if (isAuthRoute && user) {
+      // Only log in development
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('Middleware: Redirecting to home from auth route:', url)
       }
+      const redirectResponse = NextResponse.redirect(new URL('/', req.url))
+      
+      // Copy cookies from the response to the redirect response
+      const homeRedirectCookies = response.cookies.getAll()
+      for (const cookie of homeRedirectCookies) {
+        redirectResponse.cookies.set({
+          name: cookie.name,
+          value: cookie.value,
+          domain: cookie.domain,
+          expires: cookie.expires,
+          httpOnly: cookie.httpOnly,
+          maxAge: cookie.maxAge,
+          path: cookie.path,
+          sameSite: cookie.sameSite as "strict" | "lax" | "none" | undefined,
+          secure: cookie.secure
+        })
+      }
+      
+      return redirectResponse
     }
-  } catch (e) {
-    debugError('Middleware: Exception getting session:', e)
-  }
 
-  // Check auth condition based on route
-  const url = req.nextUrl.pathname
-
-  // Protected routes that require authentication
-  const protectedRoutes = ['/profile', '/settings', '/documents', '/api/settings/user']
-
-  // Auth routes that should redirect to home if already authenticated
-  const authRoutes = ['/auth/login', '/auth/signup', '/auth/forgot-password']
-
-  // Check if the route is protected
-  const isProtectedRoute = protectedRoutes.some(route => url.startsWith(route))
-
-  // Check if the route is an auth route
-  const isAuthRoute = authRoutes.some(route => url === route)
-
-  // Always log route checks in all environments
-  console.log('Middleware: Route check -', {
-    url,
-    isProtectedRoute,
-    isAuthRoute,
-    isAuthenticated: !!session
-  })
-
-  // If accessing a protected route without a session, redirect to login
-  if (isProtectedRoute && !session) {
-    // Only log in development
-    if (process.env.NODE_ENV !== 'production') {
-      console.log('Middleware: Redirecting to login from protected route:', url)
+    // Add cache control headers to prevent caching of protected routes
+    if (isProtectedRoute) {
+      response.headers.set('Cache-Control', 'no-store, max-age=0')
     }
-    const redirectUrl = new URL('/auth/login', req.url)
-    redirectUrl.searchParams.set('redirect', url)
 
-    // Add cache control headers to prevent caching of the redirect
-    const response = NextResponse.redirect(redirectUrl)
-    response.headers.set('Cache-Control', 'no-store, max-age=0')
     return response
+  } catch (error) {
+    console.error('Middleware error:', error)
+    // Return original response to avoid breaking the application
+    return NextResponse.next()
   }
-
-  // If accessing auth routes with a session, redirect to home
-  if (isAuthRoute && session) {
-    // Only log in development
-    if (process.env.NODE_ENV !== 'production') {
-      console.log('Middleware: Redirecting to home from auth route:', url)
-    }
-    const response = NextResponse.redirect(new URL('/', req.url))
-    response.headers.set('Cache-Control', 'no-store, max-age=0')
-    return response
-  }
-
-  // Add cache control headers to prevent caching of protected routes
-  if (isProtectedRoute) {
-    res.headers.set('Cache-Control', 'no-store, max-age=0')
-  }
-
-  return res
 }
 
 // Specify which routes this middleware should run on

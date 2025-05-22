@@ -546,20 +546,27 @@ export class FileProcessor {
     try {
       const supabase = getSupabaseClient();
       const user = await getUser();
+      const { infoLog } = await import('@/lib/log');
 
       if (!user) {
-        const { infoLog } = await import('@/lib/log');
         infoLog('[Process] User not authenticated. Cannot generate signed URL.');
         return '';
       }
 
+      // Normalize the path to prevent double user ID prefixes
+      // This handles both initial uploads (already have user ID) and 
+      // PDF page processing (where user ID might be added twice)
+      const userIdPrefix = `${user.id}/`;
+      const normalizedPath = storagePath.startsWith(userIdPrefix)
+        ? storagePath 
+        : `${userIdPrefix}${storagePath}`;
+
       // Create a signed URL that expires in the configured time
       const { data, error } = await supabase.storage
         .from(STORAGE_CONFIG.storageBucket)
-        .createSignedUrl(storagePath, STORAGE_CONFIG.signedUrlExpiry);
+        .createSignedUrl(normalizedPath, STORAGE_CONFIG.signedUrlExpiry);
 
       if (error || !data?.signedUrl) {
-        const { infoLog } = await import('@/lib/log');
         infoLog('[Process] Error generating signed URL:', error);
         return '';
       }

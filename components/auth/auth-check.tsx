@@ -37,6 +37,12 @@ export function AuthCheck({ children, redirectTo = '/auth/login' }: AuthCheckPro
         // If no user in context, check with Supabase directly
         if (!isLoading) {
           // No user in context, check with Supabase directly
+          if (!supabase) {
+            debugError('[DEBUG] AuthCheck: Supabase client is not configured.')
+            setIsAuthenticated(false)
+            setIsVerifying(false)
+            return
+          }
           const { data, error } = await supabase.auth.getSession()
 
           if (error) {
@@ -49,6 +55,12 @@ export function AuthCheck({ children, redirectTo = '/auth/login' }: AuthCheckPro
             // No session found from Supabase
             // Try to refresh the session
             try {
+              if (!supabase) {
+                debugError('[DEBUG] AuthCheck: Supabase client is not configured for refresh.')
+                setIsAuthenticated(false)
+                setIsVerifying(false)
+                return
+              }
               const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession()
 
               if (refreshError) {
@@ -91,13 +103,19 @@ export function AuthCheck({ children, redirectTo = '/auth/login' }: AuthCheckPro
         } else if (!user && !isLoading) {
           debugLog('AuthCheck: Auth token exists but no user, forcing refresh')
           // Force a refresh of the auth state
-          supabase.auth.getSession().then(({ data }) => {
-            if (data.session) {
-              debugLog('AuthCheck: Session refreshed for user:', data.session.user.email)
-              setIsAuthenticated(true)
-              setIsVerifying(false)
-            }
-          })
+          if (supabase) {
+            supabase.auth.getSession().then(({ data }) => {
+              if (data.session) {
+                debugLog('AuthCheck: Session refreshed for user:', data.session.user.email)
+                setIsAuthenticated(true)
+                setIsVerifying(false)
+              }
+            })
+          } else {
+            debugError('AuthCheck: Supabase client is not configured for localStorage refresh.')
+            setIsAuthenticated(false)
+            setIsVerifying(false)
+          }
         }
       }
     }
