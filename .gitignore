@@ -53,7 +53,6 @@ next-env.d.ts
 .npmrc
 .yarnrc
 yarn.lock
-package-lock.json
 .pnpm-store/
 
 # OS generated files
