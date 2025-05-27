@@ -1,26 +1,31 @@
 "use client"
 
-import React, { useState, useEffect, useMemo } from "react"
+import React, { useState, useEffect, useRef } from "react"
+import { debugLog, debugError } from "@/lib/log"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { FileText, Upload, CheckCircle, AlertCircle, ArrowRight, Clock } from "lucide-react"
+import { FileText, Upload, CheckCircle, AlertCircle, ArrowRight, Clock, LogIn } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { FileUpload } from "./components/file-upload"
-import { SettingsDialog } from "./components/settings-dialog"
 import type { ProcessingStatus } from "@/types"
+import type { OCRSettings, ProcessingSettings, UploadSettings } from "@/types/settings"
 import { useSettings } from "@/store/settings"
 import { useSettingsInit } from "@/hooks/use-settings-init"
 import { useToast } from "@/hooks/use-toast"
 import { cn } from "@/lib/utils"
-import { db } from "@/lib/indexed-db"
+import { db } from "@/lib/database"
 import { getProcessingService } from "@/lib/processing-service"
 import { formatFileSize } from "@/lib/file-utils"
 import { initializePDFJS } from "@/lib/pdf-init"
 import { DocumentDetailsDialog } from "./components/document-details-dialog"
 import { DocumentList } from "./components/document-list"
+import { SupabaseError } from "./components/supabase-error"
 import { useLanguage } from "@/hooks/use-language"
 import { t, tCount, translationKeys, type Language } from "@/lib/i18n/translations"
+import { useAuth } from "@/components/auth/auth-provider"
+import Link from "next/link"
+import { retryDocument } from "@/lib/tests/document-status-validation"
 
 interface DashboardStats {
   totalProcessed: number
@@ -31,7 +36,7 @@ interface DashboardStats {
 
 function toArabicNumerals(num: number | string, language: Language): string {
   if (language !== 'ar' && language !== 'fa') return String(num)
-  
+
   const arabicNumerals = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩']
   return String(num).replace(/[0-9]/g, (d) => arabicNumerals[parseInt(d)])
 }
@@ -41,7 +46,8 @@ export default function DashboardPage() {
   const settings = useSettings()
   const { toast } = useToast()
   const { language } = useLanguage()
-  const { isInitialized, isConfigured, shouldShowSettings, setShouldShowSettings } = useSettingsInit()
+  const { isInitialized, isConfigured } = useSettingsInit()
+  const { user, isLoading: isAuthLoading } = useAuth()
   const [processingQueue, setProcessingQueue] = useState<ProcessingStatus[]>([])
   const [isDraggingOverPage, setIsDraggingOverPage] = useState(false)
   const [isLoadingData, setIsLoadingData] = useState(true)
@@ -54,15 +60,41 @@ export default function DashboardPage() {
   const [selectedDocument, setSelectedDocument] = useState<ProcessingStatus | null>(null)
   const [isDetailsOpen, setIsDetailsOpen] = useState(false)
 
-  // Create processing service with current settings
-  const processingService = useMemo(
-    () => getProcessingService({
-      ocr: settings.ocr,
-      processing: settings.processing,
-      upload: settings.upload
-    }),
-    [settings.ocr, settings.processing, settings.upload]
-  )
+  // Reference to hold the processing service
+  interface ProcessingService {
+    addToQueue: (files: File[]) => Promise<string[]>;
+    getStatus: (id: string) => Promise<ProcessingStatus | undefined>;
+    cancelProcessing: (id: string) => Promise<void>;
+    pauseQueue: () => Promise<void>;
+    resumeQueue: () => Promise<void>;
+    updateSettings: (settings: { ocr: OCRSettings; processing: ProcessingSettings; upload: UploadSettings }) => Promise<void>;
+    retryDocument: (id: string) => Promise<ProcessingStatus | null>;
+  }
+
+  const processingServiceRef = useRef<ProcessingService | null>(null)
+
+  // Initialize processing service
+  useEffect(() => {
+    const initProcessingService = async () => {
+      debugLog('[DEBUG] Creating processing service with settings:');
+      debugLog('[DEBUG] OCR settings:', settings.ocr);
+      debugLog('[DEBUG] Processing settings:', settings.processing);
+      debugLog('[DEBUG] Upload settings:', settings.upload);
+
+      const service = await getProcessingService({
+        ocr: settings.ocr,
+        processing: settings.processing,
+        upload: settings.upload
+      });
+
+      processingServiceRef.current = service;
+      debugLog('[DEBUG] Processing service initialized');
+    };
+
+    initProcessingService().catch(err => {
+      debugError('[DEBUG] Error initializing processing service:', err);
+    });
+  }, [settings.ocr, settings.processing, settings.upload])
 
   // Initialize PDF.js only after settings are loaded
   useEffect(() => {
@@ -76,17 +108,57 @@ export default function DashboardPage() {
     let isMounted = true
 
     const loadQueue = async (isInitialLoad = false) => {
-      if (!isInitialized) return
+      // Only log on initial load or in development mode
+      if (isInitialLoad && process.env.NODE_ENV === 'development') {
+        debugLog('[DEBUG] loadQueue called, isInitialLoad:', isInitialLoad);
+        debugLog('[DEBUG] isInitialized:', isInitialized);
+        debugLog('[DEBUG] isAuthenticated:', !!user);
+      }
+
+      if (!isInitialized) {
+        if (isInitialLoad && process.env.NODE_ENV === 'development') {
+          debugLog('[DEBUG] Not initialized, skipping queue load');
+        }
+        return;
+      }
+
+      // Skip loading queue if user is not authenticated
+      if (!user && !isAuthLoading) {
+        if (isInitialLoad && process.env.NODE_ENV === 'development') {
+          debugLog('[DEBUG] User not authenticated, skipping queue load');
+        }
+        setIsLoadingData(false);
+        return;
+      }
 
       try {
         if (isInitialLoad) {
-          setIsLoadingData(true)
+          if (process.env.NODE_ENV === 'development') {
+            debugLog('[DEBUG] Initial load, setting loading state');
+          }
+          setIsLoadingData(true);
         }
 
         // Load queue first and update UI immediately
-        const queue = await db.getQueue()
-        if (!isMounted) return
-        setProcessingQueue(queue)
+        if (isInitialLoad && process.env.NODE_ENV === 'development') {
+          debugLog('[DEBUG] Loading queue from database');
+        }
+        const queue = await db.getQueue();
+        if (isInitialLoad && process.env.NODE_ENV === 'development') {
+          debugLog('[DEBUG] Queue loaded, items:', queue.length);
+        }
+
+        if (!isMounted) {
+          if (isInitialLoad && process.env.NODE_ENV === 'development') {
+            debugLog('[DEBUG] Component unmounted, aborting update');
+          }
+          return;
+        }
+
+        if (isInitialLoad && process.env.NODE_ENV === 'development') {
+          debugLog('[DEBUG] Updating processing queue state');
+        }
+        setProcessingQueue(queue);
 
         // Then load stats in the background
         const dbStats = await db.getDatabaseStats()
@@ -94,19 +166,20 @@ export default function DashboardPage() {
 
         // Update stats after both are loaded
         const completed = queue.filter((item) => item.status === "completed")
-        const totalProcessed = completed.length
+        const failed = queue.filter((item) => item.status === "error" || item.status === "failed")
+        const totalProcessed = completed.length + failed.length
         const avgTime = completed.reduce((acc, item) => {
-          return acc + ((item.endTime || 0) - (item.startTime || 0))
-        }, 0) / (totalProcessed || 1)
+          return acc + ((item.processingCompletedAt?.getTime() || 0) - (item.processingStartedAt?.getTime() || 0))
+        }, 0) / (completed.length || 1)
 
         setStats({
           totalProcessed,
           avgProcessingTime: avgTime,
-          successRate: queue.length ? (totalProcessed / queue.length) * 100 : 0,
+          successRate: totalProcessed ? (completed.length / totalProcessed) * 100 : 0,
           totalStorage: dbStats.dbSize
         })
       } catch (error) {
-        console.error("Error loading queue:", error)
+        debugError("Error loading queue:", error)
       } finally {
         if (isMounted && isInitialLoad) {
           setIsLoadingData(false)
@@ -116,7 +189,7 @@ export default function DashboardPage() {
 
     // Initial load with loading state
     loadQueue(true)
-    
+
     // Setup polling without loading state
     const interval = setInterval(() => loadQueue(false), 3000)
 
@@ -124,23 +197,63 @@ export default function DashboardPage() {
       isMounted = false
       clearInterval(interval)
     }
-  }, [isInitialized])
+  }, [isInitialized, user, isAuthLoading])
 
   const handleFilesAccepted = async (files: File[]) => {
+    if (process.env.NODE_ENV === 'development') {
+      debugLog('[DEBUG] handleFilesAccepted called with', files.length, 'files');
+    }
     try {
-      const ids = await processingService.addToQueue(files)
-      const newItems = await Promise.all(ids.map((id) => processingService.getStatus(id)))
-      setProcessingQueue((prev) => [...prev, ...newItems.filter((item): item is ProcessingStatus => !!item)])
+      // Check if processing service is initialized
+      if (!processingServiceRef.current) {
+        throw new Error('Processing service not initialized');
+      }
 
-      const message = tCount('filesAddedDesc', files.length, language).replace(/\d+/g, num => 
+      if (process.env.NODE_ENV === 'development') {
+        debugLog('[DEBUG] Calling processingService.addToQueue');
+      }
+      const ids = await processingServiceRef.current.addToQueue(files)
+      if (process.env.NODE_ENV === 'development') {
+        debugLog('[DEBUG] processingService.addToQueue returned IDs:', ids);
+      }
+
+      if (process.env.NODE_ENV === 'development') {
+        debugLog('[DEBUG] Getting status for each file');
+      }
+      const newItems = await Promise.all(ids.map((id) => processingServiceRef.current!.getStatus(id)))
+      if (process.env.NODE_ENV === 'development') {
+        debugLog('[DEBUG] Got status for files:', newItems.length);
+      }
+
+      const validItems = newItems.filter((item): item is ProcessingStatus => !!item);
+      if (process.env.NODE_ENV === 'development') {
+        debugLog('[DEBUG] Valid items:', validItems.length);
+      }
+
+      setProcessingQueue((prev) => {
+        if (process.env.NODE_ENV === 'development') {
+          debugLog('[DEBUG] Previous queue length:', prev.length);
+        }
+        const newQueue = [...prev, ...validItems];
+        if (process.env.NODE_ENV === 'development') {
+          debugLog('[DEBUG] New queue length:', newQueue.length);
+        }
+        return newQueue;
+      })
+
+      const message = tCount('filesAddedDesc', files.length, language).replace(/\d+/g, num =>
         toArabicNumerals(num, language)
       )
 
+      if (process.env.NODE_ENV === 'development') {
+        debugLog('[DEBUG] Showing toast notification');
+      }
       toast({
         title: t('filesAdded', language),
         description: message,
       })
     } catch (error) {
+      debugError('[DEBUG] Error in handleFilesAccepted:', error);
       toast({
         title: t('uploadError', language),
         description: error instanceof Error ? error.message : t(translationKeys.failedProcess, language),
@@ -151,24 +264,29 @@ export default function DashboardPage() {
 
   const handleRemoveFromQueue = async (id: string) => {
     try {
+      // Check if processing service is initialized
+      if (!processingServiceRef.current) {
+        throw new Error('Processing service not initialized');
+      }
+
       const status = processingQueue.find(item => item.id === id)
       if (!status) return
 
       // If the file is processing, cancel it first
       if (status.status === "processing") {
-        await processingService.cancelProcessing(id)
+        await processingServiceRef.current.cancelProcessing(id)
       }
 
       // Remove from active queue but keep in recent documents
-      setProcessingQueue(prev => prev.map(item => 
-        item.id === id 
+      setProcessingQueue(prev => prev.map(item =>
+        item.id === id
           ? { ...item, status: "cancelled" }
           : item
       ))
 
       toast({
         title: "File Removed",
-        description: status.status === "processing" 
+        description: status.status === "processing"
           ? "Processing cancelled and document removed from queue"
           : "Document removed from queue",
       })
@@ -187,11 +305,16 @@ export default function DashboardPage() {
 
   const handleCancel = async (id: string) => {
     try {
-      await processingService.cancelProcessing(id)
-      
+      // Check if processing service is initialized
+      if (!processingServiceRef.current) {
+        throw new Error('Processing service not initialized');
+      }
+
+      await processingServiceRef.current.cancelProcessing(id)
+
       // Update the queue item status
-      setProcessingQueue(prev => prev.map(item => 
-        item.id === id 
+      setProcessingQueue(prev => prev.map(item =>
+        item.id === id
           ? { ...item, status: "cancelled" }
           : item
       ))
@@ -206,6 +329,53 @@ export default function DashboardPage() {
         description: "Failed to cancel processing",
         variant: "destructive",
       })
+    }
+  }
+
+  const handleRetry = async (id: string) => {
+    try {
+      console.log('[DEBUG] Retrying document:', id);
+
+      // Find the document
+      const doc = processingQueue.find(d => d.id === id);
+      if (!doc) {
+        console.error('[DEBUG] Document not found for retry:', id);
+        return;
+      }
+
+      // Use our centralized retry function
+      console.log('[DEBUG] Using centralized retry function');
+      // Retry the document
+      const updatedDoc = await retryDocument(id);
+
+      if (!updatedDoc) {
+        console.error('[DEBUG] Failed to retry document: Document not found in queue');
+        toast({
+          title: t('error', language) || 'Error',
+          description: 'Failed to retry document processing',
+          variant: 'destructive'
+        });
+        return;
+      }
+
+      // Update the document status in the UI
+      setProcessingQueue(prev => prev.map(d =>
+        d.id === id ? { ...d, status: 'queued', error: undefined } : d
+      ));
+
+      toast({
+        title: 'Document Retried',
+        description: 'Document has been queued for processing again.'
+      });
+
+      console.log('[DEBUG] Document retry initiated successfully');
+    } catch (error) {
+      console.error('[DEBUG] Error retrying document:', error);
+      toast({
+        title: t('error', language) || 'Error',
+        description: 'Failed to retry document processing',
+        variant: 'destructive'
+      });
     }
   }
 
@@ -230,6 +400,8 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen">
       <div className="space-y-8">
+        {/* Supabase Error Alert */}
+        <SupabaseError />
         {/* Page Header */}
         <div>
           <p className="text-sm font-medium text-muted-foreground">{t('welcome', language)}</p>
@@ -239,51 +411,98 @@ export default function DashboardPage() {
           </p>
         </div>
 
-        {!isConfigured && (
-          <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
-            <AlertTitle>{t('configureRequired', language)}</AlertTitle>
-            <AlertDescription className="mt-2">
-              <p className="mb-2">{t('configureMessage', language)}</p>
-              <Button variant="secondary" size="sm" onClick={() => setShouldShowSettings(true)}>
-                {t('configureSettings', language)}
-                <ArrowRight className="ml-2 h-4 w-4" />
-              </Button>
-            </AlertDescription>
-          </Alert>
-        )}
-
         {/* Upload Section */}
         <div className="relative">
-          <Card className={cn(
-            "border-dashed transition-all duration-300",
-            isDraggingOverPage && "ring-2 ring-primary shadow-lg"
-          )}>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Upload className={cn(
-                  "h-5 w-5 transition-colors duration-300",
-                  isDraggingOverPage ? "text-primary" : "text-primary/80"
-                )} />
-                {t('uploadDocuments', language)}
-              </CardTitle>
-              <CardDescription>
-                {t('uploadDescription', language)}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <FileUpload
-                onFilesAccepted={handleFilesAccepted}
-                processingQueue={processingQueue}
+          {!user && !isAuthLoading ? (
+            // Login card for unauthenticated users
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <LogIn className="h-5 w-5" />
+                  Login Required
+                </CardTitle>
+                <CardDescription>
+                  Please login to view your documents and upload new files.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col items-center justify-center py-8">
+                <div className="flex flex-col items-center justify-center space-y-4 max-w-md text-center">
+                  <p className="text-muted-foreground">
+                    You need to be logged in to access your documents and upload new files.
+                  </p>
+                  <Button asChild className="mt-4">
+                    <Link href="/auth/login">
+                      Login to Your Account
+                    </Link>
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
+            // Upload card for authenticated users
+            <>
+              {isConfigured && !settings.ocr.apiKey && !settings.ocr.useSystemKey && (
+                <Alert variant="destructive" className="mb-4">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertTitle>API Key Missing</AlertTitle>
+                  <AlertDescription className="flex flex-col gap-2">
+                    <p>You need to set an API key for the OCR service to work. Files will be uploaded but not processed.</p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => router.push('/settings')}
+                      className="self-start"
+                    >
+                      Open Settings
+                    </Button>
+                  </AlertDescription>
+                </Alert>
+              )}
+              <Card className={cn(
+                "border-dashed transition-all duration-300",
+                isDraggingOverPage && "ring-2 ring-primary shadow-lg"
+              )}>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Upload className={cn(
+                      "h-5 w-5 transition-colors duration-300",
+                      isDraggingOverPage ? "text-primary" : "text-primary/80"
+                    )} />
+                    {t('uploadDocuments', language)}
+                  </CardTitle>
+                  <CardDescription>
+                    {t('uploadDescription', language)}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <FileUpload
+                    onFilesAccepted={handleFilesAccepted}
+                    processingQueue={processingQueue}
                 onPause={async () => {
-                  await processingService.pauseQueue()
+                  if (!processingServiceRef.current) {
+                    toast({
+                      title: t('error', language),
+                      description: 'Processing service not initialized',
+                      variant: 'destructive',
+                    });
+                    return;
+                  }
+                  await processingServiceRef.current.pauseQueue()
                   toast({
                     title: t('processingCancelled', language),
                     description: t('processingCancelledDesc', language),
                   })
                 }}
                 onResume={async () => {
-                  await processingService.resumeQueue()
+                  if (!processingServiceRef.current) {
+                    toast({
+                      title: t('error', language),
+                      description: 'Processing service not initialized',
+                      variant: 'destructive',
+                    });
+                    return;
+                  }
+                  await processingServiceRef.current.resumeQueue()
                   toast({
                     title: t('processingCancelled', language),
                     description: t('processingCancelledDesc', language),
@@ -291,7 +510,7 @@ export default function DashboardPage() {
                 }}
                 onRemove={handleRemoveFromQueue}
                 onCancel={handleCancel}
-                disabled={!isConfigured || !isInitialized}
+                disabled={!isInitialized}
                 maxFileSize={settings.upload.maxFileSize}
                 maxSimultaneousUploads={settings.upload.maxSimultaneousUploads}
                 allowedFileTypes={settings.upload.allowedFileTypes}
@@ -299,12 +518,15 @@ export default function DashboardPage() {
                 onDragStateChange={setIsDraggingOverPage}
                 language={language}
               />
-            </CardContent>
-          </Card>
+                </CardContent>
+              </Card>
+            </>
+          )}
         </div>
 
-        {/* Stats Grid */}
-        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+        {/* Stats Grid - Only show for authenticated users */}
+        {user && !isAuthLoading && (
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
           {renderStatsCard(
             t('totalDocuments', language),
             <FileText className="h-4 w-4 text-muted-foreground" />,
@@ -332,6 +554,11 @@ export default function DashboardPage() {
                 <p className="text-xs text-muted-foreground">
                   {toArabicNumerals(processingQueue.filter((item) => item.status === "queued").length, language)} {t('queued', language)}
                 </p>
+                {processingQueue.some(doc => doc.status === "error" || doc.status === "failed") && (
+                  <p className="text-xs text-red-600 dark:text-red-400">
+                    {toArabicNumerals(processingQueue.filter((item) => item.status === "error" || item.status === "failed").length, language)} {t('error', language) || 'Error'}
+                  </p>
+                )}
                 {processingQueue.some(doc => doc.rateLimitInfo?.isRateLimited) && (
                   <p className="text-xs text-purple-600 dark:text-purple-400">
                     {t('rateLimited', language)} • {t('autoResuming', language)}
@@ -365,9 +592,11 @@ export default function DashboardPage() {
             </>
           )}
         </div>
+        )}
 
-        {/* Recent Documents */}
-        <Card>
+        {/* Recent Documents - Only show for authenticated users */}
+        {user && !isAuthLoading && (
+          <Card>
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
               <div>
@@ -404,27 +633,22 @@ export default function DashboardPage() {
                 }}
                 onDownload={handleViewResults}
                 onDelete={handleRemoveFromQueue}
+                onCancel={handleCancel}
+                onRetry={handleRetry}
                 variant="grid"
                 showHeader={false}
               />
             )}
           </CardContent>
-        </Card>
+          </Card>
+        )}
       </div>
 
       <DocumentDetailsDialog
         document={selectedDocument}
         open={isDetailsOpen}
         onOpenChange={setIsDetailsOpen}
-      />
-      <SettingsDialog 
-        open={shouldShowSettings} 
-        onOpenChange={(open) => {
-          setShouldShowSettings(open)
-          if (!open && isConfigured) {
-            router.refresh()
-          }
-        }}
+        onRetry={handleRetry}
       />
     </div>
   )

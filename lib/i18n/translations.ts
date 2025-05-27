@@ -9,16 +9,16 @@ interface TranslationKeys {
   settings: string
   changeLanguage: string
   toggleTheme: string
-  
+
   // Dashboard
   welcome: string
   dashboardTitle: string
   dashboardDescription: string
-  
+
   // Upload Section
   uploadDocuments: string
   uploadDescription: string
-  
+
   // Stats
   totalDocuments: string
   processingStatus: string
@@ -31,17 +31,17 @@ interface TranslationKeys {
   autoResuming: string
   pagesPerBatch: string
   chunks: string
-  
+
   // Recent Documents
   recentDocuments: string
   recentDescription: string
   viewAll: string
-  
+
   // Alerts
   configureRequired: string
   configureMessage: string
   configureSettings: string
-  
+
   // Notifications
   filesAdded: string
   filesAddedDesc: (count: number) => string
@@ -73,7 +73,7 @@ interface TranslationKeys {
   status: string
   pending: string
   failed: string
-  
+
   // Document Actions
   copyText: string
   copied: string
@@ -81,7 +81,7 @@ interface TranslationKeys {
   downloaded: string
   tryAgain: string
   maxRetriesReached: string
-  
+
   // Document Preview
   sourceDocument: string
   extractedText: string
@@ -211,7 +211,7 @@ interface TranslationKeys {
   processingTab: string
   uploadTab: string
   statsTab: string
-  
+
   // OCR Settings
   textRecognitionService: string
   textRecognitionDescription: string
@@ -221,7 +221,7 @@ interface TranslationKeys {
   serviceLocationDescription: string
   documentLanguage: string
   documentLanguageDescription: string
-  
+
   // Processing Settings
   parallelProcessing: string
   parallelProcessingDescription: string
@@ -231,7 +231,7 @@ interface TranslationKeys {
   autoRetryDescription: string
   retryTiming: string
   retryTimingDescription: string
-  
+
   // Upload Settings
   maxFileSize: string
   maxFileSizeDescription: string
@@ -239,7 +239,7 @@ interface TranslationKeys {
   acceptedFilesDescription: string
   uploadSpeed: string
   uploadSpeedDescription: string
-  
+
   // Stats Overview
   storageOverview: string
   ocrSettings: string
@@ -266,6 +266,18 @@ interface TranslationKeys {
   enterApiKey: string
   hideApiKey: string
   showApiKey: string
+
+  // Settings
+  success: string
+  settingsSaved: string
+  saveFailed: string
+  notLoggedIn: string
+  serverManagedSettings: string
+  readOnlySettings: string
+  loadingSettings: string
+  settingsError: string
+  retry: string
+  refreshStats: string
 }
 
 // Create base translations object
@@ -277,16 +289,16 @@ export const translations: Record<Language, Partial<TranslationKeys>> = {
     settings: 'Settings',
     changeLanguage: 'Change language',
     toggleTheme: 'Toggle theme',
-    
+
     // Dashboard
     welcome: 'Welcome back',
     dashboardTitle: 'OCR Processing Dashboard',
     dashboardDescription: 'Process and extract text from your documents. Upload files in PDF, JPG, JPEG, or PNG format.',
-    
+
     // Upload Section
     uploadDocuments: 'Upload Documents',
     uploadDescription: 'Process and extract text from your documents using our advanced OCR technology.',
-    
+
     // Stats
     totalDocuments: 'Total Documents',
     processingStatus: 'Processing Status',
@@ -299,17 +311,17 @@ export const translations: Record<Language, Partial<TranslationKeys>> = {
     autoResuming: 'Auto-resuming',
     pagesPerBatch: 'Pages per batch',
     chunks: 'chunks',
-    
+
     // Recent Documents
     recentDocuments: 'Recent Documents',
     recentDescription: 'Recently processed documents and their status',
     viewAll: 'View All',
-    
+
     // Alerts
     configureRequired: 'Action Required',
     configureMessage: 'Please configure your OCR API settings before uploading documents.',
     configureSettings: 'Configure Settings',
-    
+
     // Notifications
     filesAdded: 'Files Added',
     filesAddedDesc: (count: number) => `Added ${count} file(s) to processing queue`,
@@ -341,7 +353,7 @@ export const translations: Record<Language, Partial<TranslationKeys>> = {
     status: 'Status',
     pending: 'Pending',
     failed: 'Failed',
-    
+
     // Document Actions
     copyText: 'Copy text',
     copied: 'Copied',
@@ -349,7 +361,7 @@ export const translations: Record<Language, Partial<TranslationKeys>> = {
     downloaded: 'Downloaded',
     tryAgain: 'Try Again',
     maxRetriesReached: 'Max Retries Reached',
-    
+
     // Document Preview
     sourceDocument: 'Source Document',
     extractedText: 'Extracted Text',
@@ -479,7 +491,7 @@ export const translations: Record<Language, Partial<TranslationKeys>> = {
     processingTab: 'Processing',
     uploadTab: 'Upload',
     statsTab: 'Overview',
-    
+
     // OCR Settings
     textRecognitionService: 'Text Recognition Service',
     textRecognitionDescription: 'Pick which AI service will read your documents. Both Google and Microsoft are great at this!',
@@ -489,7 +501,7 @@ export const translations: Record<Language, Partial<TranslationKeys>> = {
     serviceLocationDescription: 'Pick the closest region for best speed (e.g., \'westeurope\')',
     documentLanguage: 'Document Language',
     documentLanguageDescription: 'Select your document\'s main language for better accuracy',
-    
+
     // Processing Settings
     parallelProcessing: 'Parallel Processing',
     parallelProcessingDescription: 'Process multiple documents at once',
@@ -499,7 +511,7 @@ export const translations: Record<Language, Partial<TranslationKeys>> = {
     autoRetryDescription: 'Number of retry attempts if processing fails',
     retryTiming: 'Retry Timing',
     retryTimingDescription: 'Wait time between retries (in milliseconds)',
-    
+
     // Upload Settings
     maxFileSize: 'Maximum File Size',
     maxFileSizeDescription: 'Largest allowed file size (MB). Typical 20-page PDF: 2-3 MB',
@@ -507,7 +519,7 @@ export const translations: Record<Language, Partial<TranslationKeys>> = {
     acceptedFilesDescription: 'File types allowed (e.g., pdf, png, jpg)',
     uploadSpeed: 'Upload Speed',
     uploadSpeedDescription: 'Number of files to upload at once',
-    
+
     // Stats Overview
     storageOverview: 'Storage Overview',
     ocrSettings: 'OCR Settings',
@@ -522,7 +534,7 @@ export const translations: Record<Language, Partial<TranslationKeys>> = {
     fileTypes: 'File Types',
     storageLimit: 'Storage Limit',
     loadingStatistics: 'Loading statistics...',
-    
+
     // API Validation
     validationError: 'Validation Error',
     apiValidationFailed: 'API Validation Failed',
@@ -532,7 +544,19 @@ export const translations: Record<Language, Partial<TranslationKeys>> = {
     testApi: 'Test API',
     enterApiKey: 'Enter your API key',
     hideApiKey: 'Hide API key',
-    showApiKey: 'Show API key'
+    showApiKey: 'Show API key',
+
+    // Settings
+    success: 'Success',
+    settingsSaved: 'Settings saved successfully',
+    saveFailed: 'Failed to save settings',
+    notLoggedIn: 'You must be logged in to save settings',
+    serverManagedSettings: 'Server-Managed Settings',
+    readOnlySettings: 'Read-only',
+    loadingSettings: 'Loading settings...',
+    settingsError: 'Error Loading Settings',
+    retry: 'Retry',
+    refreshStats: 'Refresh Stats'
   },
   fr: {
     // Navigation
@@ -541,15 +565,15 @@ export const translations: Record<Language, Partial<TranslationKeys>> = {
     settings: 'Paramètres',
     changeLanguage: 'Changer de langue',
     toggleTheme: 'Changer le thème',
-    
+
     // Dashboard
     welcome: 'Bon retour',
     dashboardTitle: 'Tableau de bord OCR',
     dashboardDescription: 'Traitez et extrayez le texte de vos documents. Formats acceptés : PDF, JPG, JPEG ou PNG.',
-    
+
     uploadDocuments: 'Importer des documents',
     uploadDescription: 'Traitez vos documents avec notre technologie OCR avancée.',
-    
+
     // Stats
     totalDocuments: 'Total des documents',
     processingStatus: 'État du traitement',
@@ -562,17 +586,17 @@ export const translations: Record<Language, Partial<TranslationKeys>> = {
     autoResuming: 'Reprise automatique',
     pagesPerBatch: 'Pages par lot',
     chunks: 'lots',
-    
+
     // Recent Documents
     recentDocuments: 'Documents récents',
     recentDescription: 'Documents récemment traités et leur état',
     viewAll: 'Voir tout',
-    
+
     // Alerts
     configureRequired: 'Action requise',
     configureMessage: 'Veuillez configurer les paramètres de l\'API OCR avant d\'importer des documents.',
     configureSettings: 'Configurer',
-    
+
     // Notifications
     filesAdded: 'Fichiers ajoutés',
     filesAddedDesc: (count: number) => `${count} fichier(s) ajouté(s) à la file d'attente`,
@@ -604,7 +628,7 @@ export const translations: Record<Language, Partial<TranslationKeys>> = {
     status: 'Statut',
     pending: 'En attente',
     failed: 'Échoué',
-    
+
     // Document Actions
     copyText: 'Copier le texte',
     copied: 'Copié',
@@ -612,7 +636,7 @@ export const translations: Record<Language, Partial<TranslationKeys>> = {
     downloaded: 'Téléchargé',
     tryAgain: 'Réessayer',
     maxRetriesReached: 'Nombre maximal de tentatives atteint',
-    
+
     // Document Preview
     sourceDocument: 'Document source',
     extractedText: 'Texte extrait',
@@ -741,7 +765,7 @@ export const translations: Record<Language, Partial<TranslationKeys>> = {
     processingTab: 'Traitement',
     uploadTab: 'Téléchargement',
     statsTab: 'Aperçu',
-    
+
     // OCR Settings
     textRecognitionService: 'Service de reconnaissance de texte',
     textRecognitionDescription: 'Choisissez quel service IA lira vos documents. Google et Microsoft sont tous deux excellents !',
@@ -751,7 +775,7 @@ export const translations: Record<Language, Partial<TranslationKeys>> = {
     serviceLocationDescription: 'Choisissez la région la plus proche pour une meilleure vitesse (ex: \'westeurope\')',
     documentLanguage: 'Langue du document',
     documentLanguageDescription: 'Sélectionnez la langue principale de votre document pour une meilleure précision',
-    
+
     // Processing Settings
     parallelProcessing: 'Traitement parallèle',
     parallelProcessingDescription: 'Traiter plusieurs documents simultanément',
@@ -761,7 +785,7 @@ export const translations: Record<Language, Partial<TranslationKeys>> = {
     autoRetryDescription: 'Nombre de tentatives en cas d\'échec du traitement',
     retryTiming: 'Temporisation des réessais',
     retryTimingDescription: 'Temps d\'attente entre les tentatives (en millisecondes)',
-    
+
     // Upload Settings
     maxFileSize: 'Taille maximale de fichier',
     maxFileSizeDescription: 'Plus grande taille de fichier autorisée (Mo). PDF typique de 20 pages : 2-3 Mo',
@@ -769,7 +793,7 @@ export const translations: Record<Language, Partial<TranslationKeys>> = {
     acceptedFilesDescription: 'Types de fichiers autorisés (ex: pdf, png, jpg)',
     uploadSpeed: 'Vitesse de téléchargement',
     uploadSpeedDescription: 'Nombre de fichiers à télécharger simultanément',
-    
+
     // Stats Overview
     storageOverview: 'Aperçu du stockage',
     ocrSettings: 'Paramètres OCR',
@@ -784,7 +808,7 @@ export const translations: Record<Language, Partial<TranslationKeys>> = {
     fileTypes: 'Types de fichiers',
     storageLimit: 'Limite de stockage',
     loadingStatistics: 'Chargement des statistiques...',
-    
+
     // API Validation
     validationError: 'Erreur de validation',
     apiValidationFailed: 'Échec de la validation API',
@@ -803,16 +827,16 @@ export const translations: Record<Language, Partial<TranslationKeys>> = {
     settings: 'الإعدادات',
     changeLanguage: 'تغيير اللغة',
     toggleTheme: 'تغيير تم',
-    
+
     // Dashboard
     welcome: 'مرحباً بعودتك',
     dashboardTitle: 'لوحة تحكم التعرف على النصوص',
     dashboardDescription: 'قم بمعالجة واستخراج النص من مستنداتك. قم بتحميل ملفات PDF أو JPG أو JPEG أو PNG.',
-    
+
     // Upload Section
     uploadDocuments: 'تحميل المستندات',
     uploadDescription: 'قم بمعالجة واستخراج النص من مستنداتك باستخدام تقنية التعرف على النصوص المتقدمة.',
-    
+
     // Stats
     totalDocuments: 'إجمالي المستندات',
     processingStatus: 'حالة المعالجة',
@@ -825,17 +849,17 @@ export const translations: Record<Language, Partial<TranslationKeys>> = {
     autoResuming: 'استئناف تلقائي',
     pagesPerBatch: 'صفحات لكل دفعة',
     chunks: 'أجزاء',
-    
+
     // Recent Documents
     recentDocuments: 'المستندات الحديثة',
     recentDescription: 'المستندات التي تمت معالجتها مؤخراً وحالتها',
     viewAll: 'عرض الكل',
-    
+
     // Alerts
     configureRequired: 'إجراء مطلوب',
     configureMessage: 'يرجى تكوين إعدادات واجهة برمجة التطبيقات للتعرف على النصوص قبل تحميل المستندات.',
     configureSettings: 'تكوين الإعدادات',
-    
+
     // Notifications
     filesAdded: 'تمت إضافة الملفات',
     filesAddedDesc: (count: number) => `تمت إضافة ${count} ملف(ات) إلى قائمة المعالجة`,
@@ -867,7 +891,7 @@ export const translations: Record<Language, Partial<TranslationKeys>> = {
     status: 'الحالة',
     pending: 'در انتظار',
     failed: 'فشل',
-    
+
     // Document Actions
     copyText: 'نسخ النص',
     copied: 'تم النسخ',
@@ -875,7 +899,7 @@ export const translations: Record<Language, Partial<TranslationKeys>> = {
     downloaded: 'تم التحميل',
     tryAgain: 'حاول مرة أخرى',
     maxRetriesReached: 'تم الوصول إلى الحد الأقصى للمحاولات',
-    
+
     // Document Preview
     sourceDocument: 'المستند المصدر',
     extractedText: 'النص المستخرج',
@@ -1003,7 +1027,7 @@ export const translations: Record<Language, Partial<TranslationKeys>> = {
     processingTab: 'المعالجة',
     uploadTab: 'التحميل',
     statsTab: 'الملخص',
-    
+
     // OCR Settings
     textRecognitionService: 'خدمة التعرف على النصوص',
     textRecognitionDescription: 'اختر خدمة AI التي ستقرأ مستنداتك. كل من Google وMicrosoft بسیار عالی هستند!',
@@ -1013,7 +1037,7 @@ export const translations: Record<Language, Partial<TranslationKeys>> = {
     serviceLocationDescription: 'اختر المنطقة القريبة لأفضل سرعة (مثل \'westeurope\')',
     documentLanguage: 'لغة المستند',
     documentLanguageDescription: 'حدد اللغة الرئيسية لمستندك لتحسين الدقة',
-    
+
     // Processing Settings
     parallelProcessing: 'المعالجة المتزامنة',
     parallelProcessingDescription: 'معالجة مستندات متزامنة',
@@ -1023,7 +1047,7 @@ export const translations: Record<Language, Partial<TranslationKeys>> = {
     autoRetryDescription: 'عدد محاولات إعادة المحاولة إذا فشل المعالج',
     retryTiming: 'موقع إعادة المحاولة',
     retryTimingDescription: 'وقت الانتظار بين محاولات الإعادة (بالمللي ثانية)',
-    
+
     // Upload Settings
     maxFileSize: 'حجم الملف الأقصى',
     maxFileSizeDescription: 'أكبر حجم ملف مسموح به (ميجابايت). PDF عادي 20 صفحة: 2-3 ميجابايت',
@@ -1031,7 +1055,7 @@ export const translations: Record<Language, Partial<TranslationKeys>> = {
     acceptedFilesDescription: 'أنواع الملفات المسموح بها (مثل pdf, png, jpg)',
     uploadSpeed: 'سرعة التحميل',
     uploadSpeedDescription: 'عدد الملفات لتحميلها معاً',
-    
+
     // Stats Overview
     storageOverview: 'چشم انداز',
     ocrSettings: 'إعدادات OCR',
@@ -1046,7 +1070,7 @@ export const translations: Record<Language, Partial<TranslationKeys>> = {
     fileTypes: 'أنواع الملفات',
     storageLimit: 'حد ذخیره سازی',
     loadingStatistics: 'بارگذاری آمار...',
-    
+
     // API Validation
     validationError: 'خطأ تحقق',
     apiValidationFailed: 'تحقق API ناموفق',
@@ -1064,14 +1088,14 @@ export const translations: Record<Language, Partial<TranslationKeys>> = {
     settings: 'تنظیمات',
     changeLanguage: 'تغییر زبان',
     toggleTheme: 'تغییر تم',
-    
+
     welcome: 'خوش آمدید',
     dashboardTitle: 'داشبورد پردازش OCR',
     dashboardDescription: 'پردازش و استخراج متن از اسناد شما. فرمت‌های قابل قبول: PDF، JPG، JPEG یا PNG.',
-    
+
     uploadDocuments: 'بارگذاری اسناد',
     uploadDescription: 'پردازش اسناد با فناوری پیشرفته OCR.',
-    
+
     totalDocuments: 'کل اسناد',
     processingStatus: 'وضعیت پردازش',
     successRate: 'نرخ موفقیت',
@@ -1083,15 +1107,15 @@ export const translations: Record<Language, Partial<TranslationKeys>> = {
     autoResuming: 'ادامه خودکار',
     pagesPerBatch: 'صفحات در هر دسته',
     chunks: 'دسته‌ها',
-    
+
     recentDocuments: 'اسناد اخیر',
     recentDescription: 'اسناد اخیراً پردازش شده و وضعیت آنها',
     viewAll: 'مشاهده همه',
-    
+
     configureRequired: 'اقدام لازم',
     configureMessage: 'لطفاً قبل از بارگذاری اسناد، تنظیمات API را پیکربندی کنید.',
     configureSettings: 'تنظیمات پیکربندی',
-    
+
     filesAdded: 'فایل‌ها اضافه شدند',
     filesAddedDesc: (count: number) => `${count} فایل به صف پردازش اضافه شد`,
     uploadError: 'خطای بارگذاری',
@@ -1122,7 +1146,7 @@ export const translations: Record<Language, Partial<TranslationKeys>> = {
     status: 'وضعیت',
     pending: 'در انتظار',
     failed: 'ناموفق',
-    
+
     // Document Actions
     copyText: 'کپی متن',
     copied: 'کپی شد',
@@ -1130,7 +1154,7 @@ export const translations: Record<Language, Partial<TranslationKeys>> = {
     downloaded: 'تم التحمیل',
     tryAgain: 'تلاش مجدد',
     maxRetriesReached: 'حداکثر تلاش‌ها انجام شد',
-    
+
     // Document Preview
     sourceDocument: 'سند منبع',
     extractedText: 'متن استخراج شده',
@@ -1258,7 +1282,7 @@ export const translations: Record<Language, Partial<TranslationKeys>> = {
     processingTab: 'پردازش',
     uploadTab: 'بارگذاری',
     statsTab: 'چشم انداز',
-    
+
     // OCR Settings
     textRecognitionService: 'خدمت تشخیص نویسه',
     textRecognitionDescription: 'کدام خدمت AI برای خواندن اسناد انتخاب کنید. هر دو Google وMicrosoft بسیار عالی هستند!',
@@ -1268,7 +1292,7 @@ export const translations: Record<Language, Partial<TranslationKeys>> = {
     serviceLocationDescription: 'منطقه نزدیکتر برای بهترین سرعت انتخاب کنید (مثل \'westeurope\')',
     documentLanguage: 'لغة اسند',
     documentLanguageDescription: 'زبان اصلی اسند خود را انتخاب کنید تا دقت بهتری داشته باشد',
-    
+
     // Processing Settings
     parallelProcessing: 'پردازش موازی',
     parallelProcessingDescription: 'مستندات بیش از یکی در یک زمان پردازش کنید',
@@ -1278,7 +1302,7 @@ export const translations: Record<Language, Partial<TranslationKeys>> = {
     autoRetryDescription: 'عدد محاولات إعادة المحاولة إذا فشل المعالج',
     retryTiming: 'موقع إعادة المحاولة',
     retryTimingDescription: 'وقت الانتظار بين محاولات الإعادة (بالمللي ثانية)',
-    
+
     // Upload Settings
     maxFileSize: 'حجم الملف الأقصى',
     maxFileSizeDescription: 'أكبر حجم ملف مسموح به (ميجابايت). PDF عادي 20 صفحة: 2-3 ميجابايت',
@@ -1286,7 +1310,7 @@ export const translations: Record<Language, Partial<TranslationKeys>> = {
     acceptedFilesDescription: 'أنواع الملفات المسموح بها (مثل pdf, png, jpg)',
     uploadSpeed: 'سرعة التحميل',
     uploadSpeedDescription: 'عدد الملفات لتحميلها معاً',
-    
+
     // Stats Overview
     storageOverview: 'چشم انداز',
     ocrSettings: 'إعدادات OCR',
@@ -1301,7 +1325,7 @@ export const translations: Record<Language, Partial<TranslationKeys>> = {
     fileTypes: 'أنواع الملفات',
     storageLimit: 'حد ذخیره سازی',
     loadingStatistics: 'بارگذاری آمار...',
-    
+
     // API Validation
     validationError: 'خطأ تحقق',
     apiValidationFailed: 'تحقق API ناموفق',
@@ -1360,4 +1384,4 @@ translations.ar = {
 translations.fa = {
   ...translations.fa,
   failedProcess: 'خطا در پردازش فایل‌ها',
-} 
+}

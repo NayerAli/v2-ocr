@@ -1,0 +1,32 @@
+services:
+  # ---- Production ----
+  app:
+    profiles: ["prod"]
+    build:
+      context: .
+      target: prod
+    env_file: .env.local  # tes clés arrivent ici
+    ports: ["3000:3000"]
+
+  # ---- Développement ----
+  dev:
+    profiles: ["dev"]
+    build:
+      context: .
+      target: dev
+    env_file: .env.local
+    ports: ["3000:3000"]
+    volumes:
+      - .:/app                 # hot-reload
+      - node_modules:/app/node_modules
+    develop:
+      watch:                   # Compose Watch 2024
+        - action: sync
+          path: .
+          target: /app
+          ignore: [node_modules/]
+        - action: rebuild
+          path: package*.json
+
+volumes:
+  node_modules:

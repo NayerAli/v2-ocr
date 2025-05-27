@@ -4,6 +4,14 @@ import { cn } from "@/lib/utils"
 
 const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<"input">>(
   ({ className, type, ...props }, ref) => {
+    // Create a copy of props without any browser-specific attributes
+    const sanitizedProps = { ...props };
+
+    // Remove fdprocessedid attribute if it exists
+    if ('fdprocessedid' in sanitizedProps) {
+      delete sanitizedProps.fdprocessedid;
+    }
+
     return (
       <input
         type={type}
@@ -12,7 +20,7 @@ const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<"input">>(
           className
         )}
         ref={ref}
-        {...props}
+        {...sanitizedProps}
       />
     )
   }

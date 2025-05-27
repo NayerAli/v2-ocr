@@ -6,7 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { formatFileSize } from "@/lib/file-utils"
-import { cn } from "@/lib/utils"
+import { cn, isImageFile } from "@/lib/utils"
 import type { ProcessingStatus } from "@/types"
 import {
   Tooltip,
@@ -22,6 +22,8 @@ interface DocumentListProps {
   onShowDetails: (doc: ProcessingStatus) => void
   onDownload: (id: string) => void
   onDelete: (id: string) => void
+  onCancel?: (id: string) => void
+  onRetry?: (id: string) => void
   variant?: "table" | "grid"
   showHeader?: boolean
   isLoading?: boolean
@@ -35,13 +37,13 @@ function formatDate(date: number | Date, language: Language): string {
     hour: '2-digit',
     minute: '2-digit'
   } as const
-  
+
   const formatted = new Date(date).toLocaleString(
     language === 'ar' ? 'ar-EG' : language === 'fa' ? 'fa-IR' : undefined,
     options
   )
-  
-  return language === 'ar' || language === 'fa' 
+
+  return language === 'ar' || language === 'fa'
     ? formatted.replace(/[0-9]/g, d => ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'][parseInt(d)])
     : formatted
 }
@@ -72,7 +74,7 @@ function FileNameDisplay({ filename }: { filename: string }) {
 
 function toArabicNumerals(num: number | string, language: Language): string {
   if (language !== 'ar' && language !== 'fa') return String(num)
-  
+
   const arabicNumerals = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩']
   return String(num).replace(/[0-9]/g, (d) => arabicNumerals[parseInt(d)])
 }
@@ -96,17 +98,21 @@ function getStatusIcon(status: string) {
     case "cancelled":
       return <Pause className="h-4 w-4" />
     case "error":
+    case "failed":
       return <AlertCircle className="h-4 w-4" />
     default:
-      return null
+      console.log(`[DEBUG] Unknown status: ${status}`);
+      return <AlertCircle className="h-4 w-4" />
   }
 }
 
-export function DocumentList({ 
-  documents, 
-  onShowDetails, 
-  onDownload, 
-  onDelete, 
+export function DocumentList({
+  documents,
+  onShowDetails,
+  onDownload,
+  onDelete,
+  onCancel,
+  onRetry,
   variant = "table",
   isLoading = false
 }: DocumentListProps) {
@@ -115,9 +121,13 @@ export function DocumentList({
 
   const canViewDocument = (doc: ProcessingStatus) => {
     if (doc.status === "completed") return true
-    // Only allow viewing cancelled files if they have some processed pages
+    // Allow viewing cancelled files if they have some processed pages
     if (doc.status === "cancelled") {
       return (doc.currentPage || 0) > 0 || (doc.totalPages || 0) > 0
+    }
+    // Allow viewing error files to see the error details
+    if (doc.status === "error" || doc.status === "failed") {
+      return true
     }
     return false
   }
@@ -129,7 +139,7 @@ export function DocumentList({
         "bg-green-50 text-green-700 dark:bg-green-500/20": doc.status === "completed",
         "bg-blue-50 text-blue-700 dark:bg-blue-500/20": doc.status === "processing" && !doc.rateLimitInfo?.isRateLimited,
         "bg-yellow-50 text-yellow-700 dark:bg-yellow-500/20": doc.status === "queued",
-        "bg-red-50 text-red-700 dark:bg-red-500/20": doc.status === "error",
+        "bg-red-50 text-red-700 dark:bg-red-500/20": doc.status === "error" || doc.status === "failed",
         "bg-gray-50 text-gray-700 dark:bg-gray-500/20": doc.status === "cancelled",
         "bg-purple-50 text-purple-700 dark:bg-purple-500/20": doc.rateLimitInfo?.isRateLimited
       }
@@ -143,15 +153,15 @@ export function DocumentList({
       ))
       return `${t('resumingIn', language)} ${toArabicNumerals(remainingTime, language)}s`
     }
-    
+
     if (doc.status === "processing") {
       return `${t('processing', language)} ${toArabicNumerals(doc.currentPage || 0, language)}/${toArabicNumerals(doc.totalPages || 0, language)}`
     }
-    
+
     if (doc.status === "cancelled" && doc.currentPage && doc.currentPage > 0) {
       return `${t('cancelled', language)} (${toArabicNumerals(doc.currentPage, language)} ${t('processed', language)})`
     }
-    
+
     return t(doc.status, language)
   }
 
@@ -232,8 +242,8 @@ export function DocumentList({
     return (
       <div className="space-y-4">
         {documents.map((doc) => (
-          <div 
-            key={doc.id} 
+          <div
+            key={doc.id}
             className={cn(
               "flex flex-col gap-3 p-4 rounded-lg border bg-card transition-colors",
               canViewDocument(doc) && "hover:bg-accent/5 cursor-pointer"
@@ -248,7 +258,7 @@ export function DocumentList({
               <div className="flex-1 truncate">
                 <p className="text-sm truncate">
                   <span className="inline-flex items-center gap-2">
-                    {doc.type?.startsWith('image/') ? (
+                    {isImageFile(doc.fileType, doc.filename) ? (
                       <ImageIcon className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                     ) : (
                       <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
@@ -257,7 +267,7 @@ export function DocumentList({
                   </span>
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  {formatFileSize(doc.size ?? 0, language)} • {toArabicNumerals(doc.totalPages || 0, language)} {t('pages', language)}
+                  {formatFileSize(doc.fileSize ?? 0, language)} • {toArabicNumerals(isImageFile(doc.fileType, doc.filename) ? 1 : doc.totalPages || 0, language)} {t('pages', language)}
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -284,7 +294,7 @@ export function DocumentList({
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <div>
-                                  <DropdownMenuItem 
+                                  <DropdownMenuItem
                                     onClick={() => onDownload(doc.id)}
                                     disabled={true}
                                     className="opacity-50 cursor-not-allowed"
@@ -306,8 +316,27 @@ export function DocumentList({
                           </DropdownMenuItem>
                         )
                       )}
-                      <DropdownMenuItem 
-                        className="text-destructive focus:text-destructive" 
+                      {/* Show cancel button for processing documents */}
+                      {doc.status === 'processing' && onCancel && (
+                        <DropdownMenuItem
+                          onClick={() => onCancel(doc.id)}
+                        >
+                          <Pause className="h-4 w-4 mr-2" />
+                          {t('cancel', language) || 'Cancel'}
+                        </DropdownMenuItem>
+                      )}
+
+                      {/* Show retry button for error/failed documents */}
+                      {(doc.status === 'error' || doc.status === 'failed') && onRetry && (
+                        <DropdownMenuItem
+                          onClick={() => onRetry(doc.id)}
+                        >
+                          <Clock className="h-4 w-4 mr-2" />
+                          {t('retry', language) || 'Retry'}
+                        </DropdownMenuItem>
+                      )}
+                      <DropdownMenuItem
+                        className="text-destructive focus:text-destructive"
                         onClick={() => onDelete(doc.id)}
                       >
                         <Trash2 className="h-4 w-4 mr-2" />
@@ -340,7 +369,7 @@ export function DocumentList({
         </TableHeader>
         <TableBody>
           {documents.map((doc) => (
-            <TableRow 
+            <TableRow
               key={doc.id}
               className={cn(
                 canViewDocument(doc) && "hover:bg-accent/5 cursor-pointer"
@@ -353,7 +382,7 @@ export function DocumentList({
             >
               <TableCell>
                 <div className="flex items-center gap-2 max-w-[300px] sm:max-w-[400px] md:max-w-[500px]">
-                  {doc.type?.startsWith('image/') ? (
+                  {isImageFile(doc.fileType, doc.filename) ? (
                     <ImageIcon className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                   ) : (
                     <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
@@ -369,17 +398,17 @@ export function DocumentList({
               </TableCell>
               <TableCell className="text-center">
                 <span className="text-sm">
-                  {formatDate(doc.startTime || Date.now(), language)}
+                  {formatDate(doc.processingStartedAt?.getTime() || Date.now(), language)}
                 </span>
               </TableCell>
               <TableCell className="text-center">
                 <span className="text-sm">
-                  {toArabicNumerals(doc.totalPages || 0, language)}
+                  {toArabicNumerals(isImageFile(doc.fileType, doc.filename) ? 1 : doc.totalPages || 0, language)}
                 </span>
               </TableCell>
               <TableCell className="text-center">
                 <span className="text-sm">
-                  {formatFileSize(doc.size || 0, language)}
+                  {formatFileSize(doc.fileSize ?? 0, language)}
                 </span>
               </TableCell>
               <TableCell>
@@ -405,7 +434,7 @@ export function DocumentList({
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <div>
-                                  <DropdownMenuItem 
+                                  <DropdownMenuItem
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       onDownload(doc.id);
@@ -433,8 +462,34 @@ export function DocumentList({
                           </DropdownMenuItem>
                         )
                       )}
-                      <DropdownMenuItem 
-                        className="text-destructive focus:text-destructive" 
+                      {/* Show cancel button for processing documents */}
+                      {doc.status === 'processing' && onCancel && (
+                        <DropdownMenuItem
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onCancel(doc.id);
+                          }}
+                        >
+                          <Pause className="h-4 w-4 mr-2" />
+                          {t('cancel', language) || 'Cancel'}
+                        </DropdownMenuItem>
+                      )}
+
+                      {/* Show retry button for error/failed documents */}
+                      {(doc.status === 'error' || doc.status === 'failed') && onRetry && (
+                        <DropdownMenuItem
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onRetry(doc.id);
+                          }}
+                        >
+                          <Clock className="h-4 w-4 mr-2" />
+                          {t('retry', language) || 'Retry'}
+                        </DropdownMenuItem>
+                      )}
+
+                      <DropdownMenuItem
+                        className="text-destructive focus:text-destructive"
                         onClick={(e) => {
                           e.stopPropagation();
                           onDelete(doc.id);
@@ -453,4 +508,4 @@ export function DocumentList({
       </Table>
     </div>
   )
-} 
+}

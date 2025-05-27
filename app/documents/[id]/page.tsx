@@ -8,9 +8,9 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useToast } from "@/hooks/use-toast"
-import { db } from "@/lib/indexed-db"
+import { db } from "@/lib/database"
 import type { ProcessingStatus, OCRResult } from "@/types"
-import { cn } from "@/lib/utils"
+import { cn, isImageFile } from "@/lib/utils"
 import {
   Tooltip,
   TooltipContent,
@@ -130,7 +130,7 @@ function FileNameDisplay({ filename }: { filename: string }) {
 
 function toArabicNumerals(num: number | string, language: Language): string {
   if (language !== 'ar' && language !== 'fa') return String(num)
-  
+
   const arabicNumerals = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩']
   return String(num).replace(/[0-9]/g, (d) => arabicNumerals[parseInt(d)])
 }
@@ -140,6 +140,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
   const { language } = useLanguage()
   const [docStatus, setDocStatus] = useState<ProcessingStatus | null>(null)
   const [results, setResults] = useState<OCRResult[]>([])
+  // Initialize currentPage to 1 to ensure we always start with the first page
   const [currentPage, setCurrentPage] = useState(1)
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -171,7 +172,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
   const getStatusDisplay = (status: string, currentPage?: number, totalPages?: number) => {
     switch (status) {
       case "processing":
-        return totalPages 
+        return totalPages
           ? tCount('processingPage', currentPage || 0, language)
           : t('processing', language)
       case "completed":
@@ -193,7 +194,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
 
     const container = imageContainerRef.current
     const image = imageRef.current
-    
+
     // Reset pan position when zooming to 100% or less
     if (newZoom <= 100) {
       setPanPosition({ x: 0, y: 0 })
@@ -230,6 +231,108 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
   const handleZoomOut = useCallback(() => {
     handleZoomChange(Math.max(zoomLevel - 25, 25))
   }, [handleZoomChange, zoomLevel])
+
+  // Function to refresh a signed URL using the storage path
+  const refreshSignedUrl = useCallback(async (result: OCRResult | undefined): Promise<string | undefined> => {
+    if (!result || !result.storagePath) return undefined;
+
+    try {
+      // Generate a new signed URL
+      const { supabase } = await import('@/lib/database/utils');
+      const { getUser } = await import('@/lib/auth');
+      const user = await getUser();
+      
+      if (!user) {
+        console.error('User not authenticated, cannot generate signed URL');
+        return undefined;
+      }
+      
+      // Add the user ID to the storage path to match how files are uploaded
+      const userPath = `${user.id}/${result.storagePath}`;
+      const { data, error } = await supabase.storage
+        .from('ocr-documents')
+        .createSignedUrl(userPath, 86400);
+
+      if (error || !data?.signedUrl) {
+        console.error(`Error generating signed URL for page ${result.pageNumber}:`, error);
+        return undefined;
+      }
+
+      // Update the result in our local state
+      setResults(prev => prev.map(r => {
+        if (r.id === result.id) {
+          return { ...r, imageUrl: data.signedUrl };
+        }
+        return r;
+      }));
+
+      return data.signedUrl;
+    } catch (error) {
+      console.error('Error refreshing signed URL:', error);
+      return undefined;
+    }
+  }, []);
+
+  // Function to ensure all results have valid signed URLs
+  const ensureSignedUrls = useCallback(async (results: OCRResult[]) => {
+    if (!results.length) return results;
+
+    const resultsWithUrls = [...results];
+    let hasUpdates = false;
+
+    // Get the current user
+    const { getUser } = await import('@/lib/auth');
+    const user = await getUser();
+
+    if (!user) {
+      console.error('User not authenticated, cannot generate signed URLs');
+      return results;
+    }
+
+    // Process all results in parallel for efficiency
+    const updatePromises = results.map(async (result, index) => {
+      // Skip results that don't have a storage path
+      if (!result.storagePath) return null;
+
+      // If the result already has a valid imageUrl that's not expired, skip it
+      if (result.imageUrl && result.imageUrl.startsWith('http')) {
+        try {
+          // Quick check if URL is valid by creating a HEAD request
+          const response = await fetch(result.imageUrl, { method: 'HEAD', cache: 'no-store' });
+          if (response.ok) return null; // URL is still valid
+        } catch {
+          // URL is invalid or expired, continue to refresh it
+        }
+      }
+
+      try {
+        // Generate a new signed URL with the user ID in the path
+        const { supabase } = await import('@/lib/database/utils');
+        const userPath = `${user.id}/${result.storagePath}`;
+        
+        const { data, error } = await supabase.storage
+          .from('ocr-documents')
+          .createSignedUrl(userPath, 86400);
+
+        if (error || !data?.signedUrl) {
+          console.error(`Error generating signed URL for page ${result.pageNumber}:`, error);
+          return null;
+        }
+
+        // Update the result with the new URL
+        resultsWithUrls[index] = { ...result, imageUrl: data.signedUrl };
+        hasUpdates = true;
+        return index; // Return the index that was updated
+      } catch (error) {
+        console.error(`Error refreshing signed URL for page ${result.pageNumber}:`, error);
+        return null;
+      }
+    });
+
+    await Promise.all(updatePromises);
+
+    return hasUpdates ? resultsWithUrls : results;
+  }, []);
 
   useEffect(() => {
     const loadDocument = async () => {
@@ -268,6 +371,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
           return
         }
 
+        // Get results from database
         const docResults = await db.getResults(params.id)
         if (!docResults || docResults.length === 0) {
           setError("No OCR results found for this document")
@@ -278,7 +382,34 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
           })
           return
         }
-        setResults(docResults.sort((a, b) => a.pageNumber - b.pageNumber))
+
+        // Sort results by page number
+        const sortedResults = docResults.sort((a, b) => a.pageNumber - b.pageNumber)
+
+        // Ensure all results have valid signed URLs before setting state
+        const resultsWithUrls = await ensureSignedUrls(sortedResults)
+
+        // Set results in state
+        setResults(resultsWithUrls)
+
+        // Set current page to first page to ensure consistent behavior
+        // This is important to ensure we're not starting at the last page
+        setCurrentPage(1)
+
+        // Preload images for the first few pages
+        if (resultsWithUrls.length > 0) {
+          const pagesToPreload = Math.min(3, resultsWithUrls.length)
+          for (let i = 0; i < pagesToPreload; i++) {
+            const result = resultsWithUrls[i]
+            if (result?.imageUrl) {
+              try {
+                await imageCache.preload(result.imageUrl)
+              } catch (error) {
+                console.error(`Failed to preload image for page ${i + 1}:`, error)
+              }
+            }
+          }
+        }
 
         clearTimeout(timeoutId)
       } catch (err) {
@@ -296,7 +427,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     }
 
     loadDocument()
-  }, [params.id, toast])
+  }, [params.id, toast, ensureSignedUrls])
 
   // Reset states when component mounts or refreshes
   useEffect(() => {
@@ -306,28 +437,56 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     setIsRetrying(false)
   }, [])
 
+
+
   // Preload image when URL changes
   useEffect(() => {
-    if (!currentResult?.imageUrl) return
+    if (!currentResult?.imageUrl) {
+      // If we have a result but no imageUrl, try to refresh it
+      if (currentResult && currentResult.storagePath) {
+        refreshSignedUrl(currentResult).catch(err => {
+          console.error('Error refreshing URL on page change:', err);
+        });
+      }
+      return;
+    }
 
-    const img = new Image()
+    // Check if image is already in cache
+    const cachedImage = imageCache.has(currentResult.imageUrl);
+    if (cachedImage) {
+      setImageLoaded(true);
+      setImageError(false);
+      setIsRetrying(false);
+      return;
+    }
+
+    const img = new Image();
     img.onload = () => {
-      setImageLoaded(true)
-      setImageError(false)
-      setIsRetrying(false)
-    }
+      setImageLoaded(true);
+      setImageError(false);
+      setIsRetrying(false);
+      // Add to cache
+      imageCache.set(currentResult.imageUrl!, img);
+    };
     img.onerror = () => {
-      setImageError(true)
-      setImageLoaded(false)
-      setIsRetrying(false)
-    }
-    img.src = currentResult.imageUrl
+      setImageError(true);
+      setImageLoaded(false);
+      setIsRetrying(false);
+
+      // If image fails to load, try to refresh the URL automatically
+      if (currentResult.storagePath) {
+        refreshSignedUrl(currentResult).catch(err => {
+          console.error('Error auto-refreshing URL after load error:', err);
+        });
+      }
+    };
+    img.src = currentResult.imageUrl;
 
     return () => {
-      img.onload = null
-      img.onerror = null
-    }
-  }, [currentResult?.imageUrl])
+      img.onload = null;
+      img.onerror = null;
+    };
+  }, [currentResult, refreshSignedUrl])
 
   // Reset states when page changes
   useEffect(() => {
@@ -374,44 +533,67 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     }
   }, [params.id])
 
-  // Handle image loading
-  const handleImageRetry = (imageUrl: string | undefined) => {
-    if (!imageUrl || isRetrying) return
-    
-    setIsRetrying(true)
-    setImageError(false)
-    setImageLoaded(false)
-    setRetryCount(prev => prev + 1)
 
-    // For base64 images, we can just retry loading directly
-    const img = new Image()
-    img.onload = () => {
-      setIsRetrying(false)
-      setImageLoaded(true)
-      setImageError(false)
-      toast({
-        title: "Success",
-        description: "Image loaded successfully.",
-      })
+
+  // Handle image loading
+  const handleImageRetry = async (result: OCRResult | undefined) => {
+    if (!result || isRetrying) return;
+
+    setIsRetrying(true);
+    setImageError(false);
+    setImageLoaded(false);
+    setRetryCount(prev => prev + 1);
+
+    // Try to refresh the signed URL if available
+    let imageUrl = result.imageUrl;
+    if (result.storagePath) {
+      const refreshedUrl = await refreshSignedUrl(result);
+      if (refreshedUrl) {
+        imageUrl = refreshedUrl;
+      }
     }
-    img.onerror = () => {
-      setIsRetrying(false)
-      setImageError(true)
-      setImageLoaded(false)
+
+    if (!imageUrl) {
+      setIsRetrying(false);
+      setImageError(true);
+      setImageLoaded(false);
       toast({
         variant: "destructive",
         title: "Failed to Load",
-        description: retryCount >= 2 
+        description: "Could not generate a valid URL for this image.",
+      });
+      return;
+    }
+
+    // Load the image with the new URL
+    const img = new Image();
+    img.onload = () => {
+      setIsRetrying(false);
+      setImageLoaded(true);
+      setImageError(false);
+      toast({
+        title: "Success",
+        description: "Image loaded successfully.",
+      });
+    };
+    img.onerror = () => {
+      setIsRetrying(false);
+      setImageError(true);
+      setImageLoaded(false);
+      toast({
+        variant: "destructive",
+        title: "Failed to Load",
+        description: retryCount >= 2
           ? "Multiple attempts failed. The image might be corrupted."
           : "Failed to load image. Please try again.",
-      })
-    }
-    img.src = imageUrl
+      });
+    };
+    img.src = imageUrl;
   }
 
   const handleCopyText = useCallback(async () => {
     if (!currentResult?.text || isCopying) return
-    
+
     try {
       setIsCopying(true)
       const copyTimeout = setTimeout(() => {
@@ -461,7 +643,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
       const timestamp = new Date().toLocaleString()
       const documentName = docStatus.filename || "document"
       const separator = "=".repeat(80)
-      
+
       const header = [
         separator,
         `Document: ${documentName}`,
@@ -495,7 +677,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
       clearTimeout(downloadTimeout)
-      
+
       toast({
         title: "Download Started",
         description: `Exporting all ${results.length} pages as a single text file with page separations.`,
@@ -524,15 +706,34 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     }
   }, [])
 
-  const handleImageError = useCallback(() => {
+  const handleImageError = useCallback(async () => {
     setImageError(true)
     setImageLoaded(false)
+
+    // If this is the first error, try to refresh the URL automatically
+    if (retryCount === 0 && currentResult?.storagePath) {
+      try {
+        setIsRetrying(true)
+        const refreshedUrl = await refreshSignedUrl(currentResult)
+        if (refreshedUrl) {
+          // The URL has been refreshed in the state, so the image will reload
+          setImageError(false)
+          setRetryCount(prev => prev + 1)
+          return
+        }
+      } catch (error) {
+        console.error('Error auto-refreshing image URL:', error)
+      } finally {
+        setIsRetrying(false)
+      }
+    }
+
     toast({
       variant: "destructive",
       title: "Image Load Error",
       description: "Failed to load image preview. You can still view the extracted text.",
     })
-  }, [toast])
+  }, [toast, retryCount, currentResult, refreshSignedUrl])
 
   const handleSearch = useCallback((query: string) => {
     setSearchQuery(query)
@@ -579,10 +780,10 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
   // Memoize complex calculations
   const zoomPresets = useMemo(() => {
     if (!imageRef.current) return [25, 50, 75, 100, 125, 150, 200]
-    
+
     const fitZoom = calculateFitZoom('auto')
     const roundedFitZoom = Math.round(fitZoom)
-    
+
     return [
       Math.max(25, Math.round(fitZoom * 0.5)), // Half fit
       roundedFitZoom, // Fit to screen
@@ -676,7 +877,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
   // Add drag handlers
   const handleMouseDown = (e: React.MouseEvent) => {
     if (zoomLevel <= 100) return // Only enable dragging when zoomed in
-    
+
     const container = containerRef.current
     if (!container) return
 
@@ -724,7 +925,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
   // Update pan handlers
   const handlePanStart = (e: React.MouseEvent) => {
     if (!imageContainerRef.current || zoomLevel <= 100) return
-    
+
     e.preventDefault()
     setIsPanning(true)
     lastMousePosition.current = { x: e.clientX, y: e.clientY }
@@ -812,7 +1013,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
             <Skeleton className="h-8 w-48" />
           ) : (
             <div className="flex items-center gap-2 min-w-0 flex-1">
-              {docStatus?.type?.startsWith('image/') ? (
+              {isImageFile(docStatus?.fileType, docStatus?.filename) ? (
                 <ImageIcon className="h-6 w-6 text-muted-foreground flex-shrink-0" />
               ) : (
                 <FileText className="h-6 w-6 text-muted-foreground flex-shrink-0" />
@@ -899,17 +1100,17 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     return (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button 
-            variant="ghost" 
-            size="sm" 
+          <Button
+            variant="ghost"
+            size="sm"
             className="h-9 px-3 gap-2 font-normal"
           >
             <Keyboard className="h-4 w-4" />
             <span className="text-sm hidden sm:inline-block">{t('shortcuts', language)}</span>
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent 
-          align="end" 
+        <DropdownMenuContent
+          align="end"
           className="w-[280px] p-3"
           sideOffset={8}
         >
@@ -932,7 +1133,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
                       <span className="text-muted-foreground">{shortcut.description}</span>
                       <div className="flex items-center gap-1">
                         {shortcut.key.split(" ").map((key, keyIdx) => (
-                          <kbd 
+                          <kbd
                             key={key}
                             className={cn(
                               "pointer-events-none inline-flex h-5 select-none items-center justify-center rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground",
@@ -973,8 +1174,8 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
             <AlertTitle>Error</AlertTitle>
             <AlertDescription>{error}</AlertDescription>
           </Alert>
-          <Button 
-            variant="outline" 
+          <Button
+            variant="outline"
             onClick={() => window.location.reload()}
             className="w-full sm:w-auto"
           >
@@ -1005,8 +1206,8 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
                 This document&apos;s processing was cancelled. You may want to try processing it again.
               </p>
               <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-                <Button 
-                  variant="outline" 
+                <Button
+                  variant="outline"
                   onClick={() => router.push('/documents')}
                   className="w-full sm:w-auto"
                 >
@@ -1123,7 +1324,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
             {renderTextSizeControl()}
             <KeyboardShortcuts />
 
-            <Button 
+            <Button
               variant="ghost"
               size="sm"
               onClick={handleCopyText}
@@ -1143,7 +1344,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
               )}
             </Button>
 
-            <Button 
+            <Button
               variant="ghost"
               size="sm"
               onClick={handleDownload}
@@ -1182,7 +1383,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     </div>
   )
 
-  const renderImageError = (imageUrl: string) => {
+  const renderImageError = () => {
     const maxRetries = 3
     const remainingRetries = maxRetries - retryCount
 
@@ -1196,7 +1397,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
             <div className="space-y-2">
               <h3 className="font-semibold">Failed to Load Preview</h3>
               <p className="text-sm text-muted-foreground">
-                {retryCount >= maxRetries 
+                {retryCount >= maxRetries
                   ? "Multiple attempts to load the image have failed. The file might be corrupted or temporarily unavailable."
                   : "The image preview couldn't be loaded. You can try again or continue with the extracted text."}
               </p>
@@ -1207,10 +1408,10 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
               )}
             </div>
             <div className="flex gap-2">
-              <Button 
+              <Button
                 variant={retryCount >= maxRetries ? "ghost" : "outline"}
                 size="sm"
-                onClick={() => handleImageRetry(imageUrl)}
+                onClick={() => handleImageRetry(currentResult)}
                 disabled={isRetrying || retryCount >= maxRetries}
                 className="relative min-w-[120px]"
               >
@@ -1265,7 +1466,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
       >
         <Minus className="h-4 w-4" />
       </Button>
-      
+
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
@@ -1312,6 +1513,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
   )
 
   const renderImageContent = () => {
+    // If we're still loading, show a loading skeleton
     if (isLoading) {
       return (
         <div className="w-full h-full flex items-center justify-center">
@@ -1321,6 +1523,33 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
               <div className="flex flex-col items-center gap-3">
                 <div className="h-5 w-5 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
                 <p className="text-sm text-muted-foreground animate-pulse">Loading document...</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )
+    }
+
+    // If we have a current result but no image URL, try to refresh it
+    if (currentResult && !currentResult.imageUrl && currentResult.storagePath && !isRetrying) {
+      // Attempt to refresh the URL
+      refreshSignedUrl(currentResult).catch(console.error);
+
+      return (
+        <div className="w-full h-full flex items-center justify-center">
+          <div className="relative w-full h-full">
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="flex flex-col items-center gap-3">
+                <div className="h-5 w-5 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+                <p className="text-sm text-muted-foreground">Generating preview...</p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => window.location.reload()}
+                  className="mt-2"
+                >
+                  Refresh Page
+                </Button>
               </div>
             </div>
           </div>
@@ -1350,8 +1579,8 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
                       Use the navigation controls above to view the processed pages.
                     </p>
                     <div className="flex flex-col gap-3 sm:flex-row items-center justify-center">
-                      <Button 
-                        variant="outline" 
+                      <Button
+                        variant="outline"
                         size="sm"
                         onClick={() => router.push('/documents')}
                         className="w-full sm:w-auto"
@@ -1368,8 +1597,8 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
                       You may want to try processing it again.
                     </p>
                     <div className="flex flex-col gap-3 sm:flex-row items-center justify-center">
-                      <Button 
-                        variant="outline" 
+                      <Button
+                        variant="outline"
                         size="sm"
                         onClick={() => router.push('/documents')}
                         className="w-full sm:w-auto"
@@ -1412,7 +1641,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     const showLoadingState = !imageLoaded && !cachedImage
 
     return (
-      <div 
+      <div
         ref={imageContainerRef}
         className={cn(
           "relative w-full h-full",
@@ -1466,7 +1695,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
               decoding="async"
             />
 
-            {imageError && renderImageError(currentResult.imageUrl)}
+            {imageError && renderImageError()}
           </div>
         </div>
       </div>
@@ -1477,7 +1706,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     <div className="flex flex-col h-screen">
       {renderToolbar()}
       {renderControls()}
-      
+
       <div className="flex-1 overflow-hidden bg-muted/5">
         <div className="container h-full py-4">
           <div className="grid grid-cols-2 gap-6 h-full">
@@ -1487,7 +1716,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
                 <h2 className="text-sm font-medium text-center">Source Document</h2>
               </div>
               <div className="flex-1 relative">
-                <div 
+                <div
                   ref={containerRef}
                   className="absolute inset-0"
                   onMouseDown={handleMouseDown}
@@ -1525,14 +1754,35 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
                       </div>
                     </div>
                   ) : currentResult ? (
-                    <div
-                      dir={currentResult.language === "ar" || currentResult.language === "fa" ? "rtl" : "ltr"}
-                      lang={currentResult.language}
-                      style={{ fontSize: `${textSize}px` }}
-                      className="max-w-none text-foreground/90 whitespace-pre-wrap leading-relaxed"
-                    >
-                      {currentResult.text}
-                    </div>
+                    currentResult.text ? (
+                      <div
+                        dir={currentResult.language === "ar" || currentResult.language === "fa" ? "rtl" : "ltr"}
+                        lang={currentResult.language}
+                        style={{ fontSize: `${textSize}px` }}
+                        className="max-w-none text-foreground/90 whitespace-pre-wrap leading-relaxed"
+                      >
+                        {currentResult.text}
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center h-full min-h-[200px] gap-3">
+                        <p className="text-muted-foreground">Text data is still loading...</p>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            // Force refresh the current result
+                            if (currentResult.storagePath) {
+                              refreshSignedUrl(currentResult).catch(console.error);
+                            } else {
+                              // If no storage path, try a full page refresh
+                              window.location.reload();
+                            }
+                          }}
+                        >
+                          Refresh Data
+                        </Button>
+                      </div>
+                    )
                   ) : (
                     <div className="flex items-center justify-center h-full min-h-[200px] text-muted-foreground">
                       No text extracted for this page
@@ -1549,8 +1799,8 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2">
           <div className="bg-background/95 backdrop-blur-sm supports-[backdrop-filter]:bg-background/60 shadow-lg rounded-full border px-3 py-1.5 flex items-center gap-3">
             <div className="relative group">
-              <Progress 
-                value={(currentPage / results.length) * 100} 
+              <Progress
+                value={(currentPage / results.length) * 100}
                 className="w-48 h-1.5 cursor-pointer relative z-10"
                 onClick={(e) => {
                   const newPage = calculatePageFromPosition(e.clientX, e.currentTarget)
@@ -1564,7 +1814,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
                     const tooltipWidth = tooltip.getBoundingClientRect().width
                     const maxOffset = e.currentTarget.offsetWidth - tooltipWidth
                     const offset = Math.max(0, Math.min(percentage * e.currentTarget.offsetWidth - tooltipWidth / 2, maxOffset))
-                    
+
                     // Update tooltip content and position
                     const pageSpan = tooltip.querySelector('[data-page]')
                     if (pageSpan) {

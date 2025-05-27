@@ -4,6 +4,7 @@ export interface OCRSettings {
   apiKey: string
   region?: string
   language?: string
+  useSystemKey?: boolean // Flag to indicate whether to use the system API key
 }
 
 export interface ProcessingSettings {
@@ -12,6 +13,7 @@ export interface ProcessingSettings {
   concurrentChunks: number
   retryAttempts: number
   retryDelay: number
+  pagesPerBatch?: number
 }
 
 export interface UploadSettings {
@@ -60,4 +62,4 @@ export interface SettingsState {
   updateDatabaseSettings: (settings: Partial<DatabaseSettings>) => void
   updateExportSettings: (settings: Partial<ExportSettings>) => void
   resetSettings: () => void
-} 
+}

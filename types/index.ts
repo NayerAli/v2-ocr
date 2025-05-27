@@ -14,9 +14,11 @@ export interface OCRResult {
   processingTime: number
   pageNumber: number
   totalPages?: number
-  imageUrl?: string
+  storagePath?: string
+  imageUrl?: string // URL to the image in storage (signed URL)
   boundingBox?: BoundingBox
   error?: string
+  user_id?: string
   rateLimitInfo?: {
     isRateLimited: boolean
     retryAfter: number
@@ -27,21 +29,24 @@ export interface OCRResult {
 export interface ProcessingStatus {
   id: string
   filename: string
+  originalFilename?: string
   status: 'pending' | 'processing' | 'completed' | 'failed' | 'queued' | 'error' | 'cancelled'
   progress?: number
   error?: string
   file?: File
-  size?: number
-  type?: string
+  fileSize?: number // Changed from size to match DB schema
+  fileType?: string // Changed from type to match DB schema
+  storagePath?: string
+  thumbnailPath?: string
   currentPage?: number
   totalPages?: number
-  startTime?: number
-  endTime?: number
-  completionTime?: number
+  processingStartedAt?: Date // Changed from startTime
+  processingCompletedAt?: Date // Changed from endTime
   metadata?: Record<string, any>
   results?: OCRResult[]
   createdAt: Date
   updatedAt: Date
+  user_id?: string
   rateLimitInfo?: {
     isRateLimited: boolean
     retryAfter: number
@@ -54,5 +59,6 @@ export interface OCRSettings {
   provider: 'google' | 'microsoft' | 'mistral'
   region?: string
   language?: string
+  useSystemKey?: boolean
 }
 

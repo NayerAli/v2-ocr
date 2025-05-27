@@ -1,4 +1,5 @@
-import type { OCRResult, OCRSettings } from "@/types";
+// We need OCRSettings for the provider implementations
+import type { OCRResult } from "@/types";
 
 export interface OCRProvider {
   processImage(base64Data: string, signal: AbortSignal, fileType?: string, pageNumber?: number, totalPages?: number): Promise<OCRResult>;
@@ -42,4 +43,4 @@ export interface MistralOCRResponse {
     pages_processed: number;
     doc_size_bytes: number | null;
   };
-} 
+}

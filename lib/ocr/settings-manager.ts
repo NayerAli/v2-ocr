@@ -1,4 +1,5 @@
 import type { OCRSettings, ProcessingSettings, UploadSettings } from "@/types/settings";
+import { userSettingsService } from "@/lib/user-settings-service";
 
 interface ServiceSettings {
   ocr: OCRSettings;
@@ -57,7 +58,12 @@ export function updateOCRSettings(settings: Partial<OCRSettings>): void {
       ...settings,
     },
   };
-  
+
+  // Also update user settings in the database
+  userSettingsService.updateOCRSettings(settings).catch(error => {
+    console.error('[SettingsManager] Failed to update user OCR settings:', error);
+  });
+
   notifyListeners();
 }
 
@@ -72,7 +78,12 @@ export function updateProcessingSettings(settings: Partial<ProcessingSettings>):
       ...settings,
     },
   };
-  
+
+  // Also update user settings in the database
+  userSettingsService.updateProcessingSettings(settings).catch(error => {
+    console.error('[SettingsManager] Failed to update user processing settings:', error);
+  });
+
   notifyListeners();
 }
 
@@ -87,7 +98,12 @@ export function updateUploadSettings(settings: Partial<UploadSettings>): void {
       ...settings,
     },
   };
-  
+
+  // Also update user settings in the database
+  userSettingsService.updateUploadSettings(settings).catch(error => {
+    console.error('[SettingsManager] Failed to update user upload settings:', error);
+  });
+
   notifyListeners();
 }
 
@@ -100,7 +116,16 @@ export function resetSettings(): void {
     processing: DEFAULT_PROCESSING_SETTINGS,
     upload: DEFAULT_UPLOAD_SETTINGS,
   };
-  
+
+  // Also reset user settings in the database
+  Promise.all([
+    userSettingsService.updateOCRSettings(DEFAULT_OCR_SETTINGS),
+    userSettingsService.updateProcessingSettings(DEFAULT_PROCESSING_SETTINGS),
+    userSettingsService.updateUploadSettings(DEFAULT_UPLOAD_SETTINGS)
+  ]).catch(error => {
+    console.error('[SettingsManager] Failed to reset user settings:', error);
+  });
+
   notifyListeners();
 }
 
@@ -109,7 +134,7 @@ export function resetSettings(): void {
  */
 export function subscribeToSettingsChanges(listener: SettingsChangeListener): () => void {
   listeners.add(listener);
-  
+
   // Return unsubscribe function
   return () => {
     listeners.delete(listener);
@@ -117,24 +142,48 @@ export function subscribeToSettingsChanges(listener: SettingsChangeListener): ()
 }
 
 /**
- * Load settings from localStorage if available
+ * Load settings from user settings service and fall back to localStorage
  */
-export function loadSettings(): void {
-  if (typeof window === 'undefined') return;
-  
+export async function loadSettings(): Promise<void> {
   try {
-    const savedSettings = localStorage.getItem('ocr-settings');
-    if (savedSettings) {
-      const parsed = JSON.parse(savedSettings) as Partial<ServiceSettings>;
-      
-      currentSettings = {
-        ocr: { ...DEFAULT_OCR_SETTINGS, ...parsed.ocr },
-        processing: { ...DEFAULT_PROCESSING_SETTINGS, ...parsed.processing },
-        upload: { ...DEFAULT_UPLOAD_SETTINGS, ...parsed.upload },
-      };
-    }
+    // Try to load from user settings service first
+    const ocrSettings = await userSettingsService.getOCRSettings();
+    const processingSettings = await userSettingsService.getProcessingSettings();
+    const uploadSettings = await userSettingsService.getUploadSettings();
+
+    // Update current settings with user settings
+    currentSettings = {
+      ocr: { ...DEFAULT_OCR_SETTINGS, ...ocrSettings },
+      processing: { ...DEFAULT_PROCESSING_SETTINGS, ...processingSettings },
+      upload: { ...DEFAULT_UPLOAD_SETTINGS, ...uploadSettings },
+    };
+
+    // Notify listeners of the updated settings
+    notifyListeners();
+
+    console.log('[SettingsManager] Loaded settings from user settings service');
   } catch (error) {
-    console.error('[SettingsManager] Failed to load settings:', error);
+    console.error('[SettingsManager] Failed to load from user settings service:', error);
+
+    // Fall back to localStorage
+    if (typeof window === 'undefined') return;
+
+    try {
+      const savedSettings = localStorage.getItem('ocr-settings');
+      if (savedSettings) {
+        const parsed = JSON.parse(savedSettings) as Partial<ServiceSettings>;
+
+        currentSettings = {
+          ocr: { ...DEFAULT_OCR_SETTINGS, ...parsed.ocr },
+          processing: { ...DEFAULT_PROCESSING_SETTINGS, ...parsed.processing },
+          upload: { ...DEFAULT_UPLOAD_SETTINGS, ...parsed.upload },
+        };
+
+        console.log('[SettingsManager] Loaded settings from localStorage');
+      }
+    } catch (localStorageError) {
+      console.error('[SettingsManager] Failed to load settings from localStorage:', localStorageError);
+    }
   }
 }
 
@@ -143,7 +192,7 @@ export function loadSettings(): void {
  */
 export function saveSettings(): void {
   if (typeof window === 'undefined') return;
-  
+
   try {
     localStorage.setItem('ocr-settings', JSON.stringify(currentSettings));
   } catch (error) {
@@ -161,7 +210,7 @@ function notifyListeners(): void {
       console.error('[SettingsManager] Error in settings change listener:', error);
     }
   });
-  
+
   // Save settings to localStorage
   saveSettings();
-} 
+}
