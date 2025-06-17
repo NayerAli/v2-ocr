@@ -1,3 +1,5 @@
+"use client"
+
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { Language } from '@/lib/i18n/translations'
