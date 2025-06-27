@@ -100,6 +100,15 @@ export default function DashboardPage() {
   useEffect(() => {
     if (isInitialized) {
       initializePDFJS()
+      
+      // Load worker test utility in development
+      if (process.env.NODE_ENV === 'development') {
+        import('@/lib/workers/pdf-renderer-test').then(() => {
+          debugLog('[DEBUG] PDF worker test utility loaded. Use testPdfWorkerInBackground() in console to test.');
+        }).catch(err => {
+          debugLog('[DEBUG] Failed to load worker test utility:', err);
+        });
+      }
     }
   }, [isInitialized])
 
