@@ -1,45 +1,26 @@
-# syntax=docker/dockerfile:1
-ARG NODE_IMAGE=node:20-alpine
+# Use an official Ubuntu as a parent image
+FROM ubuntu:latest
 
-# Base image with development tools for background agents
-FROM ${NODE_IMAGE}
-
-# Install development dependencies and tools
-RUN apk add --no-cache \
-    git \
-    curl \
-    wget \
-    vim \
-    nano \
-    bash \
-    && npm install -g npm@latest
-
-# Create user and set up home directory
-RUN addgroup -g 1000 ubuntu && \
-    adduser -D -s /bin/bash -u 1000 -G ubuntu ubuntu
-
-# Set working directory to user's home
+# Set the working directory to /home/ubuntu
 WORKDIR /home/ubuntu
 
-# Switch to non-root user
+# Create a non-root user
+RUN useradd -ms /bin/bash ubuntu
+
+# Set the user to ubuntu
 USER ubuntu
 
-# Set environment variables
-ENV NODE_ENV=development
-ENV PATH="/home/ubuntu/.npm-global/bin:$PATH"
+# Install any necessary packages
+RUN apt-get update && apt-get install -y \
+    curl \
+    git \
+    # Add other necessary packages here
 
-# Create npm global directory for user
-RUN mkdir -p /home/ubuntu/.npm-global && \
-    npm config set prefix '/home/ubuntu/.npm-global'
+# Define environment variables
+ENV AGENT_ENV production
 
-# Install global development tools
-RUN npm install -g \
-    typescript \
-    @types/node \
-    ts-node \
-    nodemon \
-    eslint \
-    prettier
+# Expose any necessary ports (if applicable)
+# EXPOSE 8080
 
-# Default command (can be overridden)
-CMD ["/bin/bash"]
+# Command to run the background agent
+CMD ["echo", "Background agent environment is set up!"]

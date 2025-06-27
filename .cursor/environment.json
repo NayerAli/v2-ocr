@@ -1,6 +1,5 @@
 {
-  "build": {
-    "context": ".",
-    "dockerfile": "Dockerfile"
-  }
+  "snapshot": "snapshot-20250627-cd1dfdd4-dc71-442b-9467-22fc590ed9a9",
+  "start": "apt-get update && apt-get install -y",
+  "terminals": []
 }
