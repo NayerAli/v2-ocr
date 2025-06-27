@@ -14,6 +14,11 @@ export interface PdfRenderer {
 class PdfRendererWorkerClient implements PdfRenderer {
   private worker: Worker | null = null;
   private readonly pending = new Map<string, { resolve: (b64: string) => void; reject: (err: Error) => void }>();
+  // Placeholder inline script (unused now) – kept to satisfy config options
+  // In case the dedicated worker cannot be imported, you can populate this
+  // string with a self-contained worker script that imports the local PDF.js
+  // bundle via importScripts.
+  private readonly inlineWorkerScript = "";
 
   constructor() {
     // Ensure we are in a browser context
@@ -26,7 +31,7 @@ class PdfRendererWorkerClient implements PdfRenderer {
       this.worker = new Worker(new URL('./pdf-renderer.worker.ts', import.meta.url), { type: 'module' });
     } catch (err) {
       console.error('[PDF Worker Client] Failed to instantiate PDF renderer worker:', err);
-      this.worker = null; // force fallback to in-thread rendering
+      this.worker = null;
       return;
     }
 
