@@ -49,39 +49,69 @@ export async function loadPDF(file: File) {
 export async function renderPageToBase64(page: PDFPageProxy) {
   // Higher scale for better quality
   const scale = 1.5
-  
+
   // Get viewport
   const viewport = page.getViewport({ scale })
-  
-  // Create canvas
-  const canvas = document.createElement('canvas')
-  canvas.width = viewport.width
-  canvas.height = viewport.height
-  
-  // Get canvas context
-  const context = canvas.getContext('2d')
-  
+
+  // Prefer OffscreenCanvas when available because it keeps rendering even when
+  // the tab is in the background and does not depend on the DOM or display
+  // painting. This avoids the throttling applied by browsers to hidden tabs
+  // and is the root cause of the "processing stops when the tab is inactive" bug.
+  const useOffscreen = typeof OffscreenCanvas !== 'undefined'
+
+  // Dynamically create the canvas
+  const canvas: HTMLCanvasElement | OffscreenCanvas = useOffscreen
+    ? new OffscreenCanvas(viewport.width, viewport.height)
+    // Fallback to a regular canvas for browsers that do not yet support
+    // OffscreenCanvas
+    : ((): HTMLCanvasElement => {
+        const c = document.createElement('canvas')
+        c.width = viewport.width
+        c.height = viewport.height
+        return c
+      })()
+
+  const context = canvas.getContext('2d') as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null
+
   if (!context) {
-    throw new Error("Could not get canvas context")
+    throw new Error('Could not get canvas context')
   }
-  
+
   // Prepare rendering context
   const renderContext = {
-    canvasContext: context,
-    viewport
+    canvasContext: context as unknown as CanvasRenderingContext2D,
+    viewport,
   }
-  
-  // Render the page
+
+  // Render the page – this returns a promise that resolves when rendering is
+  // complete, even in background tabs when OffscreenCanvas is used.
   await page.render(renderContext).promise
-  
-  // Get base64
-  try {
-    const base64 = canvas.toDataURL('image/jpeg', 0.8).split(',')[1]
-    return base64
-  } catch (error) {
-    console.error("Error converting canvas to base64:", error)
-    throw error
+
+  // Convert canvas to base64-encoded JPEG. The implementation differs slightly
+  // depending on the canvas type in use.
+  let base64: string
+
+  if (useOffscreen) {
+    const blob = await (canvas as OffscreenCanvas).convertToBlob({ type: 'image/jpeg', quality: 0.8 })
+    base64 = await blobToBase64(blob)
+  } else {
+    base64 = (canvas as HTMLCanvasElement).toDataURL('image/jpeg', 0.8).split(',')[1]
   }
+
+  return base64
+}
+
+// Helper: convert a Blob to a base64 string (without the data: prefix)
+async function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onloadend = () => {
+      const dataUrl = reader.result as string
+      resolve(dataUrl.split(',')[1])
+    }
+    reader.onerror = () => reject(new Error('Failed to convert blob to base64'))
+    reader.readAsDataURL(blob)
+  })
 }
 
 export async function createPDFThumbnail(file: File) {
