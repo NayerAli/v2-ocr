@@ -7,6 +7,7 @@ const nextConfig = {
       test: /supabase-docker\/volumes\/functions/,
       loader: 'ignore-loader',
     });
+
     return config;
   },
 };

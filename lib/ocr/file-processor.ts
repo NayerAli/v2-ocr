@@ -401,6 +401,7 @@ export class FileProcessor {
         }
       } catch (workerError) {
         // Fallback to in-thread rendering if worker fails for any reason
+        infoLog(`[Process] Worker failed for page ${pageNum}, falling back to in-thread rendering:`, workerError);
         page = await pdf.getPage(pageNum);
         base64Data = await renderPageToBase64(page);
       }

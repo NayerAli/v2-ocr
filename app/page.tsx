@@ -199,6 +199,66 @@ export default function DashboardPage() {
     }
   }, [isInitialized, user, isAuthLoading])
 
+  // Handle visibility changes and page lifecycle to ensure processing continues
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (process.env.NODE_ENV === 'development') {
+        debugLog('[DEBUG] Visibility changed:', document.hidden ? 'hidden' : 'visible');
+      }
+      
+      // When tab becomes visible again, refresh the queue status
+      if (!document.hidden && processingServiceRef.current) {
+        // Force a queue status update when returning to the tab
+        setTimeout(() => {
+          // Trigger a loadQueue call by updating a dummy state
+          setIsLoadingData((prev: boolean) => prev);
+        }, 100);
+      }
+    };
+
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      // Check if there are any processing items
+      const processingItems = processingQueue.filter((item: ProcessingStatus) => item.status === 'processing');
+      if (processingItems.length > 0) {
+        // Show browser confirmation dialog
+        e.preventDefault();
+        e.returnValue = 'Documents are still being processed. Are you sure you want to leave?';
+        return e.returnValue;
+      }
+    };
+
+    const handlePageHide = () => {
+      if (process.env.NODE_ENV === 'development') {
+        debugLog('[DEBUG] Page hidden - processing should continue in background');
+      }
+    };
+
+    const handlePageShow = () => {
+      if (process.env.NODE_ENV === 'development') {
+        debugLog('[DEBUG] Page shown - refreshing queue status');
+      }
+      // Refresh queue when page becomes visible
+      if (processingServiceRef.current) {
+        setTimeout(() => {
+          setIsLoadingData((prev: boolean) => prev);
+        }, 100);
+      }
+    };
+
+    // Add event listeners
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener('pagehide', handlePageHide);
+    window.addEventListener('pageshow', handlePageShow);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('pagehide', handlePageHide);
+      window.removeEventListener('pageshow', handlePageShow);
+    };
+  }, [processingQueue]);
+
   const handleFilesAccepted = async (files: File[]) => {
     if (process.env.NODE_ENV === 'development') {
       debugLog('[DEBUG] handleFilesAccepted called with', files.length, 'files');
@@ -230,7 +290,7 @@ export default function DashboardPage() {
         debugLog('[DEBUG] Valid items:', validItems.length);
       }
 
-      setProcessingQueue((prev) => {
+      setProcessingQueue((prev: ProcessingStatus[]) => {
         if (process.env.NODE_ENV === 'development') {
           debugLog('[DEBUG] Previous queue length:', prev.length);
         }
@@ -278,7 +338,7 @@ export default function DashboardPage() {
       }
 
       // Remove from active queue but keep in recent documents
-      setProcessingQueue(prev => prev.map(item =>
+      setProcessingQueue((prev: ProcessingStatus[]) => prev.map(item =>
         item.id === id
           ? { ...item, status: "cancelled" }
           : item
@@ -313,7 +373,7 @@ export default function DashboardPage() {
       await processingServiceRef.current.cancelProcessing(id)
 
       // Update the queue item status
-      setProcessingQueue(prev => prev.map(item =>
+      setProcessingQueue((prev: ProcessingStatus[]) => prev.map(item =>
         item.id === id
           ? { ...item, status: "cancelled" }
           : item
@@ -359,7 +419,7 @@ export default function DashboardPage() {
       }
 
       // Update the document status in the UI
-      setProcessingQueue(prev => prev.map(d =>
+      setProcessingQueue((prev: ProcessingStatus[]) => prev.map(d =>
         d.id === id ? { ...d, status: 'queued', error: undefined } : d
       ));
 
