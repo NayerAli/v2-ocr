@@ -27,6 +27,7 @@ class PdfRendererWorkerClient implements PdfRenderer {
       
       // Disable nested worker to avoid cross-origin fetch issues inside a blob worker
       pdfjsLib.disableWorker = true;
+      pdfjsLib.GlobalWorkerOptions.workerSrc = '';
       
       self.onmessage = async (event) => {
         const { id, pdfData, pageNumber, scale = 1.5 } = event.data;
