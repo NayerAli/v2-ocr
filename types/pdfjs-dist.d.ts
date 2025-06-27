@@ -14,6 +14,12 @@ declare module "pdfjs-dist" {
     workerSrc: string;
   };
 
+  /**
+   * When true, PDF.js will not attempt to spawn its own worker thread.
+   * We toggle this inside our dedicated worker to prevent nested workers.
+   */
+  export let disableWorker: boolean;
+
   /** A single page inside a loaded PDF document. */
   export interface PDFPageProxy {
     getViewport(params: { scale: number }): { width: number; height: number };
@@ -52,6 +58,7 @@ declare module "pdfjs-dist" {
     disableStream?: boolean;
     disableAutoFetch?: boolean;
     isEvalSupported?: boolean;
+    disableWorker?: boolean;
   }): { promise: Promise<PDFDocumentProxy> };
 }
 

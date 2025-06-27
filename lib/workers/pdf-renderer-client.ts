@@ -66,11 +66,11 @@ class PdfRendererWorkerClient implements PdfRenderer {
       throw new Error('PdfRendererWorkerClient can only be used in the browser');
     }
 
-    // Prefer dedicated worker module (bundled locally) for reliability.
+    console.log('[PDF Worker Client] Creating dedicated worker …')
     try {
       this.worker = new Worker(new URL('./pdf-renderer.worker.ts', import.meta.url), { type: 'module' });
     } catch {
-      // Fallback to inline blob worker (legacy)
+      console.warn('[PDF Worker Client] Dedicated worker creation failed. Falling back to inline worker.')
       const blob = new Blob([this.inlineWorkerScript], { type: 'application/javascript' });
       this.worker = new Worker(URL.createObjectURL(blob), { type: 'module' });
     }
@@ -119,12 +119,14 @@ class PdfRendererWorkerClient implements PdfRenderer {
       clearInterval(timer);
       this.worker.terminate();
     });
+
+    console.log('[PDF Worker Client] Worker created and heart-beat started');
   }
 
   private recreateWorker() {
     this.worker.terminate();
     // Reject all pending promises
-    this.pending.forEach(({ reject }, id) => reject(new Error('Worker restarted')));
+    this.pending.forEach(({ reject }) => reject(new Error('Worker restarted')));
     this.pending.clear();
 
     // Recreate worker (inline fallback not needed inside method)
