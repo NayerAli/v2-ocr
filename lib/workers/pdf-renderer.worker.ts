@@ -3,11 +3,14 @@
   Uses the local pdfjs-dist bundle bundled by Next.js (no remote fetch).
 */
 
-import * as pdfjsLib from 'pdfjs-dist/build/pdf'
+import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf'
 
-// No nested workers – pass { disableWorker: true } to getDocument
-// Prevent any attempt to fetch an external worker script
-pdfjsLib.GlobalWorkerOptions.workerSrc = ''
+// Ensure PDF.js does not try to spin its own worker
+// (we are already inside a dedicated worker)
+// Prevent external worker script fetches as well
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+(pdfjsLib as any).disableWorker = true;
+pdfjsLib.GlobalWorkerOptions.workerSrc = '';
 
 // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
 const ctx = self as unknown as DedicatedWorkerGlobalScope
