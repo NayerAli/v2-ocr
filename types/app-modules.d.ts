@@ -219,7 +219,7 @@ declare module '@/hooks/use-toast' {
 }
 
 declare module '@/lib/utils' {
-  export function cn(...classes: (string | undefined | boolean)[]): string;
+  export function cn(...classes: Array<string | Record<string, boolean> | undefined | null | false>): string;
   export function isImageFile(fileType: string, filename?: string): boolean;
 }
 
@@ -263,12 +263,12 @@ declare module '@/lib/pdf-init' {
 }
 
 declare module '@/hooks/use-language' {
-  export type Language = 'en' | 'fr' | 'ar';
+  export type Language = 'en' | 'fr' | 'ar' | 'fa';
   export function useLanguage(): { language: Language };
 }
 
 declare module '@/lib/i18n/translations' {
-  export type Language = 'en' | 'fr' | 'ar';
+  export type Language = 'en' | 'fr' | 'ar' | 'fa';
   
   export function t(key: string, language: Language): string;
   export function tCount(key: string, count: number, language: Language): string;
@@ -390,6 +390,8 @@ declare module 'lucide-react' {
   export const SortDesc: ComponentType<SVGProps<SVGSVGElement> & { className?: string }>;
   export const Calendar: ComponentType<SVGProps<SVGSVGElement> & { className?: string }>;
   export const ChevronLeft: ComponentType<SVGProps<SVGSVGElement> & { className?: string }>;
+  export const MoreVertical: ComponentType<SVGProps<SVGSVGElement> & { className?: string }>;
+  export const Pause: ComponentType<SVGProps<SVGSVGElement> & { className?: string }>;
 }
 
 // Next.js modules

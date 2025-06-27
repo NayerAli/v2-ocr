@@ -25,14 +25,14 @@ class PdfRendererWorkerClient implements PdfRenderer {
     const workerScript = `
       import * as pdfjsLib from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/+esm';
       
-      // Configure PDF.js worker
-      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/build/pdf.worker.min.js';
+      // Disable nested worker to avoid cross-origin fetch issues inside a blob worker
+      pdfjsLib.disableWorker = true;
       
       self.onmessage = async (event) => {
         const { id, pdfData, pageNumber, scale = 1.5 } = event.data;
         
         try {
-          const pdf = await pdfjsLib.getDocument({ data: pdfData }).promise;
+          const pdf = await pdfjsLib.getDocument({ data: pdfData, disableWorker: true }).promise;
           
           if (pageNumber < 1 || pageNumber > pdf.numPages) {
             throw new Error(\`Invalid page number \${pageNumber}. Document has \${pdf.numPages} pages.\`);
