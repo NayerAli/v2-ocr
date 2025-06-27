@@ -54,3 +54,7 @@ declare module "pdfjs-dist" {
     isEvalSupported?: boolean;
   }): { promise: Promise<PDFDocumentProxy> };
 }
+
+declare module "pdfjs-dist/legacy/build/pdf" {
+  export * from "pdfjs-dist";
+}

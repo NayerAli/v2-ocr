@@ -12,8 +12,53 @@ export interface PdfRenderer {
 }
 
 class PdfRendererWorkerClient implements PdfRenderer {
-  private readonly worker: Worker;
+  private worker: Worker;
   private readonly pending = new Map<string, { resolve: (b64: string) => void; reject: (err: Error) => void }>();
+  private inlineWorkerScript = `
+    import * as pdfjsLib from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/+esm';
+    
+    // Disable nested worker to avoid cross-origin fetch issues inside a blob worker
+    pdfjsLib.disableWorker = true;
+    pdfjsLib.GlobalWorkerOptions.workerSrc = '';
+    
+    self.onmessage = async (event) => {
+      const { id, pdfData, pageNumber, scale = 1.5 } = event.data;
+      
+      try {
+        const pdf = await pdfjsLib.getDocument({ data: pdfData, disableWorker: true }).promise;
+        
+        if (pageNumber < 1 || pageNumber > pdf.numPages) {
+          throw new Error(\`Invalid page number \${pageNumber}. Document has \${pdf.numPages} pages.\`);
+        }
+        
+        const page = await pdf.getPage(pageNumber);
+        const viewport = page.getViewport({ scale });
+        const canvas = new OffscreenCanvas(viewport.width, viewport.height);
+        const context = canvas.getContext('2d');
+        
+        if (!context) throw new Error('Failed to obtain OffscreenCanvas 2D context');
+        
+        await page.render({ canvasContext: context, viewport }).promise;
+        
+        const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.8 });
+        const reader = new FileReader();
+        
+        reader.onloadend = () => {
+          const dataUrl = reader.result;
+          const base64 = dataUrl.split(',')[1];
+          self.postMessage({ id, base64 });
+        };
+        
+        reader.onerror = () => {
+          self.postMessage({ id, error: 'Failed to convert blob to base64' });
+        };
+        
+        reader.readAsDataURL(blob);
+      } catch (error) {
+        self.postMessage({ id, error: error instanceof Error ? error.message : String(error) });
+      }
+    };
+  `;
 
   constructor() {
     // Ensure we are in a browser context
@@ -21,57 +66,34 @@ class PdfRendererWorkerClient implements PdfRenderer {
       throw new Error('PdfRendererWorkerClient can only be used in the browser');
     }
 
-    // Use a simpler approach for Next.js compatibility
-    const workerScript = `
-      import * as pdfjsLib from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/+esm';
-      
-      // Disable nested worker to avoid cross-origin fetch issues inside a blob worker
-      pdfjsLib.disableWorker = true;
-      pdfjsLib.GlobalWorkerOptions.workerSrc = '';
-      
-      self.onmessage = async (event) => {
-        const { id, pdfData, pageNumber, scale = 1.5 } = event.data;
-        
-        try {
-          const pdf = await pdfjsLib.getDocument({ data: pdfData, disableWorker: true }).promise;
-          
-          if (pageNumber < 1 || pageNumber > pdf.numPages) {
-            throw new Error(\`Invalid page number \${pageNumber}. Document has \${pdf.numPages} pages.\`);
-          }
-          
-          const page = await pdf.getPage(pageNumber);
-          const viewport = page.getViewport({ scale });
-          const canvas = new OffscreenCanvas(viewport.width, viewport.height);
-          const context = canvas.getContext('2d');
-          
-          if (!context) throw new Error('Failed to obtain OffscreenCanvas 2D context');
-          
-          await page.render({ canvasContext: context, viewport }).promise;
-          
-          const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.8 });
-          const reader = new FileReader();
-          
-          reader.onloadend = () => {
-            const dataUrl = reader.result;
-            const base64 = dataUrl.split(',')[1];
-            self.postMessage({ id, base64 });
-          };
-          
-          reader.onerror = () => {
-            self.postMessage({ id, error: 'Failed to convert blob to base64' });
-          };
-          
-          reader.readAsDataURL(blob);
-        } catch (error) {
-          self.postMessage({ id, error: error instanceof Error ? error.message : String(error) });
-        }
-      };
-    `;
+    // Prefer dedicated worker module (bundled locally) for reliability.
+    try {
+      this.worker = new Worker(new URL('./pdf-renderer.worker.ts', import.meta.url), { type: 'module' });
+    } catch {
+      // Fallback to inline blob worker (legacy)
+      const blob = new Blob([this.inlineWorkerScript], { type: 'application/javascript' });
+      this.worker = new Worker(URL.createObjectURL(blob), { type: 'module' });
+    }
 
-    const blob = new Blob([workerScript], { type: 'application/javascript' });
-    this.worker = new Worker(URL.createObjectURL(blob), { type: 'module' });
+    // Heart-beat monitoring – verify worker remains responsive when tab is hidden.
+    let lastPong = Date.now();
+    const pingInterval = 10_000;
+    const monitor = () => {
+      if (Date.now() - lastPong > pingInterval * 2) {
+        console.warn('[PDF Worker] heartbeat lost – recreating worker');
+        this.recreateWorker();
+      }
+      this.worker.postMessage({ type: 'ping' });
+    };
+    const timer = setInterval(monitor, pingInterval);
 
     this.worker.onmessage = (e: MessageEvent) => {
+      // Heart-beat pong
+      if (e.data && e.data.type === 'pong') {
+        lastPong = Date.now();
+        return;
+      }
+
       const { id, base64, error } = e.data as {
         id: string;
         base64?: string;
@@ -91,6 +113,27 @@ class PdfRendererWorkerClient implements PdfRenderer {
     this.worker.onerror = (e) => {
       console.error('[PDF Worker] Error:', e.message);
     };
+
+    // Cleanup when page unloads
+    window.addEventListener('pagehide', () => {
+      clearInterval(timer);
+      this.worker.terminate();
+    });
+  }
+
+  private recreateWorker() {
+    this.worker.terminate();
+    // Reject all pending promises
+    this.pending.forEach(({ reject }, id) => reject(new Error('Worker restarted')));
+    this.pending.clear();
+
+    // Recreate worker (inline fallback not needed inside method)
+    try {
+      this.worker = new Worker(new URL('./pdf-renderer.worker.ts', import.meta.url), { type: 'module' });
+    } catch {
+      const blob = new Blob([this.inlineWorkerScript], { type: 'application/javascript' });
+      this.worker = new Worker(URL.createObjectURL(blob), { type: 'module' });
+    }
   }
 
   renderPageToBase64(
