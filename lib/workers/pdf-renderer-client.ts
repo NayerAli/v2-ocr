@@ -67,12 +67,17 @@ class PdfRendererWorkerClient implements PdfRenderer {
     }
 
     console.log('[PDF Worker Client] Creating dedicated worker …')
+    let created = false;
     try {
       this.worker = new Worker(new URL('./pdf-renderer.worker.ts', import.meta.url), { type: 'module' });
-    } catch {
-      console.warn('[PDF Worker Client] Dedicated worker creation failed. Falling back to inline worker.')
-      const blob = new Blob([this.inlineWorkerScript], { type: 'application/javascript' });
-      this.worker = new Worker(URL.createObjectURL(blob), { type: 'module' });
+      created = true;
+    } catch (err) {
+      console.error('[PDF Worker Client] Dedicated worker creation failed:', err);
+      // Fall back to main-thread rendering (worker == null). We leave `this.worker` undefined
+    }
+
+    if (!created) {
+      throw new Error('Unable to create PDF renderer worker – falling back to in-thread rendering');
     }
 
     // Heart-beat monitoring – verify worker remains responsive when tab is hidden.
