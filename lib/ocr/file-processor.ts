@@ -385,8 +385,26 @@ export class FileProcessor {
 
     try {
       infoLog(`[Process] Starting to process page ${pageNum} of ${status.filename}`);
-      const page = await pdf.getPage(pageNum);
-      const base64Data = await renderPageToBase64(page);
+      let base64Data: string;
+      let page: import('pdfjs-dist').PDFPageProxy | undefined;
+
+      // Attempt to offload rendering to the PDF worker if it is available and running in the browser.
+      try {
+        const { pdfRenderer } = await import('@/lib/workers/pdf-renderer-client');
+
+        if (pdfRenderer && typeof window !== 'undefined') {
+          const pdfArrayBuffer = await (status.file!).arrayBuffer();
+          base64Data = await pdfRenderer.renderPageToBase64(pdfArrayBuffer, pageNum);
+        } else {
+          page = await pdf.getPage(pageNum);
+          base64Data = await renderPageToBase64(page);
+        }
+      } catch (workerError) {
+        // Fallback to in-thread rendering if worker fails for any reason
+        page = await pdf.getPage(pageNum);
+        base64Data = await renderPageToBase64(page);
+      }
+
       if (signal.aborted) throw new Error("Processing aborted");
       infoLog(`[Process] Processing page ${pageNum} of ${status.filename}`);
       status.currentPage = pageNum;
@@ -455,12 +473,8 @@ export class FileProcessor {
       }
 
       // Clean up page resources
-      try {
-        if (page && typeof page.cleanup === 'function') {
-          page.cleanup();
-        }
-      } catch {
-        // Ignore cleanup errors
+      if (page && typeof page.cleanup === 'function') {
+        page.cleanup();
       }
 
       infoLog(`[Process] Completed page ${pageNum}`);
