@@ -25,3 +25,12 @@ export function isImageFile(fileType?: string, filename?: string): boolean {
 
   return false
 }
+
+/**
+ * Remove the extension from a filename.
+ * Example: "file.pdf" -> "file"
+ */
+export function removeFileExtension(filename: string): string {
+  // Trim any whitespace then strip the last extension
+  return filename.trim().replace(/\.[^./]+$/, '')
+}
