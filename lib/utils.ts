@@ -31,6 +31,23 @@ export function isImageFile(fileType?: string, filename?: string): boolean {
  * Example: "file.pdf" -> "file"
  */
 export function removeFileExtension(filename: string): string {
-  // Trim any whitespace then strip the last extension
-  return filename.trim().replace(/\.[^./]+$/, '')
+  // Trim any whitespace
+  const trimmed = filename.trim()
+  
+  // If the filename is empty after trimming, return a default name
+  if (!trimmed) {
+    return 'document'
+  }
+  
+  // If the filename starts with a dot and has no other dots (e.g., ".pdf", ".txt"),
+  // it's a dot-file and we should keep the entire name as the base
+  if (trimmed.startsWith('.') && trimmed.indexOf('.', 1) === -1) {
+    return trimmed
+  }
+  
+  // Otherwise, remove the last extension (including trailing dots)
+  const result = trimmed.replace(/\.[^./]*$/, '')
+  
+  // If removing the extension results in an empty string, return the original
+  return result || trimmed
 }
