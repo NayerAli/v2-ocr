@@ -84,7 +84,8 @@ export function FileUpload({
     accept: {
       'application/pdf': ['.pdf'],
       'image/jpeg': ['.jpg', '.jpeg'],
-      'image/png': ['.png']
+      'image/png': ['.png'],
+      'image/webp': ['.webp']
     },
     onDragEnter: () => onDragStateChange?.(true),
     onDragLeave: () => onDragStateChange?.(false),

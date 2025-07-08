@@ -36,7 +36,7 @@ const DEFAULT_PROCESSING_SETTINGS: ProcessingSettings = {
 
 const DEFAULT_UPLOAD_SETTINGS: UploadSettings = {
   maxFileSize: 500,
-  allowedFileTypes: ['.pdf', '.jpg', '.jpeg', '.png'],
+  allowedFileTypes: ['.pdf', '.jpg', '.jpeg', '.png', '.webp'],
   maxSimultaneousUploads: 5
 }
 

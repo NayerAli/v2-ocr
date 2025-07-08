@@ -96,11 +96,11 @@ export class FileProcessor {
       throw new Error("No valid OCR provider available");
     }
 
-    // For images
+    // For images (including JPEG, PNG, WEBP)
     if (status.file.type.startsWith("image/")) {
       const base64 = await this.fileToBase64(status.file);
       if (signal.aborted) throw new Error("Processing aborted");
-      infoLog(`[Process] Processing image: ${status.filename}`);
+      infoLog(`[Process] Processing image: ${status.filename} (${status.file.type})`);
       const user = await getUser();
       if (!user) throw new Error("User not authenticated");
 
@@ -532,6 +532,8 @@ export class FileProcessor {
         return '.jpg';
       case 'image/png':
         return '.png';
+      case 'image/webp':
+        return '.webp';
       case 'image/gif':
         return '.gif';
       default:

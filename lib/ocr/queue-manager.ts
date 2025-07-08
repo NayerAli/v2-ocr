@@ -352,6 +352,12 @@ export class QueueManager {
       return;
     }
 
+    // Check if the document is actually in a processing state before cancelling
+    if (status.status !== "processing" && status.status !== "queued") {
+      infoLog(`[DEBUG] Document ${id} is not in processing or queued state (current: ${status.status}), cannot cancel`);
+      return;
+    }
+
     // Abort processing if in progress
     const controller = this.abortControllers.get(id);
     if (controller) {
@@ -370,9 +376,10 @@ export class QueueManager {
       "Processing cancelled by user"
     );
 
-    // Update additional fields
+    // Update additional fields for cancelled jobs
     updatedStatus.progress = Math.min(updatedStatus.progress || 0, 100);
-    updatedStatus.processingCompletedAt = new Date();
+    // DO NOT set processingCompletedAt for cancelled jobs - this field is only for successful completion
+    updatedStatus.processingCompletedAt = undefined;
 
     // Clear any rate limit info if present
     if (updatedStatus.rateLimitInfo) {
@@ -469,10 +476,28 @@ export class QueueManager {
   }
 
   private isFileValid(file: File): boolean {
+    // Check file size
     if (file.size > this.uploadSettings.maxFileSize * 1024 * 1024) return false;
-    return this.uploadSettings.allowedFileTypes.some(type =>
+    
+    // Check file extension
+    const hasValidExtension = this.uploadSettings.allowedFileTypes.some(type =>
       file.name.toLowerCase().endsWith(type.toLowerCase())
     );
+    
+    // Also check MIME type for additional validation
+    const validMimeTypes = [
+      'application/pdf',
+      'image/jpeg',
+      'image/jpg', 
+      'image/png',
+      'image/webp'
+    ];
+    
+    const hasValidMimeType = validMimeTypes.includes(file.type.toLowerCase());
+    
+    // File is valid if it has either a valid extension OR a valid MIME type
+    // This provides better compatibility across different browsers and file sources
+    return hasValidExtension || hasValidMimeType;
   }
 
   // This method is kept for reference but not used directly anymore

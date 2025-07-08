@@ -20,7 +20,7 @@ const defaultSettings: Omit<SettingsState, 'updateOCRSettings' | 'updateProcessi
   },
   upload: {
     maxFileSize: 500,
-    allowedFileTypes: ['.pdf', '.jpg', '.jpeg', '.png'],
+    allowedFileTypes: ['.pdf', '.jpg', '.jpeg', '.png', '.webp'],
     maxSimultaneousUploads: 5
   },
   display: {
