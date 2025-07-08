@@ -27,27 +27,22 @@ export function isImageFile(fileType?: string, filename?: string): boolean {
 }
 
 /**
- * Remove the extension from a filename.
- * Example: "file.pdf" -> "file"
+ * Remove the extension from a filename and sanitize it for downloads.
+ * Example: "file.pdf" -> "file", "file.tar.gz" -> "file_tar_gz"
  */
 export function removeFileExtension(filename: string): string {
   // Trim any whitespace
   const trimmed = filename.trim()
   
-  // If the filename is empty after trimming, return a default name
+  // If the filename is empty after trimming, return a timestamped export name
   if (!trimmed) {
-    return 'document'
+    const now = new Date()
+    const day = String(now.getDate()).padStart(2, '0')
+    const month = String(now.getMonth() + 1).padStart(2, '0')
+    const year = now.getFullYear()
+    return `Export_${day}-${month}-${year}`
   }
   
-  // If the filename starts with a dot and has no other dots (e.g., ".pdf", ".txt"),
-  // it's a dot-file and we should keep the entire name as the base
-  if (trimmed.startsWith('.') && trimmed.indexOf('.', 1) === -1) {
-    return trimmed
-  }
-  
-  // Otherwise, remove the last extension (including trailing dots)
-  const result = trimmed.replace(/\.[^./]*$/, '')
-  
-  // If removing the extension results in an empty string, return the original
-  return result || trimmed
+  // Replace all dots with underscores to avoid multiple extension issues
+  return trimmed.replace(/\./g, '_')
 }
