@@ -2,7 +2,6 @@ import { Inter } from "next/font/google"
 import { IBM_Plex_Sans_Arabic } from "next/font/google"
 import { ThemeProvider } from "@/components/theme-provider"
 import { AuthProvider } from "@/components/auth/auth-provider"
-import { ProcessingWorkerProvider } from "@/components/processing-worker-provider"
 import { Toaster } from "@/components/ui/toaster"
 import { Header } from "./components/header"
 import "./globals.css"
@@ -25,19 +24,17 @@ export default function RootLayout({
       <body className={`${inter.className} ${ibmPlexSansArabic.variable} min-h-screen bg-background antialiased`}>
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
           <AuthProvider>
-            <ProcessingWorkerProvider>
-              <div className="relative flex min-h-screen flex-col">
-                <Header />
-                <div className="flex-1 pt-14">
-                  <main className="relative py-8">
-                    <div className="container max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                      {children}
-                    </div>
-                  </main>
-                </div>
+            <div className="relative flex min-h-screen flex-col">
+              <Header />
+              <div className="flex-1 pt-14">
+                <main className="relative py-8">
+                  <div className="container max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                    {children}
+                  </div>
+                </main>
               </div>
-              <Toaster />
-            </ProcessingWorkerProvider>
+            </div>
+            <Toaster />
           </AuthProvider>
         </ThemeProvider>
       </body>

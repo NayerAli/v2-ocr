@@ -15,7 +15,6 @@ import { useToast } from "@/hooks/use-toast"
 import { cn } from "@/lib/utils"
 import { db } from "@/lib/database"
 import { formatFileSize } from "@/lib/file-utils"
-import { useProcessingWorker } from "@/components/processing-worker-provider"
 import { initializePDFJS } from "@/lib/pdf-init"
 import { DocumentDetailsDialog } from "./components/document-details-dialog"
 import { DocumentList } from "./components/document-list"
@@ -24,7 +23,6 @@ import { useLanguage } from "@/hooks/use-language"
 import { t, tCount, translationKeys, type Language } from "@/lib/i18n/translations"
 import { useAuth } from "@/components/auth/auth-provider"
 import Link from "next/link"
-import { retryDocument } from "@/lib/tests/document-status-validation"
 
 interface DashboardStats {
   totalProcessed: number
@@ -59,7 +57,6 @@ export default function DashboardPage() {
   const [selectedDocument, setSelectedDocument] = useState<ProcessingStatus | null>(null)
   const [isDetailsOpen, setIsDetailsOpen] = useState(false)
 
-  const { worker, isReady: isWorkerReady } = useProcessingWorker()
 
   // Initialize PDF.js only after settings are loaded
   useEffect(() => {
@@ -169,8 +166,10 @@ export default function DashboardPage() {
       debugLog('[DEBUG] handleFilesAccepted called with', files.length, 'files');
     }
     try {
-      if (!worker || !isWorkerReady) throw new Error('Worker not initialized');
-      worker.postMessage({ type: 'addFiles', files });
+      const formData = new FormData();
+      files.forEach(file => formData.append('files', file));
+      const res = await fetch('/api/queue/add', { method: 'POST', body: formData });
+      if (!res.ok) throw new Error('Failed to upload files');
       const newItems = await db.getQueue();
       if (process.env.NODE_ENV === 'development') {
         debugLog('[DEBUG] Queue items after add:', newItems.length);
@@ -200,22 +199,19 @@ export default function DashboardPage() {
 
   const handleRemoveFromQueue = async (id: string) => {
     try {
-      if (!worker || !isWorkerReady) throw new Error('Worker not initialized');
-
       const status = processingQueue.find(item => item.id === id)
       if (!status) return
 
-      // If the file is processing, cancel it first
+      // If the file is processing, cancel it first on the server
       if (status.status === "processing") {
-        worker.postMessage({ type: 'cancel', id })
+        await fetch(`/api/queue/${id}/cancel`, { method: 'POST' })
       }
 
-      // Remove from active queue but keep in recent documents
-      setProcessingQueue(prev => prev.map(item =>
-        item.id === id
-          ? { ...item, status: "cancelled" }
-          : item
-      ))
+      // Remove from queue via API
+      await fetch(`/api/queue/${id}/delete`, { method: 'DELETE' })
+
+      const updated = await db.getQueue()
+      setProcessingQueue(updated)
 
       toast({
         title: "File Removed",
@@ -238,15 +234,11 @@ export default function DashboardPage() {
 
   const handleCancel = async (id: string) => {
     try {
-      if (!worker || !isWorkerReady) throw new Error('Worker not initialized');
-      worker.postMessage({ type: 'cancel', id })
+      await fetch(`/api/queue/${id}/cancel`, { method: 'POST' })
 
       // Update the queue item status
-      setProcessingQueue(prev => prev.map(item =>
-        item.id === id
-          ? { ...item, status: "cancelled" }
-          : item
-      ))
+      const updated = await db.getQueue()
+      setProcessingQueue(updated)
 
       toast({
         title: "Processing Cancelled",
@@ -272,13 +264,8 @@ export default function DashboardPage() {
         return;
       }
 
-      // Use our centralized retry function
-      console.log('[DEBUG] Using centralized retry function');
-      // Retry the document
-      const updatedDoc = await retryDocument(id);
-
-      if (!updatedDoc) {
-        console.error('[DEBUG] Failed to retry document: Document not found in queue');
+      const res = await fetch(`/api/queue/${id}/retry`, { method: 'POST' });
+      if (!res.ok) {
         toast({
           title: t('error', language) || 'Error',
           description: 'Failed to retry document processing',
@@ -287,10 +274,8 @@ export default function DashboardPage() {
         return;
       }
 
-      // Update the document status in the UI
-      setProcessingQueue(prev => prev.map(d =>
-        d.id === id ? { ...d, status: 'queued', error: undefined } : d
-      ));
+      const updated = await db.getQueue();
+      setProcessingQueue(updated);
 
       toast({
         title: 'Document Retried',
@@ -408,34 +393,18 @@ export default function DashboardPage() {
                     onFilesAccepted={handleFilesAccepted}
                     processingQueue={processingQueue}
                 onPause={async () => {
-                  if (!worker || !isWorkerReady) {
-                    toast({
-                      title: t('error', language),
-                      description: 'Worker not initialized',
-                      variant: 'destructive',
-                    });
-                    return;
-                  }
-                  worker.postMessage({ type: 'pause' })
+                  await fetch('/api/queue/pause', { method: 'POST' });
                   toast({
                     title: t('processingCancelled', language),
                     description: t('processingCancelledDesc', language),
-                  })
+                  });
                 }}
                 onResume={async () => {
-                  if (!worker || !isWorkerReady) {
-                    toast({
-                      title: t('error', language),
-                      description: 'Worker not initialized',
-                      variant: 'destructive',
-                    });
-                    return;
-                  }
-                  worker.postMessage({ type: 'resume' })
+                  await fetch('/api/queue/resume', { method: 'POST' });
                   toast({
                     title: t('processingCancelled', language),
                     description: t('processingCancelledDesc', language),
-                  })
+                  });
                 }}
                 onRemove={handleRemoveFromQueue}
                 onCancel={handleCancel}

@@ -304,6 +304,14 @@ export async function getProcessingService(settings: ServiceSettings) {
     },
 
     /**
+     * Access the underlying queue manager (server-side usage)
+     */
+    getQueueManager: () => {
+      if (!serviceState) throw new Error('Service not initialized');
+      return serviceState.queueManager;
+    },
+
+    /**
      * Update service settings
      */
     updateSettings: async (newSettings: ServiceSettings): Promise<void> => {

@@ -84,7 +84,22 @@ export class FileProcessor {
     // Load the latest settings before processing
     await this.loadSettings();
 
-    if (!status.file) throw new Error("No file to process");
+    if (!status.file) {
+      if (status.storagePath && status.fileType && status.filename) {
+        const downloaded = await this.downloadFileFromStorage(
+          status.storagePath,
+          status.filename,
+          status.fileType
+        );
+        if (downloaded) {
+          status.file = downloaded;
+        } else {
+          throw new Error("No file to process");
+        }
+      } else {
+        throw new Error("No file to process");
+      }
+    }
 
     // Use infoLog instead of console.log
     const { infoLog } = await import('@/lib/log');
@@ -576,6 +591,43 @@ export class FileProcessor {
       const { infoLog } = await import('@/lib/log');
       infoLog('[Process] Exception in generateSignedUrl:', error);
       return '';
+    }
+  }
+
+  /**
+   * Download a file from Supabase storage when processing on the server
+   */
+  private async downloadFileFromStorage(
+    storagePath: string,
+    filename: string,
+    mimeType: string
+  ): Promise<File | null> {
+    try {
+      const supabase = getSupabaseClient();
+      const user = await getUser();
+      if (!user) return null;
+
+      const userIdPrefix = `${user.id}/`;
+      const normalizedPath = storagePath.startsWith(userIdPrefix)
+        ? storagePath
+        : `${userIdPrefix}${storagePath}`;
+
+      const { data, error } = await supabase.storage
+        .from(STORAGE_CONFIG.storageBucket)
+        .download(normalizedPath);
+
+      if (error || !data) {
+        const { infoLog } = await import('@/lib/log');
+        infoLog('[Process] Error downloading file from storage:', error);
+        return null;
+      }
+
+      const blob = data as Blob;
+      return new File([blob], filename, { type: mimeType });
+    } catch (err) {
+      const { infoLog } = await import('@/lib/log');
+      infoLog('[Process] Exception downloading file:', err);
+      return null;
     }
   }
 }

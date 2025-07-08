@@ -130,7 +130,7 @@ MIT
 
 * **Drag‑and‑drop uploads** with live progress
 * **Robust queue** (concurrency, pause/resume, persisted via Supabase)
-* **Background processing** with a **Web Worker** so jobs continue even when the tab is inactive
+* **Background processing** handled completely server-side so jobs continue even when the tab is closed
 * **Multi‑provider OCR**: Google, Azure, Mistral – easily extensible
 * **Advanced viewer**: zoom, pan, fit‑to‑screen, RTL support, mobile friendly
 * **Batch & parallel processing** configurable
@@ -171,7 +171,11 @@ cp .env.example .env.local
 
 # 5. Start dev server
 npm run dev   # or pnpm dev
+# 6. Start background worker to process jobs server-side
+npm run worker
 ```
+
+Uploads are sent to `/api/queue/add` where they are queued and processed by the server worker.
 
 Visit [http://localhost:3000](http://localhost:3000).
 
