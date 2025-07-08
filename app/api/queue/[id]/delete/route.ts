@@ -11,11 +11,11 @@ import { getDefaultSettings } from '@/lib/default-settings'
  */
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     // Get the document ID from the URL
-    const id = params.id
+    const { id } = await params
     if (!id) {
       return NextResponse.json(
         { error: 'Document ID is required' },

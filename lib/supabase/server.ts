@@ -6,7 +6,7 @@ import type { Database } from '@/types/supabase'
  * Creates a Supabase client for server components using the latest SSR approach
  */
 export async function createClient() {
-  const cookieStore = cookies()
+  const cookieStore = await cookies()
   
   // Custom fetch handler for network errors
   const customFetch = (url: RequestInfo | URL, init?: RequestInit) => {

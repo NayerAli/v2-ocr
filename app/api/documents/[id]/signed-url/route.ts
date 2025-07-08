@@ -8,9 +8,10 @@ import { logApiRequestToConsole } from '@/lib/server-console-logger'
  */
 export async function GET(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  logApiRequestToConsole(req, 'GET', req.url, { id: params.id })
+  const { id } = await params
+  logApiRequestToConsole(req, 'GET', req.url, { id })
 
   // TESTING: bypass auth for signed-url via x-api-key header
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -36,7 +37,7 @@ export async function GET(
   }
 
   // Fetch document; if bypassing, skip user_id constraint
-  let query = serviceClient.from('documents').select('storage_path').eq('id', params.id)
+  let query = serviceClient.from('documents').select('storage_path').eq('id', id)
   if (!bypassAuth && user) {
     query = query.eq('user_id', user.id)
   } else if (!bypassAuth) {

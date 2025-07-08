@@ -135,7 +135,7 @@ function toArabicNumerals(num: number | string, language: Language): string {
   return String(num).replace(/[0-9]/g, (d) => arabicNumerals[parseInt(d)])
 }
 
-export default function DocumentPage({ params }: { params: { id: string } }) {
+function DocumentPageContent({ id }: { id: string }) {
   const { toast } = useToast()
   const { language } = useLanguage()
   const [docStatus, setDocStatus] = useState<ProcessingStatus | null>(null)
@@ -353,7 +353,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
         }, LOADING_TIMEOUT)
 
         const queue = await db.getQueue()
-        const doc = queue.find((item) => item.id === params.id)
+        const doc = queue.find((item) => item.id === id)
         if (!doc) {
           setError("Document not found in the processing queue")
           toast({
@@ -372,7 +372,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
         }
 
         // Get results from database
-        const docResults = await db.getResults(params.id)
+        const docResults = await db.getResults(id)
         if (!docResults || docResults.length === 0) {
           setError("No OCR results found for this document")
           toast({
@@ -427,7 +427,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     }
 
     loadDocument()
-  }, [params.id, toast, ensureSignedUrls])
+  }, [id, toast, ensureSignedUrls])
 
   // Reset states when component mounts or refreshes
   useEffect(() => {
@@ -531,7 +531,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     return () => {
       imageCache.clear()
     }
-  }, [params.id])
+  }, [id])
 
 
 
@@ -1847,5 +1847,32 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
       )}
     </div>
   )
+}
+
+export default function DocumentPage({ params }: { params: Promise<{ id: string }> }) {
+  const [resolvedParams, setResolvedParams] = useState<{ id: string } | null>(null)
+
+  // Resolve params promise
+  useEffect(() => {
+    params.then(setResolvedParams)
+  }, [params])
+
+  // Wait for params to be resolved
+  if (!resolvedParams) {
+    return (
+      <div className="container mx-auto p-6 max-w-full">
+        <div className="flex items-center gap-4 mb-6">
+          <Skeleton className="h-10 w-24" />
+          <Skeleton className="h-8 w-64" />
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[calc(100vh-200px)]">
+          <Skeleton className="w-full h-full" />
+          <Skeleton className="w-full h-full" />
+        </div>
+      </div>
+    )
+  }
+
+  return <DocumentPageContent id={resolvedParams.id} />
 }
 
