@@ -16,6 +16,7 @@ Pensé pour des cas d’usage tels que la numérisation d’archives, le traitem
 
 * **Glisser‑déposer des fichiers** avec suivi de progression en temps réel
 * **Gestion robuste de file d’attente** (Supabase) : traitement concurrent, pause/reprise, reprise après coupure
+* **Traitement en arrière‑plan** grâce à un **Web Worker** : la file continue même si l’onglet est inactif
 * **Support multi‑fournisseurs OCR** : Google, Azure, Mistral – extensible
 * **Visionneuse de documents avancée** : zoom, panoramique, ajustement, support RTL, mobile friendly
 * **Traitement par lots et en parallèle** configurable
@@ -129,6 +130,7 @@ MIT
 
 * **Drag‑and‑drop uploads** with live progress
 * **Robust queue** (concurrency, pause/resume, persisted via Supabase)
+* **Background processing** with a **Web Worker** so jobs continue even when the tab is inactive
 * **Multi‑provider OCR**: Google, Azure, Mistral – easily extensible
 * **Advanced viewer**: zoom, pan, fit‑to‑screen, RTL support, mobile friendly
 * **Batch & parallel processing** configurable

@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect, useRef } from "react"
+import React, { useState, useEffect } from "react"
 import { debugLog, debugError } from "@/lib/log"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -9,14 +9,13 @@ import { FileText, Upload, CheckCircle, AlertCircle, ArrowRight, Clock, LogIn } 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { FileUpload } from "./components/file-upload"
 import type { ProcessingStatus } from "@/types"
-import type { OCRSettings, ProcessingSettings, UploadSettings } from "@/types/settings"
 import { useSettings } from "@/store/settings"
 import { useSettingsInit } from "@/hooks/use-settings-init"
 import { useToast } from "@/hooks/use-toast"
 import { cn } from "@/lib/utils"
 import { db } from "@/lib/database"
-import { getProcessingService } from "@/lib/processing-service"
 import { formatFileSize } from "@/lib/file-utils"
+import { useProcessingWorker } from "@/components/processing-worker-provider"
 import { initializePDFJS } from "@/lib/pdf-init"
 import { DocumentDetailsDialog } from "./components/document-details-dialog"
 import { DocumentList } from "./components/document-list"
@@ -60,41 +59,7 @@ export default function DashboardPage() {
   const [selectedDocument, setSelectedDocument] = useState<ProcessingStatus | null>(null)
   const [isDetailsOpen, setIsDetailsOpen] = useState(false)
 
-  // Reference to hold the processing service
-  interface ProcessingService {
-    addToQueue: (files: File[]) => Promise<string[]>;
-    getStatus: (id: string) => Promise<ProcessingStatus | undefined>;
-    cancelProcessing: (id: string) => Promise<void>;
-    pauseQueue: () => Promise<void>;
-    resumeQueue: () => Promise<void>;
-    updateSettings: (settings: { ocr: OCRSettings; processing: ProcessingSettings; upload: UploadSettings }) => Promise<void>;
-    retryDocument: (id: string) => Promise<ProcessingStatus | null>;
-  }
-
-  const processingServiceRef = useRef<ProcessingService | null>(null)
-
-  // Initialize processing service
-  useEffect(() => {
-    const initProcessingService = async () => {
-      debugLog('[DEBUG] Creating processing service with settings:');
-      debugLog('[DEBUG] OCR settings:', settings.ocr);
-      debugLog('[DEBUG] Processing settings:', settings.processing);
-      debugLog('[DEBUG] Upload settings:', settings.upload);
-
-      const service = await getProcessingService({
-        ocr: settings.ocr,
-        processing: settings.processing,
-        upload: settings.upload
-      });
-
-      processingServiceRef.current = service;
-      debugLog('[DEBUG] Processing service initialized');
-    };
-
-    initProcessingService().catch(err => {
-      debugError('[DEBUG] Error initializing processing service:', err);
-    });
-  }, [settings.ocr, settings.processing, settings.upload])
+  const { worker, isReady: isWorkerReady } = useProcessingWorker()
 
   // Initialize PDF.js only after settings are loaded
   useEffect(() => {
@@ -204,42 +169,13 @@ export default function DashboardPage() {
       debugLog('[DEBUG] handleFilesAccepted called with', files.length, 'files');
     }
     try {
-      // Check if processing service is initialized
-      if (!processingServiceRef.current) {
-        throw new Error('Processing service not initialized');
-      }
-
+      if (!worker || !isWorkerReady) throw new Error('Worker not initialized');
+      worker.postMessage({ type: 'addFiles', files });
+      const newItems = await db.getQueue();
       if (process.env.NODE_ENV === 'development') {
-        debugLog('[DEBUG] Calling processingService.addToQueue');
+        debugLog('[DEBUG] Queue items after add:', newItems.length);
       }
-      const ids = await processingServiceRef.current.addToQueue(files)
-      if (process.env.NODE_ENV === 'development') {
-        debugLog('[DEBUG] processingService.addToQueue returned IDs:', ids);
-      }
-
-      if (process.env.NODE_ENV === 'development') {
-        debugLog('[DEBUG] Getting status for each file');
-      }
-      const newItems = await Promise.all(ids.map((id) => processingServiceRef.current!.getStatus(id)))
-      if (process.env.NODE_ENV === 'development') {
-        debugLog('[DEBUG] Got status for files:', newItems.length);
-      }
-
-      const validItems = newItems.filter((item): item is ProcessingStatus => !!item);
-      if (process.env.NODE_ENV === 'development') {
-        debugLog('[DEBUG] Valid items:', validItems.length);
-      }
-
-      setProcessingQueue((prev) => {
-        if (process.env.NODE_ENV === 'development') {
-          debugLog('[DEBUG] Previous queue length:', prev.length);
-        }
-        const newQueue = [...prev, ...validItems];
-        if (process.env.NODE_ENV === 'development') {
-          debugLog('[DEBUG] New queue length:', newQueue.length);
-        }
-        return newQueue;
-      })
+      setProcessingQueue(newItems)
 
       const message = tCount('filesAddedDesc', files.length, language).replace(/\d+/g, num =>
         toArabicNumerals(num, language)
@@ -264,17 +200,14 @@ export default function DashboardPage() {
 
   const handleRemoveFromQueue = async (id: string) => {
     try {
-      // Check if processing service is initialized
-      if (!processingServiceRef.current) {
-        throw new Error('Processing service not initialized');
-      }
+      if (!worker || !isWorkerReady) throw new Error('Worker not initialized');
 
       const status = processingQueue.find(item => item.id === id)
       if (!status) return
 
       // If the file is processing, cancel it first
       if (status.status === "processing") {
-        await processingServiceRef.current.cancelProcessing(id)
+        worker.postMessage({ type: 'cancel', id })
       }
 
       // Remove from active queue but keep in recent documents
@@ -305,12 +238,8 @@ export default function DashboardPage() {
 
   const handleCancel = async (id: string) => {
     try {
-      // Check if processing service is initialized
-      if (!processingServiceRef.current) {
-        throw new Error('Processing service not initialized');
-      }
-
-      await processingServiceRef.current.cancelProcessing(id)
+      if (!worker || !isWorkerReady) throw new Error('Worker not initialized');
+      worker.postMessage({ type: 'cancel', id })
 
       // Update the queue item status
       setProcessingQueue(prev => prev.map(item =>
@@ -479,30 +408,30 @@ export default function DashboardPage() {
                     onFilesAccepted={handleFilesAccepted}
                     processingQueue={processingQueue}
                 onPause={async () => {
-                  if (!processingServiceRef.current) {
+                  if (!worker || !isWorkerReady) {
                     toast({
                       title: t('error', language),
-                      description: 'Processing service not initialized',
+                      description: 'Worker not initialized',
                       variant: 'destructive',
                     });
                     return;
                   }
-                  await processingServiceRef.current.pauseQueue()
+                  worker.postMessage({ type: 'pause' })
                   toast({
                     title: t('processingCancelled', language),
                     description: t('processingCancelledDesc', language),
                   })
                 }}
                 onResume={async () => {
-                  if (!processingServiceRef.current) {
+                  if (!worker || !isWorkerReady) {
                     toast({
                       title: t('error', language),
-                      description: 'Processing service not initialized',
+                      description: 'Worker not initialized',
                       variant: 'destructive',
                     });
                     return;
                   }
-                  await processingServiceRef.current.resumeQueue()
+                  worker.postMessage({ type: 'resume' })
                   toast({
                     title: t('processingCancelled', language),
                     description: t('processingCancelledDesc', language),
