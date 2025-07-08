@@ -10,7 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { useToast } from "@/hooks/use-toast"
 import { db } from "@/lib/database"
 import type { ProcessingStatus, OCRResult } from "@/types"
-import { cn, isImageFile } from "@/lib/utils"
+import { cn, isImageFile, removeFileExtension } from "@/lib/utils"
 import {
   Tooltip,
   TooltipContent,
@@ -642,6 +642,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
       // Create a formatted text with proper separations and metadata
       const timestamp = new Date().toLocaleString()
       const documentName = docStatus.filename || "document"
+      const baseName = removeFileExtension(documentName)
       const separator = "=".repeat(80)
 
       const header = [
@@ -671,7 +672,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
       const url = URL.createObjectURL(blob)
       const a = document.createElement("a")
       a.href = url
-      a.download = `${documentName}-extracted-text.txt`
+      a.download = `${baseName}.txt`
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
