@@ -6,61 +6,50 @@ import { getDefaultSettings } from '@/lib/default-settings'
 
 /**
  * POST /api/queue/:id/cancel
- * Cancel processing for a document
+ * Cancel processing for a document owned by the current user.
  */
 export async function POST(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
-    // Get the document ID from the URL
     const id = params.id
     if (!id) {
-      return NextResponse.json(
-        { error: 'Document ID is required' },
-        { status: 400 }
-      )
+      return NextResponse.json({ error: 'Document ID is required' }, { status: 400 })
     }
 
-    // Get the current user
+    // Ensure the user is authenticated
     const user = await getUser()
     if (!user) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      )
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    console.log(`[API] Canceling processing for document ${id}`)
-
-    // Get the document from the queue
+    // Fetch the document from the queue to verify ownership and status
     const queue = await db.getQueue()
-    const document = queue.find(doc => doc.id === id)
+    const document = queue.find((doc) => doc.id === id)
 
     if (!document) {
-      return NextResponse.json(
-        { error: 'Document not found' },
-        { status: 404 }
-      )
+      return NextResponse.json({ error: 'Document not found' }, { status: 404 })
     }
 
-    // Check if the document belongs to the current user
     if (document.user_id !== user.id) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 403 }
-      )
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
     }
 
-    // Get processing service with default settings
+    // If the job is still running, cancel it through the processing service
     const processingService = await getProcessingService(getDefaultSettings())
-
-    // Cancel processing
     await processingService.cancelProcessing(id)
+
+    // Update the document status to "cancelled" in the DB as a safeguard
+    await db.updateQueueItem(id, {
+      status: 'cancelled',
+      error: undefined,
+      processingCompletedAt: new Date(),
+    })
 
     return NextResponse.json({ success: true })
   } catch (error) {
-    console.error('Error canceling processing:', error)
+    console.error('[API] Error cancelling processing', error)
     return NextResponse.json(
       { error: 'Failed to cancel processing' },
       { status: 500 }

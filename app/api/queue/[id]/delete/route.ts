@@ -3,69 +3,51 @@ import { getUser } from '@/lib/auth'
 import { db } from '@/lib/database'
 import { getProcessingService } from '@/lib/ocr/processing-service'
 import { getDefaultSettings } from '@/lib/default-settings'
-// import { createApiHandler } from '@/app/api/utils'
 
 /**
  * DELETE /api/queue/:id/delete
- * Delete a document from the queue
+ * Permanently remove a document from the queue and database.
  */
 export async function DELETE(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
-    // Get the document ID from the URL
     const id = params.id
     if (!id) {
-      return NextResponse.json(
-        { error: 'Document ID is required' },
-        { status: 400 }
-      )
+      return NextResponse.json({ error: 'Document ID is required' }, { status: 400 })
     }
 
-    // Get the current user
+    // Ensure the user is authenticated
     const user = await getUser()
     if (!user) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      )
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    console.log(`[API] Deleting document ${id}`)
-
-    // Get the document from the queue
+    // Fetch the document from the queue to verify ownership
     const queue = await db.getQueue()
-    const document = queue.find(doc => doc.id === id)
+    const document = queue.find((doc) => doc.id === id)
 
     if (!document) {
-      return NextResponse.json(
-        { error: 'Document not found' },
-        { status: 404 }
-      )
+      return NextResponse.json({ error: 'Document not found' }, { status: 404 })
     }
 
-    // Check if the document belongs to the current user
     if (document.user_id !== user.id) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 403 }
-      )
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
     }
 
-    // If the document is being processed, cancel it first
+    // If the document is currently processing, cancel it first
     if (document.status === 'processing') {
-      // Get processing service with default settings
       const processingService = await getProcessingService(getDefaultSettings())
       await processingService.cancelProcessing(id)
     }
 
-    // Remove from queue
+    // Remove document and associated OCR results from DB/storage
     await db.removeFromQueue(id)
 
     return NextResponse.json({ success: true })
   } catch (error) {
-    console.error('Error deleting document:', error)
+    console.error('[API] Error deleting document', error)
     return NextResponse.json(
       { error: 'Failed to delete document' },
       { status: 500 }
