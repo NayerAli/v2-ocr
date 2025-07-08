@@ -43,6 +43,20 @@ export function removeFileExtension(filename: string): string {
     return `Export_${day}-${month}-${year}`
   }
   
-  // Replace all dots with underscores to avoid multiple extension issues
-  return trimmed.replace(/\./g, '_')
+  // Count the number of dots in the filename
+  const dotCount = (trimmed.match(/\./g) || []).length
+  
+  // If there's only one dot, remove the extension (everything after the last dot)
+  if (dotCount === 1) {
+    const lastDotIndex = trimmed.lastIndexOf('.')
+    return trimmed.substring(0, lastDotIndex)
+  }
+  
+  // If there are multiple dots, replace all dots with underscores to avoid multiple extension issues
+  if (dotCount > 1) {
+    return trimmed.replace(/\./g, '_')
+  }
+  
+  // If there are no dots, return the filename as is
+  return trimmed
 }
