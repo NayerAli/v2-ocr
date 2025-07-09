@@ -227,7 +227,7 @@ class SystemSettingsService {
     // Default settings
     const defaultSettings: UploadLimits = {
       maxFileSize: 500,
-      allowedFileTypes: ['.pdf', '.jpg', '.jpeg', '.png'],
+      allowedFileTypes: ['.pdf', '.jpg', '.jpeg', '.png', '.webp'],
       maxSimultaneousUploads: 5
     }
 

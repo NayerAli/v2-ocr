@@ -22,7 +22,7 @@ export const DEFAULT_PROCESSING_SETTINGS: ProcessingSettings = {
 // Default upload settings
 export const DEFAULT_UPLOAD_SETTINGS: UploadSettings = {
   maxFileSize: 500,
-  allowedFileTypes: ['.pdf', '.jpg', '.jpeg', '.png'],
+  allowedFileTypes: ['.pdf', '.jpg', '.jpeg', '.png', '.webp'],
   maxSimultaneousUploads: 5
 }
 

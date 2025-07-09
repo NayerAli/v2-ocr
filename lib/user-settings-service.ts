@@ -81,6 +81,14 @@ class UserSettingsService {
   }
 
   /**
+   * Get the current user for server-side operations
+   * This is used when we need access to the user object in server context
+   */
+  async getUser() {
+    return this.getCurrentUser();
+  }
+
+  /**
    * Helper method to get the current user
    */
   private async getCurrentUser() {

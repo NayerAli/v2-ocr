@@ -526,25 +526,31 @@ export class QueueManager {
     infoLog('[DEBUG] uploadFileToStorage called with file:', file.name, 'storagePath:', storagePath);
 
     try {
-      // Import the Supabase client
-      const { supabase } = await import('../database/utils');
+      // Use service client for server-side uploads (bypasses RLS)
+      const { getServiceClient } = await import('@/lib/supabase/service-client');
+      const serviceClient = getServiceClient();
 
-      // Get the current user to create a user-specific folder
-      const { getUser } = await import('@/lib/auth');
-      const user = await getUser();
+      if (!serviceClient) {
+        infoLog('[DEBUG] Service client not available. Cannot upload file.');
+        return { data: null, error: { message: 'Service client not available' } };
+      }
+
+      // Get user ID from userSettingsService (which is set by the API route)
+      const { userSettingsService } = await import('@/lib/user-settings-service');
+      const user = await userSettingsService.getUser();
 
       if (!user) {
-        infoLog('[DEBUG] User not authenticated. Cannot upload file.');
-        return { data: null, error: { message: 'User not authenticated' } };
+        infoLog('[DEBUG] User not available. Cannot upload file.');
+        return { data: null, error: { message: 'User not available' } };
       }
 
       // Create a user-specific path
       // The storagePath should be in the format: documentId/[Image|PDF|File]_ID.extension
       const userPath = `${user.id}/${storagePath}`;
 
-      // Upload the file to Supabase storage
+      // Upload the file to Supabase storage using service client
       infoLog('[DEBUG] Uploading file to Supabase storage:', userPath);
-      const { data, error } = await supabase
+      const { data, error } = await serviceClient
         .storage
         .from('ocr-documents') // Use the correct bucket name from database_bucket_15-04-25.md
         .upload(userPath, file, {

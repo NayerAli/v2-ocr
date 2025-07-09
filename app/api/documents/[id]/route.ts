@@ -8,9 +8,10 @@ import { createServerSupabaseClient } from "@/lib/server-auth"
  */
 export async function GET(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  logApiRequestToConsole(req, "GET", req.url, { id: params.id })
+  const { id } = await params
+  logApiRequestToConsole(req, "GET", req.url, { id })
 
   try {
     // Get the current user using server-side auth
@@ -99,7 +100,7 @@ export async function GET(
     const { data: document, error: documentError } = await supabase
       .from('documents')
       .select('*')
-      .eq('id', params.id)
+      .eq('id', id)
       .eq('user_id', user.id)
       .single()
 
@@ -145,9 +146,10 @@ export async function GET(
  */
 export async function PUT(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  logApiRequestToConsole(req, "PUT", req.url, { id: params.id })
+  const { id } = await params
+  logApiRequestToConsole(req, "PUT", req.url, { id })
 
   try {
     // Get the current user using server-side auth
@@ -236,7 +238,7 @@ export async function PUT(
     const { data: existingDocument, error: documentError } = await supabase
       .from('documents')
       .select('*')
-      .eq('id', params.id)
+      .eq('id', id)
       .eq('user_id', user.id)
       .single()
 
@@ -261,7 +263,7 @@ export async function PUT(
     const documentToUpdate = {
       ...existingDocument,
       ...updatedData,
-      id: params.id, // Ensure ID doesn't change
+      id: id, // Ensure ID doesn't change
       user_id: user.id, // Ensure user_id doesn't change
     }
 
@@ -338,9 +340,10 @@ export async function PUT(
  */
 export async function DELETE(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  logApiRequestToConsole(req, "DELETE", req.url, { id: params.id })
+  const { id } = await params
+  logApiRequestToConsole(req, "DELETE", req.url, { id })
 
   try {
     // Get the current user using server-side auth
@@ -429,7 +432,7 @@ export async function DELETE(
     const { data: document, error: documentError } = await supabase
       .from('documents')
       .select('*')
-      .eq('id', params.id)
+      .eq('id', id)
       .eq('user_id', user.id)
       .single()
 
@@ -442,7 +445,7 @@ export async function DELETE(
     const { error: deleteError } = await supabase
       .from('documents')
       .delete()
-      .eq('id', params.id)
+      .eq('id', id)
       .eq('user_id', user.id)
 
     if (deleteError) {
@@ -454,7 +457,7 @@ export async function DELETE(
     const { error: resultsError } = await supabase
       .from('ocr_results')
       .delete()
-      .eq('document_id', params.id)
+      .eq('document_id', id)
       .eq('user_id', user.id)
 
     if (resultsError) {

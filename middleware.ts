@@ -33,7 +33,7 @@ export async function middleware(req: NextRequest) {
     const url = req.nextUrl.pathname
 
     // Protected routes that require authentication
-    const protectedRoutes = ['/profile', '/settings', '/documents', '/api/settings/user']
+    const protectedRoutes = ['/profile', '/settings', '/documents', '/api/settings/user', '/api/queue/add']
 
     // Auth routes that should redirect to home if already authenticated
     const authRoutes = ['/auth/login', '/auth/signup', '/auth/forgot-password']
@@ -131,6 +131,9 @@ export const config = {
     '/settings/:path*',
     '/documents/:path*',
     '/api/settings/user',
+    '/api/queue/add',
+    '/api/queue/:path*/delete',
+    '/api/queue/:path*/cancel',
     // Auth routes
     '/auth/:path*',
   ],
