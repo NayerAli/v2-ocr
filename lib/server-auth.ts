@@ -9,10 +9,10 @@ import { createClient } from './supabase/server'
 /**
  * Create a Supabase client for server-side use
  */
-export async function createServerSupabaseClient() {
+export function createServerSupabaseClient() {
   // Create the Supabase client with SSR configuration
-  const supabase = await createClient()
-  
+  const supabase = createClient()
+
   return supabase
 }
 
@@ -21,7 +21,7 @@ export async function createServerSupabaseClient() {
  */
 export async function getServerSession(): Promise<Session | null> {
   try {
-    const supabase = await createServerSupabaseClient()
+    const supabase = createServerSupabaseClient()
     const { data, error } = await supabase.auth.getSession()
 
     if (error) {
@@ -54,7 +54,7 @@ export async function getServerUser(): Promise<User | null> {
     }
 
     // If no session, try to get the user directly
-    const supabase = await createServerSupabaseClient()
+    const supabase = createServerSupabaseClient()
     const { data, error } = await supabase.auth.getUser()
 
     if (error) {

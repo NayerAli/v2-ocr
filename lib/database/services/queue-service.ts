@@ -3,17 +3,7 @@
 import { userSettingsService } from '@/lib/user-settings-service'
 import type { ProcessingStatus } from '@/types'
 import { supabase, isSupabaseConfigured, mapToProcessingStatus, camelToSnake } from '../utils'
-import type { SupabaseClient } from '@supabase/supabase-js'
-import type { Database } from '@/types/supabase'
-
-// Helper to dynamically load the service client on the server
-async function fetchServiceClient(): Promise<SupabaseClient<Database> | null> {
-  if (typeof window !== 'undefined') {
-    return null
-  }
-  const mod = await import('../../supabase/service-client')
-  return mod.getServiceClient()
-}
+import { createServerSupabaseClient } from '@/lib/server-auth'
 
 /**
  * Get all queue items for the current user
@@ -201,12 +191,12 @@ export async function saveToQueue(status: ProcessingStatus): Promise<void> {
   }
 
   try {
-    // Choose client: service client when available to bypass RLS
-    const serviceClient = await fetchServiceClient()
-    const client = serviceClient || supabase
+    const client = typeof window === 'undefined'
+      ? createServerSupabaseClient()
+      : supabase
 
     if (shouldLog) {
-      console.log('[DEBUG] Executing Supabase upsert operation using', serviceClient ? 'service client' : 'standard client')
+      console.log('[DEBUG] Executing Supabase upsert operation')
     }
 
     const { data, error } = await client
@@ -265,8 +255,9 @@ export async function removeFromQueue(id: string): Promise<void> {
   try {
     // Delete from ocr_results first
     console.log('[DEBUG] Deleting results for document:', id);
-    const serviceClient = await fetchServiceClient()
-    const client = serviceClient || supabase
+    const client = typeof window === 'undefined'
+      ? createServerSupabaseClient()
+      : supabase
     const { error: resultsError } = await client
       .from('ocr_results')
       .delete()
@@ -331,8 +322,9 @@ export async function updateQueueItem(id: string, updates: Partial<ProcessingSta
 
     // Update the document
     console.log('[DEBUG] Updating document:', id);
-    const serviceClient = await fetchServiceClient()
-    const client = serviceClient || supabase
+    const client = typeof window === 'undefined'
+      ? createServerSupabaseClient()
+      : supabase
     const { data, error } = await client
       .from('documents')
       .update(snakeCaseUpdates)

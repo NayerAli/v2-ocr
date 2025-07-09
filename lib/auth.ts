@@ -2,11 +2,24 @@ import type { User, Session } from '@supabase/supabase-js'
 import { getSupabaseClient } from './supabase/singleton-client'
 import { debugLog, debugError } from './log'
 
+// Server-side auth functions are imported lazily to avoid bundling them for the client
+let getServerSession: (() => Promise<Session | null>) | null = null
+let getServerUser: (() => Promise<User | null>) | null = null
+if (typeof window === 'undefined') {
+  const serverAuth = require('./server-auth')
+  getServerSession = serverAuth.getServerSession
+  getServerUser = serverAuth.getServerUser
+}
+
 /**
  * Get the current user session
  */
 export async function getSession(): Promise<Session | null> {
   try {
+    if (typeof window === 'undefined' && getServerSession) {
+      return await getServerSession()
+    }
+
     // Get the singleton Supabase client
     const supabase = getSupabaseClient()
 
@@ -36,6 +49,10 @@ export async function getSession(): Promise<Session | null> {
  */
 export async function getUser(): Promise<User | null> {
   try {
+    if (typeof window === 'undefined' && getServerUser) {
+      return await getServerUser()
+    }
+
     // First try to get the session
     const session = await getSession()
     if (session?.user) {

@@ -526,14 +526,10 @@ export class QueueManager {
     infoLog('[DEBUG] uploadFileToStorage called with file:', file.name, 'storagePath:', storagePath);
 
     try {
-      // Use service client for server-side uploads (bypasses RLS)
-      const { getServiceClient } = await import('@/lib/supabase/service-client');
-      const serviceClient = getServiceClient();
-
-      if (!serviceClient) {
-        infoLog('[DEBUG] Service client not available. Cannot upload file.');
-        return { data: null, error: { message: 'Service client not available' } };
-      }
+      const { createServerSupabaseClient } = await import('@/lib/server-auth');
+      const client = typeof window === 'undefined'
+        ? createServerSupabaseClient()
+        : (await import('@/lib/supabase/singleton-client')).getSupabaseClient();
 
       // Get user ID from userSettingsService (which is set by the API route)
       const { userSettingsService } = await import('@/lib/user-settings-service');
@@ -548,9 +544,9 @@ export class QueueManager {
       // The storagePath should be in the format: documentId/[Image|PDF|File]_ID.extension
       const userPath = `${user.id}/${storagePath}`;
 
-      // Upload the file to Supabase storage using service client
+      // Upload the file to Supabase storage using authenticated client
       infoLog('[DEBUG] Uploading file to Supabase storage:', userPath);
-      const { data, error } = await serviceClient
+      const { data, error } = await client
         .storage
         .from('ocr-documents') // Use the correct bucket name from database_bucket_15-04-25.md
         .upload(userPath, file, {
@@ -569,5 +565,4 @@ export class QueueManager {
       infoLog('[DEBUG] Exception in uploadFileToStorage:', error);
       return { data: null, error };
     }
-  }
-}
+  }}

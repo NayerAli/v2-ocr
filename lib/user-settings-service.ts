@@ -3,17 +3,10 @@ import { isSupabaseConfigured } from './supabase-client'
 import { getSupabaseClient } from './supabase/singleton-client'
 import type { OCRSettings, ProcessingSettings, UploadSettings, DisplaySettings } from '@/types/settings'
 import { CONFIG } from '@/config/constants'
-import type { SupabaseClient } from '@supabase/supabase-js'
-import type { Database } from '@/types/supabase'
+import { createServerSupabaseClient } from './server-auth'
 
-// Import the service client for admin operations
-// This is only used on the server side
-let getServiceClient: () => SupabaseClient<Database> | null = () => null
-if (typeof window === 'undefined') {
-  // Only import on the server side
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { getServiceClient: getServiceClientFn } = require('./supabase/service-client')
-  getServiceClient = getServiceClientFn
+const getServiceClient = () => {
+  return typeof window === 'undefined' ? createServerSupabaseClient() : null
 }
 
 // Default settings
