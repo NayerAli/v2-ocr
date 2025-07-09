@@ -1,8 +1,19 @@
 // Queue-related database operations
 
-import { getUser } from '../../auth'
+import { userSettingsService } from '@/lib/user-settings-service'
 import type { ProcessingStatus } from '@/types'
 import { supabase, isSupabaseConfigured, mapToProcessingStatus, camelToSnake } from '../utils'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import type { Database } from '@/types/supabase'
+
+// Helper to dynamically load the service client on the server
+async function fetchServiceClient(): Promise<SupabaseClient<Database> | null> {
+  if (typeof window !== 'undefined') {
+    return null
+  }
+  const mod = await import('../../supabase/service-client')
+  return mod.getServiceClient()
+}
 
 /**
  * Get all queue items for the current user
@@ -24,7 +35,7 @@ export async function getQueue(): Promise<ProcessingStatus[]> {
   if (shouldLog) {
     console.log('[DEBUG] Getting current user');
   }
-  const user = await getUser()
+  const user = await userSettingsService.getUser()
   if (shouldLog) {
     console.log('[DEBUG] Current user:', user ? 'Authenticated' : 'Not authenticated');
   }
@@ -119,7 +130,7 @@ export async function saveToQueue(status: ProcessingStatus): Promise<void> {
   if (shouldLog) {
     console.log('[DEBUG] Getting current user for saveToQueue');
   }
-  const user = await getUser()
+  const user = await userSettingsService.getUser()
   if (shouldLog) {
     console.log('[DEBUG] Current user for saveToQueue:', user ? 'Authenticated' : 'Not authenticated');
   }
@@ -190,11 +201,15 @@ export async function saveToQueue(status: ProcessingStatus): Promise<void> {
   }
 
   try {
-    // Upsert to Supabase
+    // Choose client: service client when available to bypass RLS
+    const serviceClient = await fetchServiceClient()
+    const client = serviceClient || supabase
+
     if (shouldLog) {
-      console.log('[DEBUG] Executing Supabase upsert operation');
+      console.log('[DEBUG] Executing Supabase upsert operation using', serviceClient ? 'service client' : 'standard client')
     }
-    const { data, error } = await supabase
+
+    const { data, error } = await client
       .from('documents')
       .upsert(snakeCaseStatus)
       .select()
@@ -239,7 +254,7 @@ export async function removeFromQueue(id: string): Promise<void> {
   }
 
   // Get the current user
-  const user = await getUser()
+  const user = await userSettingsService.getUser()
   console.log('[DEBUG] Current user for removeFromQueue:', user ? 'Authenticated' : 'Not authenticated');
 
   if (!user) {
@@ -250,7 +265,9 @@ export async function removeFromQueue(id: string): Promise<void> {
   try {
     // Delete from ocr_results first
     console.log('[DEBUG] Deleting results for document:', id);
-    const { error: resultsError } = await supabase
+    const serviceClient = await fetchServiceClient()
+    const client = serviceClient || supabase
+    const { error: resultsError } = await client
       .from('ocr_results')
       .delete()
       .eq('document_id', id)
@@ -264,7 +281,7 @@ export async function removeFromQueue(id: string): Promise<void> {
 
     // Then delete from documents
     console.log('[DEBUG] Deleting document:', id);
-    const { error: documentError } = await supabase
+    const { error: documentError } = await client
       .from('documents')
       .delete()
       .eq('id', id)
@@ -294,7 +311,7 @@ export async function updateQueueItem(id: string, updates: Partial<ProcessingSta
   }
 
   // Get the current user
-  const user = await getUser()
+  const user = await userSettingsService.getUser()
   console.log('[DEBUG] Current user for updateQueueItem:', user ? 'Authenticated' : 'Not authenticated');
 
   if (!user) {
@@ -314,7 +331,9 @@ export async function updateQueueItem(id: string, updates: Partial<ProcessingSta
 
     // Update the document
     console.log('[DEBUG] Updating document:', id);
-    const { data, error } = await supabase
+    const serviceClient = await fetchServiceClient()
+    const client = serviceClient || supabase
+    const { data, error } = await client
       .from('documents')
       .update(snakeCaseUpdates)
       .eq('id', id)

@@ -502,9 +502,15 @@ export class FileProcessor {
   }
 
   private async fileToBase64(file: File): Promise<string> {
+    // Use FileReader in the browser, fallback to arrayBuffer in Node
+    if (typeof window === 'undefined') {
+      const buffer = Buffer.from(await file.arrayBuffer());
+      return buffer.toString('base64');
+    }
+
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = () => resolve((reader.result as string).split(",")[1]);
+      reader.onload = () => resolve((reader.result as string).split(',')[1]);
       reader.onerror = (error) => reject(new Error(`Failed to read file: ${error}`));
       reader.readAsDataURL(file);
     });
