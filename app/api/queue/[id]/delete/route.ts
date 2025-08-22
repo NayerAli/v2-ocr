@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getUser } from '@/lib/auth'
-import { db } from '@/lib/database'
 import { getProcessingService } from '@/lib/ocr/processing-service'
 import { getDefaultSettings } from '@/lib/default-settings'
-// import { createApiHandler } from '@/app/api/utils'
+import { createServerSupabaseClient, getServerUser } from '@/lib/server-auth'
 
 /**
  * DELETE /api/queue/:id/delete
@@ -23,8 +21,10 @@ export async function DELETE(
       )
     }
 
-    // Get the current user
-    const user = await getUser()
+    // Create Supabase client and get current user
+    const supabase = await createServerSupabaseClient()
+    const user = await getServerUser()
+
     if (!user) {
       return NextResponse.json(
         { error: 'Unauthorized' },
@@ -34,34 +34,60 @@ export async function DELETE(
 
     console.log(`[API] Deleting document ${id}`)
 
-    // Get the document from the queue
-    const queue = await db.getQueue()
-    const document = queue.find(doc => doc.id === id)
+    // Fetch the document to verify ownership and status
+    const { data: document, error: documentError } = await supabase
+      .from('documents')
+      .select('*')
+      .eq('id', id)
+      .eq('user_id', user.id)
+      .single()
 
-    if (!document) {
+    if (documentError || !document) {
       return NextResponse.json(
         { error: 'Document not found' },
         { status: 404 }
       )
     }
 
-    // Check if the document belongs to the current user
-    if (document.user_id !== user.id) {
+    // If the document is queued or processing, cancel it first
+    if (document.status === 'processing' || document.status === 'queued') {
+      try {
+        const processingService = await getProcessingService(getDefaultSettings())
+        await processingService.cancelProcessing(id)
+      } catch (e) {
+        console.error('Error cancelling processing:', e)
+      }
+    }
+
+    // Delete any OCR results for this document
+    const { error: ocrDeleteError } = await supabase
+      .from('ocr_results')
+      .delete()
+      .eq('document_id', id)
+      .eq('user_id', user.id)
+
+    if (ocrDeleteError) {
+      console.error('Error removing OCR results:', ocrDeleteError)
       return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 403 }
+        { error: 'Failed to delete OCR results' },
+        { status: 500 }
       )
     }
 
-    // If the document is being processed, cancel it first
-    if (document.status === 'processing') {
-      // Get processing service with default settings
-      const processingService = await getProcessingService(getDefaultSettings())
-      await processingService.cancelProcessing(id)
-    }
+    // Delete the document itself
+    const { error: deleteError } = await supabase
+      .from('documents')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', user.id)
 
-    // Remove from queue
-    await db.removeFromQueue(id)
+    if (deleteError) {
+      console.error('Error removing document:', deleteError)
+      return NextResponse.json(
+        { error: 'Failed to delete document' },
+        { status: 500 }
+      )
+    }
 
     return NextResponse.json({ success: true })
   } catch (error) {
