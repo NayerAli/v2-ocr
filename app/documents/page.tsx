@@ -22,6 +22,7 @@ import { retryDocument } from "@/lib/tests/document-status-validation"
 // Auth hook is not directly used in this component
 // import { useAuth } from "@/components/auth/auth-provider"
 import { AuthCheck } from "@/components/auth/auth-check"
+import { getSafeDownloadName } from "@/lib/utils"
 // These UI components are not used in this file
 // import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 
@@ -258,20 +259,78 @@ export default function DocumentsPage() {
   }, [documents, language, toast]);
 
   const handleDownload = useCallback(async (id: string) => {
-    const results = await db.getResults(id)
-    if (!results) return
+    try {
+      const results = await db.getResults(id)
+      if (!results || results.length === 0) {
+        toast({
+          title: "No Results",
+          description: "No OCR results available for this document.",
+          variant: "destructive"
+        })
+        return
+      }
 
-    const text = results.map((r) => r.text).join("\n\n")
-    const blob = new Blob([text], { type: "text/plain" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = `results-${id}.txt`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
-  }, [])
+      const doc = documents.find(d => d.id === id)
+      if (!doc) {
+        toast({
+          title: "Document Not Found",
+          description: "Could not find document information.",
+          variant: "destructive"
+        })
+        return
+      }
+
+      const timestamp = new Date().toLocaleString()
+      const documentName = doc.filename
+      const baseName = getSafeDownloadName(documentName)
+      const separator = "=".repeat(80)
+
+      const header = [
+        separator,
+        `Document: ${documentName}`,
+        `Exported: ${timestamp}`,
+        `Total Pages: ${results.length}`,
+        separator,
+        "\n"
+      ].join("\n")
+
+      const formattedText = results
+        .sort((a, b) => a.pageNumber - b.pageNumber)
+        .map((r) => [
+          `${separator}`,
+          `Page ${r.pageNumber} of ${results.length}`,
+          `${separator}`,
+          "",
+          r.text,
+          "\n"
+        ].join("\n"))
+        .join("\n")
+
+      const fullText = header + formattedText
+
+      const blob = new Blob([fullText], { type: "text/plain;charset=utf-8" })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `${baseName}.txt`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+
+      toast({
+        title: "Download Started",
+        description: `Exporting all ${results.length} pages as a single text file.`
+      })
+    } catch (error) {
+      console.error("Download error:", error)
+      toast({
+        title: "Download Failed",
+        description: "Failed to download the document. Please try again.",
+        variant: "destructive"
+      })
+    }
+  }, [documents, db, toast])
 
   return (
     <AuthCheck>

@@ -10,7 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { useToast } from "@/hooks/use-toast"
 import { db } from "@/lib/database"
 import type { ProcessingStatus, OCRResult } from "@/types"
-import { cn, isImageFile, removeFileExtension } from "@/lib/utils"
+import { cn, isImageFile, getSafeDownloadName } from "@/lib/utils"
 import {
   Tooltip,
   TooltipContent,
@@ -639,10 +639,9 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
         })
       }, OPERATION_TIMEOUT)
 
-      // Create a formatted text with proper separations and metadata
       const timestamp = new Date().toLocaleString()
-      const documentName = docStatus.filename || "document"
-      const baseName = removeFileExtension(documentName)
+      const documentName = docStatus.filename
+      const baseName = getSafeDownloadName(documentName)
       const separator = "=".repeat(80)
 
       const header = [

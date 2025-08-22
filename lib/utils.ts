@@ -26,37 +26,46 @@ export function isImageFile(fileType?: string, filename?: string): boolean {
   return false
 }
 
-/**
- * Remove the extension from a filename and sanitize it for downloads.
- * Example: "file.pdf" -> "file", "file.tar.gz" -> "file_tar_gz"
- */
-export function removeFileExtension(filename: string): string {
-  // Trim any whitespace
-  const trimmed = filename.trim()
-  
-  // If the filename is empty after trimming, return a timestamped export name
-  if (!trimmed) {
-    const now = new Date()
-    const day = String(now.getDate()).padStart(2, '0')
-    const month = String(now.getMonth() + 1).padStart(2, '0')
-    const year = now.getFullYear()
-    return `Export_${day}-${month}-${year}`
+export function getSafeDownloadName(filename?: string): string {
+  const now = new Date()
+  const day = String(now.getDate()).padStart(2, '0')
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const year = now.getFullYear()
+  const fallback = `Export_${day}-${month}-${year}`
+  if (!filename?.trim()) return fallback;
+
+  let sanitized = filename
+    .replace(/[<>:"/\\|?*]/g, "")
+    .replace(/^\.+/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!sanitized) return fallback;
+
+  sanitized = sanitized.replace(/[/\\]/g, "_");
+
+  const lastDotIndex = sanitized.lastIndexOf(".");
+  const lastSlashIndex = Math.max(
+    sanitized.lastIndexOf("/"),
+    sanitized.lastIndexOf("\\")
+  );
+
+  if (lastDotIndex === 0 && lastSlashIndex === -1) {
+    return sanitized;
   }
-  
-  // Count the number of dots in the filename
-  const dotCount = (trimmed.match(/\./g) || []).length
-  
-  // If there's only one dot, remove the extension (everything after the last dot)
-  if (dotCount === 1) {
-    const lastDotIndex = trimmed.lastIndexOf('.')
-    return trimmed.substring(0, lastDotIndex)
+
+  let baseName;
+  if (lastDotIndex > lastSlashIndex && lastDotIndex > 0) {
+    const base = sanitized.substring(0, lastDotIndex);
+    baseName = base.replace(/\./g, "_");
+  } else {
+    baseName = sanitized;
   }
-  
-  // If there are multiple dots, replace all dots with underscores to avoid multiple extension issues
-  if (dotCount > 1) {
-    return trimmed.replace(/\./g, '_')
+
+  const maxLength = 255 - 4;
+  if (baseName.length > maxLength) {
+    baseName = baseName.substring(0, maxLength);
   }
-  
-  // If there are no dots, return the filename as is
-  return trimmed
+
+  return baseName;
 }
