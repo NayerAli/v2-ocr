@@ -34,18 +34,7 @@ function shouldShowInProduction(message: string): boolean {
   );
 }
 
-// Store recently logged messages to avoid duplication (especially in dev mode)
-const RECENT_LOG_TTL = 50; // milliseconds
-const recentLogs = new Map<string, number>();
-
-function logOnce(type: 'log' | 'error', args: unknown[]) {
-  const key = JSON.stringify(args);
-  const now = Date.now();
-  const last = recentLogs.get(key);
-  if (last && now - last < RECENT_LOG_TTL) return;
-  recentLogs.set(key, now);
-  console[type](...args);
-}
+// Basic logging wrappers without deduplication
 
 /**
  * Log debug messages (development only)
@@ -84,7 +73,7 @@ export function warnLog(...args: unknown[]) {
  * Use for essential information that must be logged in all environments
  */
 export function prodLog(...args: unknown[]) {
-  logOnce('log', args)
+  console.log(...args)
 }
 
 /**
@@ -92,7 +81,7 @@ export function prodLog(...args: unknown[]) {
  * Use for critical errors that must be logged in all environments
  */
 export function prodError(...args: unknown[]) {
-  logOnce('error', args)
+  console.error(...args)
 }
 
 /**
@@ -113,7 +102,7 @@ export function middlewareLog(type: 'important' | 'debug', message: string, ...a
   // In development, show all logs
   // In production, only show logs that match the allowed patterns
   if (!isProduction || (type === 'important' && shouldShowInProduction(message))) {
-    logOnce('log', [message, ...args]);
+    console.log(message, ...args)
   }
 }
 
