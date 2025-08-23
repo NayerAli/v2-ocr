@@ -3,7 +3,7 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import type { User, Session } from '@supabase/supabase-js'
-import { createClient } from '@/lib/supabase/client'
+import { supabase } from '@/lib/supabase-client'
 import { middlewareLog, prodError } from '@/lib/log'
 
 type AuthContextType = {
@@ -23,52 +23,49 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const router = useRouter()
-  const supabase = createClient()
 
   useEffect(() => {
     // Get initial session
     const getInitialSession = async () => {
       setIsLoading(true)
 
-        try {
-          const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
-          const { data: userData } = await supabase.auth.getUser()
+      try {
+        const { data: sessionData, error: sessionError } = await supabase!.auth.getSession()
 
-          if (sessionError) {
-            prodError('[Auth Provider] Error getting session:', sessionError.message)
-            setSession(null)
-            setUser(null)
-            setIsLoading(false)
-            return
-          }
-
-          setSession(sessionData.session)
-          setUser(userData.user ?? null)
-
-          if (userData.user && sessionData.session) {
-            middlewareLog('important', '[Auth Provider] User authenticated:', userData.user.email)
-            middlewareLog('debug', '[Auth Provider] Session expires at:', new Date(sessionData.session.expires_at! * 1000).toLocaleString())
-          } else {
-            middlewareLog('debug', '[Auth Provider] No authenticated user')
-
-            // Try to refresh the session
-            middlewareLog('debug', '[Auth Provider] Attempting to refresh session')
-            const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession()
-
-            if (refreshError) {
-              prodError('[Auth Provider] Error refreshing session:', refreshError.message)
-            } else if (refreshData.session) {
-              const { data: refreshedUser } = await supabase.auth.getUser()
-              middlewareLog('debug', '[Auth Provider] Session refreshed for user:', refreshedUser.user?.email)
-              setSession(refreshData.session)
-              setUser(refreshedUser.user ?? null)
-            }
-          }
-        } catch (error) {
-          prodError('[Auth Provider] Exception getting session:', error)
+        if (sessionError) {
+          prodError('[Auth Provider] Error getting session:', sessionError.message)
           setSession(null)
           setUser(null)
-        } finally {
+          setIsLoading(false)
+          return
+        }
+
+        setSession(sessionData.session)
+        setUser(sessionData.session?.user ?? null)
+
+        if (sessionData.session?.user) {
+          middlewareLog('important', '[Auth Provider] User authenticated:', sessionData.session.user.email)
+          middlewareLog('debug', '[Auth Provider] Session expires at:', new Date(sessionData.session.expires_at! * 1000).toLocaleString())
+        } else {
+          middlewareLog('debug', '[Auth Provider] No authenticated user')
+
+          // Try to refresh the session
+          middlewareLog('debug', '[Auth Provider] Attempting to refresh session')
+          const { data: refreshData, error: refreshError } = await supabase!.auth.refreshSession()
+
+          if (refreshError) {
+            prodError('[Auth Provider] Error refreshing session:', refreshError.message)
+          } else if (refreshData.session) {
+            middlewareLog('debug', '[Auth Provider] Session refreshed for user:', refreshData.session.user?.email)
+            setSession(refreshData.session)
+            setUser(refreshData.session.user ?? null)
+          }
+        }
+      } catch (error) {
+        prodError('[Auth Provider] Exception getting session:', error)
+        setSession(null)
+        setUser(null)
+      } finally {
         setIsLoading(false)
       }
     }
@@ -76,39 +73,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     getInitialSession()
 
     // Listen for auth changes
-      const { data: { subscription } } = supabase.auth.onAuthStateChange(
-        async (event, session) => {
-          middlewareLog('debug', '[Auth Provider] Auth state changed:', event)
+    const { data: { subscription } } = supabase!.auth.onAuthStateChange(
+      async (event, session) => {
+        middlewareLog('debug', '[Auth Provider] Auth state changed:', event)
 
-          if (event === 'SIGNED_OUT') {
+        if (event === 'SIGNED_OUT') {
           middlewareLog('important', '[Auth Provider] User signed out')
-            setSession(null)
-            setUser(null)
-            router.push('/auth/login')
+          setSession(null)
+          setUser(null)
+          router.push('/auth/login')
+        } else {
+          setSession(session)
+          setUser(session?.user ?? null)
+
+          if (event === 'SIGNED_IN') {
+            middlewareLog('important', '[Auth Provider] User signed in:', session?.user?.email)
+          } else if (event === 'TOKEN_REFRESHED') {
+            middlewareLog('debug', '[Auth Provider] Token refreshed for user:', session?.user?.email)
+          } else if (event === 'USER_UPDATED') {
+            middlewareLog('debug', '[Auth Provider] User updated:', session?.user?.email)
           } else {
-            setSession(session)
-            const { data: userData } = await supabase.auth.getUser()
-            setUser(userData.user ?? null)
-
-            if (event === 'SIGNED_IN') {
-              middlewareLog('important', '[Auth Provider] User signed in:', userData.user?.email)
-            } else if (event === 'TOKEN_REFRESHED') {
-              middlewareLog('debug', '[Auth Provider] Token refreshed for user:', userData.user?.email)
-            } else if (event === 'USER_UPDATED') {
-              middlewareLog('debug', '[Auth Provider] User updated:', userData.user?.email)
-            } else {
-              middlewareLog('debug', '[Auth Provider] Other auth event:', event)
-            }
+            middlewareLog('debug', '[Auth Provider] Other auth event:', event)
           }
-
-          setIsLoading(false)
         }
-      )
+
+        setIsLoading(false)
+      }
+    )
 
     return () => {
       subscription.unsubscribe()
     }
-  }, [router, supabase.auth])
+  }, [router])
 
   const signIn = async (email: string, password: string, redirectTo: string = '/') => {
     try {
