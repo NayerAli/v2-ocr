@@ -34,6 +34,19 @@ function shouldShowInProduction(message: string): boolean {
   );
 }
 
+// Store recently logged messages to avoid duplication (especially in dev mode)
+const RECENT_LOG_TTL = 50; // milliseconds
+const recentLogs = new Map<string, number>();
+
+function logOnce(type: 'log' | 'error', args: unknown[]) {
+  const key = JSON.stringify(args);
+  const now = Date.now();
+  const last = recentLogs.get(key);
+  if (last && now - last < RECENT_LOG_TTL) return;
+  recentLogs.set(key, now);
+  console[type](...args);
+}
+
 /**
  * Log debug messages (development only)
  * Use for verbose debugging information that should not appear in production
@@ -71,7 +84,7 @@ export function warnLog(...args: unknown[]) {
  * Use for essential information that must be logged in all environments
  */
 export function prodLog(...args: unknown[]) {
-  console.log(...args)
+  logOnce('log', args)
 }
 
 /**
@@ -79,7 +92,7 @@ export function prodLog(...args: unknown[]) {
  * Use for critical errors that must be logged in all environments
  */
 export function prodError(...args: unknown[]) {
-  console.error(...args)
+  logOnce('error', args)
 }
 
 /**
@@ -100,7 +113,7 @@ export function middlewareLog(type: 'important' | 'debug', message: string, ...a
   // In development, show all logs
   // In production, only show logs that match the allowed patterns
   if (!isProduction || (type === 'important' && shouldShowInProduction(message))) {
-    console.log(message, ...args);
+    logOnce('log', [message, ...args]);
   }
 }
 
