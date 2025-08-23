@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { updateSession } from '@/lib/supabase/middleware'
-import { debugLog, debugError, prodLog, middlewareLog } from '@/lib/log'
+import { middlewareLog, prodError } from '@/lib/log'
 
 // This function can be marked `async` if using `await` inside
 export async function middleware(req: NextRequest) {
   // Always log the request URL in all environments
-  console.log('Middleware: Processing request for URL:', req.nextUrl.pathname)
+  middlewareLog('important', 'Middleware: Processing request for URL:', req.nextUrl.pathname)
 
   try {
     // Use the updateSession function to create a Supabase client and handle session
@@ -17,17 +17,17 @@ export async function middleware(req: NextRequest) {
     let error = null
     
     try {
-      const { data, error: userError } = await supabase.auth.getUser()
-      user = data?.user
-      error = userError
-    } catch (e) {
-      console.error('Middleware: Error in auth.getUser():', e)
-      error = e
-    }
-    
-    if (error) {
-      console.error('Middleware: Error getting user:', error instanceof Error ? error.message : 'Unknown error')
-    }
+        const { data, error: userError } = await supabase.auth.getUser()
+        user = data?.user
+        error = userError
+      } catch (e) {
+        prodError('Middleware: Error in auth.getUser():', e)
+        error = e
+      }
+
+      if (error) {
+        prodError('Middleware: Error getting user:', error instanceof Error ? error.message : 'Unknown error')
+      }
 
     // Check auth condition based on route
     const url = req.nextUrl.pathname
@@ -45,19 +45,19 @@ export async function middleware(req: NextRequest) {
     const isAuthRoute = authRoutes.some(route => url === route)
 
     // Always log route checks in all environments
-    console.log('Middleware: Route check -', {
-      url,
-      isProtectedRoute,
-      isAuthRoute,
-      isAuthenticated: !!user
-    })
+      middlewareLog('important', 'Middleware: Route check -', {
+        url,
+        isProtectedRoute,
+        isAuthRoute,
+        isAuthenticated: !!user
+      })
 
     // If accessing a protected route without authentication, redirect to login
     if (isProtectedRoute && !user) {
       // Only log in development
-      if (process.env.NODE_ENV !== 'production') {
-        console.log('Middleware: Redirecting to login from protected route:', url)
-      }
+        if (process.env.NODE_ENV !== 'production') {
+          middlewareLog('debug', 'Middleware: Redirecting to login from protected route:', url)
+        }
       const redirectUrl = new URL('/auth/login', req.url)
       redirectUrl.searchParams.set('redirect', url)
 
@@ -86,9 +86,9 @@ export async function middleware(req: NextRequest) {
     // If accessing auth routes with authentication, redirect to home
     if (isAuthRoute && user) {
       // Only log in development
-      if (process.env.NODE_ENV !== 'production') {
-        console.log('Middleware: Redirecting to home from auth route:', url)
-      }
+        if (process.env.NODE_ENV !== 'production') {
+          middlewareLog('debug', 'Middleware: Redirecting to home from auth route:', url)
+        }
       const redirectResponse = NextResponse.redirect(new URL('/', req.url))
       
       // Copy cookies from the response to the redirect response
@@ -117,7 +117,7 @@ export async function middleware(req: NextRequest) {
 
     return response
   } catch (error) {
-    console.error('Middleware error:', error)
+      prodError('Middleware error:', error)
     // Return original response to avoid breaking the application
     return NextResponse.next()
   }

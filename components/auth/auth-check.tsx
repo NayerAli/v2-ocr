@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from './auth-provider'
 import { supabase } from '@/lib/supabase-client'
-import { debugLog, debugError } from '@/lib/log'
+import { middlewareLog, prodError } from '@/lib/log'
 
 interface AuthCheckProps {
   children: React.ReactNode
@@ -38,7 +38,7 @@ export function AuthCheck({ children, redirectTo = '/auth/login' }: AuthCheckPro
         if (!isLoading) {
           // No user in context, check with Supabase directly
           if (!supabase) {
-            debugError('[DEBUG] AuthCheck: Supabase client is not configured.')
+            prodError('[AuthCheck] Supabase client is not configured.')
             setIsAuthenticated(false)
             setIsVerifying(false)
             return
@@ -46,7 +46,7 @@ export function AuthCheck({ children, redirectTo = '/auth/login' }: AuthCheckPro
           const { data, error } = await supabase.auth.getSession()
 
           if (error) {
-            debugError('[DEBUG] AuthCheck: Error getting session:', error.message)
+            prodError('[AuthCheck] Error getting session:', error.message)
             setIsAuthenticated(false)
           } else if (data.session) {
             // Session found
@@ -56,25 +56,25 @@ export function AuthCheck({ children, redirectTo = '/auth/login' }: AuthCheckPro
             // Try to refresh the session
             try {
               if (!supabase) {
-                debugError('[DEBUG] AuthCheck: Supabase client is not configured for refresh.')
+                prodError('[AuthCheck] Supabase client is not configured for refresh.')
                 setIsAuthenticated(false)
                 setIsVerifying(false)
                 return
               }
               const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession()
 
-              if (refreshError) {
-                debugError('[DEBUG] AuthCheck: Error refreshing session:', refreshError.message)
-                setIsAuthenticated(false)
-              } else if (refreshData.session) {
-                debugLog('[DEBUG] AuthCheck: Session refreshed for user:', refreshData.session.user.email)
-                setIsAuthenticated(true)
-              } else {
-                debugLog('[DEBUG] AuthCheck: No session after refresh attempt')
-                setIsAuthenticated(false)
-              }
+                if (refreshError) {
+                  prodError('[AuthCheck] Error refreshing session:', refreshError.message)
+                  setIsAuthenticated(false)
+                } else if (refreshData.session) {
+                  middlewareLog('debug', '[AuthCheck] Session refreshed')
+                  setIsAuthenticated(true)
+                } else {
+                  middlewareLog('debug', '[AuthCheck] No session after refresh attempt')
+                  setIsAuthenticated(false)
+                }
             } catch (refreshException) {
-              debugError('[DEBUG] AuthCheck: Exception refreshing session:', refreshException)
+              prodError('[AuthCheck] Exception refreshing session:', refreshException)
               setIsAuthenticated(false)
             }
           }
@@ -82,7 +82,7 @@ export function AuthCheck({ children, redirectTo = '/auth/login' }: AuthCheckPro
           setIsVerifying(false)
         }
       } catch (error) {
-        debugError('AuthCheck: Error verifying authentication:', error)
+        prodError('[AuthCheck] Error verifying authentication:', error)
         setIsAuthenticated(false)
         setIsVerifying(false)
       }
@@ -96,26 +96,26 @@ export function AuthCheck({ children, redirectTo = '/auth/login' }: AuthCheckPro
                           !!localStorage.getItem(`sb-${window.location.hostname}-auth-token`);
 
       if (hasAuthToken) {
-        debugLog('AuthCheck: Auth token found in localStorage')
+        middlewareLog('debug', '[AuthCheck] Auth token found in localStorage')
         // If we have a token but no user yet, wait for the auth state to update
         if (!user && isLoading) {
-          debugLog('AuthCheck: Waiting for auth state to update...')
+          middlewareLog('debug', '[AuthCheck] Waiting for auth state to update...')
         } else if (!user && !isLoading) {
-          debugLog('AuthCheck: Auth token exists but no user, forcing refresh')
+          middlewareLog('debug', '[AuthCheck] Auth token exists but no user, forcing refresh')
           // Force a refresh of the auth state
-          if (supabase) {
-            supabase.auth.getSession().then(({ data }) => {
-              if (data.session) {
-                debugLog('AuthCheck: Session refreshed for user:', data.session.user.email)
-                setIsAuthenticated(true)
-                setIsVerifying(false)
-              }
-            })
-          } else {
-            debugError('AuthCheck: Supabase client is not configured for localStorage refresh.')
-            setIsAuthenticated(false)
-            setIsVerifying(false)
-          }
+            if (supabase) {
+              supabase.auth.getSession().then(({ data }) => {
+                if (data.session) {
+                  middlewareLog('debug', '[AuthCheck] Session refreshed')
+                  setIsAuthenticated(true)
+                  setIsVerifying(false)
+                }
+              })
+            } else {
+              prodError('[AuthCheck] Supabase client is not configured for localStorage refresh.')
+              setIsAuthenticated(false)
+              setIsVerifying(false)
+            }
         }
       }
     }
@@ -124,7 +124,7 @@ export function AuthCheck({ children, redirectTo = '/auth/login' }: AuthCheckPro
   useEffect(() => {
     // Redirect if not authenticated and not still verifying
     if (!isVerifying && !isAuthenticated) {
-      debugLog('AuthCheck: Not authenticated, redirecting to:', redirectTo)
+      middlewareLog('important', '[AuthCheck] Not authenticated, redirecting to:', redirectTo)
       const fullRedirectUrl = `${redirectTo}?redirect=${encodeURIComponent(window.location.pathname)}`
       router.push(fullRedirectUrl)
     }

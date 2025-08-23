@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServiceClient } from '@/lib/supabase/service-client'
 import { logApiRequestToConsole } from '@/lib/server-console-logger'
+import { middlewareLog, prodError } from '@/lib/log'
 
 /**
  * GET /api/documents/[id]/signed-url
@@ -54,9 +55,14 @@ export async function GET(
     .from(bucket)
     .createSignedUrl(document.storage_path, 60)
   if (error || !data.signedUrl) {
-    console.error('Error generating signed URL:', error)
+    prodError('[API] Error generating signed URL:', error as Error)
     return NextResponse.json({ error: 'Failed to generate signed URL' }, { status: 500 })
   }
+
+  middlewareLog('debug', '[API] Signed URL generated', {
+    documentId: params.id,
+    userId: user?.id
+  })
 
   return NextResponse.json({ url: data.signedUrl })
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { logApiRequestToConsole } from "@/lib/server-console-logger"
-import { createServerSupabaseClient } from "@/lib/server-auth"
+import { createServerSupabaseClient, getAuthenticatedUser } from "@/lib/server-auth"
+import { middlewareLog, prodError } from "@/lib/log"
 
 /**
  * GET /api/documents/[id]
@@ -15,80 +16,10 @@ export async function GET(
   try {
     // Get the current user using server-side auth
     const supabase = await createServerSupabaseClient()
+    const user = await getAuthenticatedUser(supabase, req)
 
-    // First try to get the user directly (more secure than using session user)
-    const { data: userData, error: userError } = await supabase.auth.getUser()
-
-    let user = null;
-
-    if (userData?.user) {
-      console.log('[SERVER] User authenticated from getUser:', userData.user.email)
-      user = userData.user
-    } else if (userError) {
-      console.error('[SERVER] GET /api/documents/[id] - Error getting user:', userError.message)
-      
-      // Fallback to session if getUser fails
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
-      
-      if (sessionError) {
-        console.error('[SERVER] GET /api/documents/[id] - Session error:', sessionError.message)
-      }
-
-      if (sessionData?.session?.user) {
-        console.warn('[SERVER] GET /api/documents/[id] - Using session user as fallback (less secure)')
-        user = sessionData.session.user
-      }
-    }
-    
-    // If still no user, try to extract from cookies as last resort
     if (!user) {
-      try {
-        // Get the cookies from the request
-        const cookieHeader = req.headers.get('cookie') || ''
-        const cookies = cookieHeader.split(';').map(c => c.trim())
-
-        // Find auth cookies
-        const authCookie = cookies.find(c =>
-          c.startsWith('sb-auth-token=') ||
-          c.startsWith('sb-localhost:8000-auth-token=') ||
-          c.includes('-auth-token=')
-        )
-
-        if (authCookie) {
-          // Extract the token value
-          const tokenValue = authCookie.split('=')[1]
-          if (tokenValue) {
-            // Parse the token
-            try {
-              const tokenData = JSON.parse(decodeURIComponent(tokenValue))
-              if (tokenData.access_token) {
-                // Set the session manually
-                const { data: manualSessionData, error: manualSessionError } =
-                  await supabase.auth.setSession({
-                    access_token: tokenData.access_token,
-                    refresh_token: tokenData.refresh_token || ''
-                  })
-
-                if (manualSessionData?.user) {
-                  console.log('[SERVER] User authenticated from manual token:', manualSessionData.user.email)
-                  user = manualSessionData.user
-                } else if (manualSessionError) {
-                  console.error('[SERVER] Error setting manual session:', manualSessionError.message)
-                }
-              }
-            } catch (parseError) {
-              console.error('[SERVER] Error parsing auth token:', parseError)
-            }
-          }
-        }
-      } catch (cookieError) {
-        console.error('[SERVER] Error extracting user from cookies:', cookieError)
-      }
-    }
-    
-    // If still no user, return unauthorized
-    if (!user) {
-      console.error('[SERVER] GET /api/documents/[id] - Unauthorized, no user found. Auth session missing!')
+      prodError('[SERVER] GET /api/documents/[id] - Unauthorized, no user found')
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
@@ -104,7 +35,7 @@ export async function GET(
       .single()
 
     if (documentError || !document) {
-      console.error('[SERVER] Error fetching document:', documentError?.message || 'Document not found')
+      prodError('[SERVER] Error fetching document:', documentError?.message || 'Document not found')
       return NextResponse.json({ error: "Document not found" }, { status: 404 })
     }
 
@@ -131,7 +62,7 @@ export async function GET(
 
     return NextResponse.json(mappedDocument)
   } catch (error) {
-    console.error("Error getting document:", error)
+    prodError('[SERVER] Error getting document:', error as Error)
     return NextResponse.json(
       { error: "Failed to get document" },
       { status: 500 }
@@ -152,80 +83,10 @@ export async function PUT(
   try {
     // Get the current user using server-side auth
     const supabase = await createServerSupabaseClient()
+    const user = await getAuthenticatedUser(supabase, req)
 
-    // First try to get the user directly (more secure than using session user)
-    const { data: userData, error: userError } = await supabase.auth.getUser()
-
-    let user = null;
-
-    if (userData?.user) {
-      console.log('[SERVER] User authenticated from getUser:', userData.user.email)
-      user = userData.user
-    } else if (userError) {
-      console.error('[SERVER] PUT /api/documents/[id] - Error getting user:', userError.message)
-      
-      // Fallback to session if getUser fails
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
-      
-      if (sessionError) {
-        console.error('[SERVER] PUT /api/documents/[id] - Session error:', sessionError.message)
-      }
-
-      if (sessionData?.session?.user) {
-        console.warn('[SERVER] PUT /api/documents/[id] - Using session user as fallback (less secure)')
-        user = sessionData.session.user
-      }
-    }
-    
-    // If still no user, try to extract from cookies as last resort
     if (!user) {
-      try {
-        // Get the cookies from the request
-        const cookieHeader = req.headers.get('cookie') || ''
-        const cookies = cookieHeader.split(';').map(c => c.trim())
-
-        // Find auth cookies
-        const authCookie = cookies.find(c =>
-          c.startsWith('sb-auth-token=') ||
-          c.startsWith('sb-localhost:8000-auth-token=') ||
-          c.includes('-auth-token=')
-        )
-
-        if (authCookie) {
-          // Extract the token value
-          const tokenValue = authCookie.split('=')[1]
-          if (tokenValue) {
-            // Parse the token
-            try {
-              const tokenData = JSON.parse(decodeURIComponent(tokenValue))
-              if (tokenData.access_token) {
-                // Set the session manually
-                const { data: manualSessionData, error: manualSessionError } =
-                  await supabase.auth.setSession({
-                    access_token: tokenData.access_token,
-                    refresh_token: tokenData.refresh_token || ''
-                  })
-
-                if (manualSessionData?.user) {
-                  console.log('[SERVER] User authenticated from manual token:', manualSessionData.user.email)
-                  user = manualSessionData.user
-                } else if (manualSessionError) {
-                  console.error('[SERVER] Error setting manual session:', manualSessionError.message)
-                }
-              }
-            } catch (parseError) {
-              console.error('[SERVER] Error parsing auth token:', parseError)
-            }
-          }
-        }
-      } catch (cookieError) {
-        console.error('[SERVER] Error extracting user from cookies:', cookieError)
-      }
-    }
-    
-    // If still no user, return unauthorized
-    if (!user) {
-      console.error('[SERVER] PUT /api/documents/[id] - Unauthorized, no user found. Auth session missing!')
+      prodError('[SERVER] PUT /api/documents/[id] - Unauthorized, no user found')
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
@@ -241,7 +102,7 @@ export async function PUT(
       .single()
 
     if (documentError || !existingDocument) {
-      console.error('[SERVER] Error fetching document:', documentError?.message || 'Document not found')
+      prodError('[SERVER] Error fetching document:', documentError?.message || 'Document not found')
       return NextResponse.json({ error: "Document not found" }, { status: 404 })
     }
 
@@ -249,8 +110,8 @@ export async function PUT(
 
     // Get the updated document data from the request
     const updatedData = await req.json()
-    console.log("[SERVER] Updating document with data:", updatedData)
-    console.log("[SERVER] Original document from database:", {
+    middlewareLog('debug', '[SERVER] Updating document with data:', updatedData)
+    middlewareLog('debug', '[SERVER] Original document from database:', {
       id: existingDocument.id,
       filename: existingDocument.filename,
       status: existingDocument.status,
@@ -267,8 +128,8 @@ export async function PUT(
 
     // Ensure error field is cleared when status is not 'error'
     if (documentToUpdate.status !== 'error') {
-      documentToUpdate.error = undefined;
-      console.log('[SERVER] Status is not error, clearing error field');
+      documentToUpdate.error = undefined
+      middlewareLog('debug', '[SERVER] Status is not error, clearing error field')
     }
 
     // Convert to snake_case for Supabase
@@ -292,7 +153,7 @@ export async function PUT(
       user_id: documentToUpdate.user_id
     }
 
-    console.log("[SERVER] Prepared document for update:", {
+    middlewareLog('debug', '[SERVER] Prepared document for update:', {
       id: snakeCaseDocument.id,
       filename: snakeCaseDocument.filename,
       status: snakeCaseDocument.status,
@@ -308,14 +169,14 @@ export async function PUT(
       .single()
 
     if (updateError || !updatedDocument) {
-      console.error('[SERVER] Error updating document:', updateError?.message || 'Update failed')
+      prodError('[SERVER] Error updating document:', updateError?.message || 'Update failed')
       return NextResponse.json(
         { error: "Failed to update document" },
         { status: 500 }
       )
     }
 
-    console.log('[SERVER] Document updated successfully:', {
+    middlewareLog('important', '[SERVER] Document updated successfully:', {
       id: updatedDocument.id,
       filename: updatedDocument.filename,
       status: updatedDocument.status,
@@ -324,7 +185,7 @@ export async function PUT(
 
     return NextResponse.json(updatedDocument)
   } catch (error) {
-    console.error("Error updating document:", error)
+    prodError('[SERVER] Error updating document:', error as Error)
     return NextResponse.json(
       { error: "Failed to update document" },
       { status: 500 }
@@ -345,80 +206,10 @@ export async function DELETE(
   try {
     // Get the current user using server-side auth
     const supabase = await createServerSupabaseClient()
+    const user = await getAuthenticatedUser(supabase, req)
 
-    // First try to get the user directly (more secure than using session user)
-    const { data: userData, error: userError } = await supabase.auth.getUser()
-
-    let user = null;
-
-    if (userData?.user) {
-      console.log('[SERVER] User authenticated from getUser:', userData.user.email)
-      user = userData.user
-    } else if (userError) {
-      console.error('[SERVER] DELETE /api/documents/[id] - Error getting user:', userError.message)
-      
-      // Fallback to session if getUser fails
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
-      
-      if (sessionError) {
-        console.error('[SERVER] DELETE /api/documents/[id] - Session error:', sessionError.message)
-      }
-
-      if (sessionData?.session?.user) {
-        console.warn('[SERVER] DELETE /api/documents/[id] - Using session user as fallback (less secure)')
-        user = sessionData.session.user
-      }
-    }
-    
-    // If still no user, try to extract from cookies as last resort
     if (!user) {
-      try {
-        // Get the cookies from the request
-        const cookieHeader = req.headers.get('cookie') || ''
-        const cookies = cookieHeader.split(';').map(c => c.trim())
-
-        // Find auth cookies
-        const authCookie = cookies.find(c =>
-          c.startsWith('sb-auth-token=') ||
-          c.startsWith('sb-localhost:8000-auth-token=') ||
-          c.includes('-auth-token=')
-        )
-
-        if (authCookie) {
-          // Extract the token value
-          const tokenValue = authCookie.split('=')[1]
-          if (tokenValue) {
-            // Parse the token
-            try {
-              const tokenData = JSON.parse(decodeURIComponent(tokenValue))
-              if (tokenData.access_token) {
-                // Set the session manually
-                const { data: manualSessionData, error: manualSessionError } =
-                  await supabase.auth.setSession({
-                    access_token: tokenData.access_token,
-                    refresh_token: tokenData.refresh_token || ''
-                  })
-
-                if (manualSessionData?.user) {
-                  console.log('[SERVER] User authenticated from manual token:', manualSessionData.user.email)
-                  user = manualSessionData.user
-                } else if (manualSessionError) {
-                  console.error('[SERVER] Error setting manual session:', manualSessionError.message)
-                }
-              }
-            } catch (parseError) {
-              console.error('[SERVER] Error parsing auth token:', parseError)
-            }
-          }
-        }
-      } catch (cookieError) {
-        console.error('[SERVER] Error extracting user from cookies:', cookieError)
-      }
-    }
-    
-    // If still no user, return unauthorized
-    if (!user) {
-      console.error('[SERVER] DELETE /api/documents/[id] - Unauthorized, no user found. Auth session missing!')
+      prodError('[SERVER] DELETE /api/documents/[id] - Unauthorized, no user found')
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
@@ -434,7 +225,7 @@ export async function DELETE(
       .single()
 
     if (documentError || !document) {
-      console.error('[SERVER] Error fetching document:', documentError?.message || 'Document not found')
+      prodError('[SERVER] Error fetching document:', documentError?.message || 'Document not found')
       return NextResponse.json({ error: "Document not found" }, { status: 404 })
     }
 
@@ -446,7 +237,7 @@ export async function DELETE(
       .eq('user_id', user.id)
 
     if (deleteError) {
-      console.error('[SERVER] Error deleting document:', deleteError.message)
+      prodError('[SERVER] Error deleting document:', deleteError.message)
       return NextResponse.json({ error: "Failed to delete document" }, { status: 500 })
     }
 
@@ -458,13 +249,13 @@ export async function DELETE(
       .eq('user_id', user.id)
 
     if (resultsError) {
-      console.error('[SERVER] Error deleting OCR results:', resultsError.message)
+      prodError('[SERVER] Error deleting OCR results:', resultsError.message)
       // Continue even if results deletion fails
     }
 
     return NextResponse.json({ success: true })
   } catch (error) {
-    console.error("Error deleting document:", error)
+    prodError('[SERVER] Error deleting document:', error as Error)
     return NextResponse.json(
       { error: "Failed to delete document" },
       { status: 500 }

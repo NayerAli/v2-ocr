@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getProcessingService } from '@/lib/ocr/processing-service'
 import { getDefaultSettings } from '@/lib/default-settings'
-import { createServerSupabaseClient, getServerUser } from '@/lib/server-auth'
+import { createServerSupabaseClient, getAuthenticatedUser } from '@/lib/server-auth'
+import { middlewareLog, prodError } from '@/lib/log'
 
 /**
  * DELETE /api/queue/:id/delete
@@ -23,16 +24,20 @@ export async function DELETE(
 
     // Create Supabase client and get current user
     const supabase = await createServerSupabaseClient()
-    const user = await getServerUser()
+    const user = await getAuthenticatedUser(supabase, request)
 
     if (!user) {
+      prodError('[API] DELETE /api/queue/[id]/delete - Unauthorized')
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
       )
     }
 
-    console.log(`[API] Deleting document ${id}`)
+    middlewareLog('important', '[API] Deleting document', {
+      documentId: id,
+      userId: user.id
+    })
 
     // Fetch the document to verify ownership and status
     const { data: document, error: documentError } = await supabase
@@ -55,7 +60,7 @@ export async function DELETE(
         const processingService = await getProcessingService(getDefaultSettings())
         await processingService.cancelProcessing(id)
       } catch (e) {
-        console.error('Error cancelling processing:', e)
+        prodError('[API] Error cancelling processing:', e as Error)
       }
     }
 
@@ -70,7 +75,7 @@ export async function DELETE(
         .remove([docPath])
 
       if (storageError) {
-        console.error('Error removing document from storage:', storageError)
+        prodError('[API] Error removing document from storage:', storageError)
         return NextResponse.json(
           { error: 'Failed to delete source file' },
           { status: 500 }
@@ -86,7 +91,7 @@ export async function DELETE(
       .eq('user_id', user.id)
 
     if (resultsFetchError) {
-      console.error('Error fetching OCR results for storage cleanup:', resultsFetchError)
+      prodError('[API] Error fetching OCR results for storage cleanup:', resultsFetchError)
       return NextResponse.json(
         { error: 'Failed to fetch OCR results' },
         { status: 500 }
@@ -104,7 +109,7 @@ export async function DELETE(
         .remove(resultPaths)
 
       if (resultStorageError) {
-        console.error('Error removing OCR result files:', resultStorageError)
+        prodError('[API] Error removing OCR result files:', resultStorageError)
         return NextResponse.json(
           { error: 'Failed to delete OCR result files' },
           { status: 500 }
@@ -120,7 +125,7 @@ export async function DELETE(
       .eq('user_id', user.id)
 
     if (ocrDeleteError) {
-      console.error('Error removing OCR results:', ocrDeleteError)
+      prodError('[API] Error removing OCR results:', ocrDeleteError)
       return NextResponse.json(
         { error: 'Failed to delete OCR results' },
         { status: 500 }
@@ -135,7 +140,7 @@ export async function DELETE(
       .eq('user_id', user.id)
 
     if (deleteError) {
-      console.error('Error removing document:', deleteError)
+      prodError('[API] Error removing document:', deleteError)
       return NextResponse.json(
         { error: 'Failed to delete document' },
         { status: 500 }
@@ -151,12 +156,12 @@ export async function DELETE(
         .remove([`${user.id}/${id}/.keep`])
     } catch (e) {
       // Ignore folder cleanup errors as they're not critical
-      console.log('Note: Could not clean up empty document folder:', e)
+      middlewareLog('debug', '[API] Delete: Could not clean up empty document folder', e)
     }
 
     return NextResponse.json({ success: true })
   } catch (error) {
-    console.error('Error deleting document:', error)
+    prodError('[API] DELETE /api/queue/[id]/delete - Error deleting document', error as Error)
     return NextResponse.json(
       { error: 'Failed to delete document' },
       { status: 500 }
