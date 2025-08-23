@@ -59,6 +59,59 @@ export async function DELETE(
       }
     }
 
+    // Remove the source file from storage if present
+    if (document.storage_path) {
+      const docPath = document.storage_path.startsWith(`${user.id}/`)
+        ? document.storage_path
+        : `${user.id}/${document.storage_path}`
+
+      const { error: storageError } = await supabase.storage
+        .from('ocr-documents')
+        .remove([docPath])
+
+      if (storageError) {
+        console.error('Error removing document from storage:', storageError)
+        return NextResponse.json(
+          { error: 'Failed to delete source file' },
+          { status: 500 }
+        )
+      }
+    }
+
+    // Fetch OCR result storage paths to remove files from storage
+    const { data: results, error: resultsFetchError } = await supabase
+      .from('ocr_results')
+      .select('storage_path')
+      .eq('document_id', id)
+      .eq('user_id', user.id)
+
+    if (resultsFetchError) {
+      console.error('Error fetching OCR results for storage cleanup:', resultsFetchError)
+      return NextResponse.json(
+        { error: 'Failed to fetch OCR results' },
+        { status: 500 }
+      )
+    }
+
+    const resultPaths = (results || [])
+      .map((r) => r.storage_path)
+      .filter((p): p is string => !!p)
+      .map((p) => (p.startsWith(`${user.id}/`) ? p : `${user.id}/${p}`))
+
+    if (resultPaths.length > 0) {
+      const { error: resultStorageError } = await supabase.storage
+        .from('ocr-documents')
+        .remove(resultPaths)
+
+      if (resultStorageError) {
+        console.error('Error removing OCR result files:', resultStorageError)
+        return NextResponse.json(
+          { error: 'Failed to delete OCR result files' },
+          { status: 500 }
+        )
+      }
+    }
+
     // Delete any OCR results for this document
     const { error: ocrDeleteError } = await supabase
       .from('ocr_results')
@@ -87,6 +140,18 @@ export async function DELETE(
         { error: 'Failed to delete document' },
         { status: 500 }
       )
+    }
+
+    // Clean up the empty document folder
+    try {
+      // Remove the document folder by attempting to remove a placeholder file
+      // This will remove the empty folder structure
+      await supabase.storage
+        .from('ocr-documents')
+        .remove([`${user.id}/${id}/.keep`])
+    } catch (e) {
+      // Ignore folder cleanup errors as they're not critical
+      console.log('Note: Could not clean up empty document folder:', e)
     }
 
     return NextResponse.json({ success: true })
