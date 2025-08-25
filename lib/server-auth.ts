@@ -75,6 +75,22 @@ export async function getAuthenticatedUser(
   supabase: SupabaseClient,
   req?: Request
 ): Promise<User | null> {
+  // First, check if user information was forwarded by the middleware
+  if (req) {
+    const headerUser = req.headers.get('x-user')
+    if (headerUser) {
+      try {
+        const parsed = JSON.parse(decodeURIComponent(headerUser)) as User
+        middlewareLog('important', '[Server-Auth] User provided by middleware', {
+          email: parsed.email
+        })
+        return parsed
+      } catch (e) {
+        prodError('[Server-Auth] Failed to parse user header:', e)
+      }
+    }
+  }
+
   // Try to get user directly
   const { data: userData, error: userError } = await supabase.auth.getUser()
 

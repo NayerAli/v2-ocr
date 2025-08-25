@@ -154,10 +154,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         middlewareLog('important', '[Auth Provider] Redirecting to:', redirectTo)
 
-        // Force a small delay to ensure the session is properly established
+        // Force a brief delay to ensure the session is properly established
         setTimeout(() => {
           router.push(redirectTo)
-        }, 1000)
+        }, 500)
       } else {
       prodError('[Auth Provider] Sign in returned no user')
         throw new Error('Sign in failed - no user returned')

@@ -10,24 +10,46 @@ export async function middleware(req: NextRequest) {
 
   try {
     // Use the updateSession function to create a Supabase client and handle session
-    const { supabase, response } = await updateSession(req)
+    const { supabase, response: sessionResponse } = await updateSession(req)
 
     // Check if user is authenticated
     let user = null
     let error = null
-    
-    try {
-        const { data, error: userError } = await supabase.auth.getUser()
-        user = data?.user
-        error = userError
-      } catch (e) {
-        prodError('Middleware: Error in auth.getUser():', e)
-        error = e
-      }
 
-      if (error) {
-        prodError('Middleware: Error getting user:', error instanceof Error ? error.message : 'Unknown error')
-      }
+    try {
+      const { data, error: userError } = await supabase.auth.getUser()
+      user = data?.user
+      error = userError
+    } catch (e) {
+      prodError('Middleware: Error in auth.getUser():', e)
+      error = e
+    }
+
+    if (error) {
+      prodError('Middleware: Error getting user:', error instanceof Error ? error.message : 'Unknown error')
+    }
+
+    // Prepare response with forwarded user headers
+    const requestHeaders = new Headers(req.headers)
+    if (user) {
+      requestHeaders.set('x-user', encodeURIComponent(JSON.stringify(user)))
+    }
+    let response = NextResponse.next({ request: { headers: requestHeaders } })
+    // copy cookies from sessionResponse to our response
+    const sessionCookies = sessionResponse.cookies.getAll()
+    for (const cookie of sessionCookies) {
+      response.cookies.set({
+        name: cookie.name,
+        value: cookie.value,
+        domain: cookie.domain,
+        expires: cookie.expires,
+        httpOnly: cookie.httpOnly,
+        maxAge: cookie.maxAge,
+        path: cookie.path,
+        sameSite: cookie.sameSite as 'strict' | 'lax' | 'none' | undefined,
+        secure: cookie.secure,
+      })
+    }
 
     // Check auth condition based on route
     const url = req.nextUrl.pathname
@@ -64,8 +86,8 @@ export async function middleware(req: NextRequest) {
       // Create a new response with redirect
       const redirectResponse = NextResponse.redirect(redirectUrl)
       
-      // Copy cookies from the response to the redirect response
-      const cookiesList = response.cookies.getAll()
+      // Copy cookies from the session response to the redirect response
+      const cookiesList = sessionResponse.cookies.getAll()
       for (const cookie of cookiesList) {
         redirectResponse.cookies.set({
           name: cookie.name,
@@ -91,8 +113,8 @@ export async function middleware(req: NextRequest) {
         }
       const redirectResponse = NextResponse.redirect(new URL('/', req.url))
       
-      // Copy cookies from the response to the redirect response
-      const homeRedirectCookies = response.cookies.getAll()
+      // Copy cookies from the session response to the redirect response
+      const homeRedirectCookies = sessionResponse.cookies.getAll()
       for (const cookie of homeRedirectCookies) {
         redirectResponse.cookies.set({
           name: cookie.name,
