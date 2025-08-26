@@ -5,6 +5,7 @@
 import type { User, Session, SupabaseClient } from '@supabase/supabase-js'
 import { middlewareLog, prodError } from './log'
 import { createClient } from './supabase/server'
+import { verifyAccessToken } from './jwt'
 
 /**
  * Create a Supabase client for server-side use
@@ -69,7 +70,7 @@ export async function getServerUser(): Promise<User | null> {
 }
 
 /**
- * Retrieve authenticated user with session refresh and cookie fallback
+ * Retrieve authenticated user with local JWT validation and session refresh
  */
 export async function getAuthenticatedUser(
   supabase: SupabaseClient,
@@ -91,7 +92,28 @@ export async function getAuthenticatedUser(
     }
   }
 
-  // Try to get user directly
+  // Attempt local JWT validation before contacting Supabase
+  if (req) {
+    const cookieHeader = req.headers.get('cookie') || ''
+    const cookies = cookieHeader.split(';').map(c => c.trim())
+    const tokenCookie = cookies.find(c => c.startsWith('sb-access-token='))
+    if (tokenCookie) {
+      const token = tokenCookie.split('=')[1]
+      const claims = verifyAccessToken(token)
+      if (claims) {
+        middlewareLog('important', '[Server-Auth] User authenticated from JWT', {
+          email: claims.email
+        })
+        return {
+          id: claims.id,
+          email: claims.email,
+          role: claims.role
+        } as User
+      }
+    }
+  }
+
+  // Try to get user directly from Supabase
   const { data: userData, error: userError } = await supabase.auth.getUser()
 
   if (userData?.user) {
@@ -125,51 +147,6 @@ export async function getAuthenticatedUser(
 
     if (verifyError) {
       prodError('[Server-Auth] Error verifying user:', verifyError.message)
-    }
-  }
-
-  // Fallback: attempt to extract user from cookies
-  if (req) {
-    try {
-      const cookieHeader = req.headers.get('cookie') || ''
-      const cookies = cookieHeader.split(';').map(c => c.trim())
-
-      const authCookie = cookies.find(c =>
-        c.startsWith('sb-auth-token=') ||
-        c.startsWith('sb-localhost:8000-auth-token=') ||
-        c.includes('-auth-token=')
-      )
-
-      if (authCookie) {
-        const tokenValue = authCookie.split('=')[1]
-        if (tokenValue) {
-          try {
-            const tokenData = JSON.parse(decodeURIComponent(tokenValue))
-            if (tokenData.access_token) {
-              const { data: manualSessionData, error: manualSessionError } =
-                await supabase.auth.setSession({
-                  access_token: tokenData.access_token,
-                  refresh_token: tokenData.refresh_token || ''
-                })
-
-              if (manualSessionData?.user) {
-                middlewareLog('important', '[Server-Auth] User authenticated from manual token', {
-                  email: manualSessionData.user.email
-                })
-                return manualSessionData.user
-              }
-
-              if (manualSessionError) {
-                prodError('[Server-Auth] Error setting manual session:', manualSessionError.message)
-              }
-            }
-          } catch (parseError) {
-            prodError('[Server-Auth] Error parsing auth token:', parseError as Error)
-          }
-        }
-      }
-    } catch (cookieError) {
-      prodError('[Server-Auth] Error extracting user from cookies:', cookieError as Error)
     }
   }
 
