@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
+import type { User } from '@supabase/supabase-js'
+import { verifyAccessToken } from '@/lib/jwt'
 import { updateSession } from '@/lib/supabase/middleware'
 import { middlewareLog, prodError } from '@/lib/log'
 
@@ -13,16 +15,44 @@ export async function middleware(req: NextRequest) {
     const { supabase, response: sessionResponse } = await updateSession(req)
 
     // Check if user is authenticated
-    let user = null
-    let error = null
+    let user: User | null = null
+    let error: unknown = null
 
-    try {
-      const { data, error: userError } = await supabase.auth.getUser()
-      user = data?.user
-      error = userError
-    } catch (e) {
-      prodError('Middleware: Error in auth.getUser():', e)
-      error = e
+    // Try to read the access token from cookies (supports project-specific names)
+    const tokenCookieNames = ['sb-access-token', 'sb-localhost:8000-access-token']
+    const projectRef = process.env.NEXT_PUBLIC_SUPABASE_URL?.split('//')[1]?.split('.')[0]
+    if (projectRef && !tokenCookieNames.includes(`sb-${projectRef}-access-token`)) {
+      tokenCookieNames.push(`sb-${projectRef}-access-token`)
+    }
+
+    let accessToken: string | undefined
+    for (const name of tokenCookieNames) {
+      const val = req.cookies.get(name)?.value
+      if (val) {
+        accessToken = val
+        break
+      }
+    }
+
+    const claims = verifyAccessToken(accessToken)
+    if (claims) {
+      user = {
+        id: claims.id,
+        email: claims.email,
+        role: claims.role,
+        aud: claims.aud,
+      } as User
+    } else {
+      try {
+        const { data, error: userError } = await supabase.auth.getUser()
+        user = data?.user ?? null
+        error = userError
+      } catch (e) {
+        prodError('Middleware: Error in auth.getUser():', e)
+        if (!accessToken) {
+          error = e
+        }
+      }
     }
 
     if (error) {
