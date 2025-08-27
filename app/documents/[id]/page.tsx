@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react"
+import type { SyntheticEvent } from "react"
 import { ArrowLeft, Download, Copy, ChevronLeft, ChevronRight, Check, AlertCircle, Keyboard, Search, Minus, Plus, Type, ScanLine, Upload, FileText, ImageIcon } from "lucide-react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
@@ -233,45 +234,57 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
   }, [handleZoomChange, zoomLevel])
 
   // Function to refresh a signed URL using the storage path
-  const refreshSignedUrl = useCallback(async (result: OCRResult | undefined): Promise<string | undefined> => {
-    if (!result || !result.storagePath) return undefined;
+  const refreshSignedUrl = useCallback(
+    async (
+      arg?: OCRResult | SyntheticEvent<HTMLImageElement>
+    ): Promise<string | undefined> => {
+      const result =
+        arg && typeof arg === 'object' && 'storagePath' in arg
+          ? (arg as OCRResult)
+          : currentResult;
 
-    try {
-      // Generate a new signed URL
-      const { supabase } = await import('@/lib/database/utils');
-      const { getUser } = await import('@/lib/auth');
-      const user = await getUser();
-      
-      if (!user) {
-        console.error('User not authenticated, cannot generate signed URL');
-        return undefined;
-      }
-      
-      // Add the user ID to the storage path to match how files are uploaded
-      const userPath = `${user.id}/${result.storagePath}`;
-      const { data, error } = await supabase.storage
-        .from('ocr-documents')
-        .createSignedUrl(userPath, 86400);
+      if (!result || !result.storagePath) return undefined;
 
-      if (error || !data?.signedUrl) {
-        console.error(`Error generating signed URL for page ${result.pageNumber}:`, error);
-        return undefined;
-      }
+      try {
+        // Generate a new signed URL
+        const { supabase } = await import('@/lib/database/utils');
+        const { getUser } = await import('@/lib/auth');
+        const user = await getUser();
 
-      // Update the result in our local state
-      setResults(prev => prev.map(r => {
-        if (r.id === result.id) {
-          return { ...r, imageUrl: data.signedUrl };
+        if (!user) {
+          console.error('User not authenticated, cannot generate signed URL');
+          return undefined;
         }
-        return r;
-      }));
 
-      return data.signedUrl;
-    } catch (error) {
-      console.error('Error refreshing signed URL:', error);
-      return undefined;
-    }
-  }, []);
+        // Add the user ID to the storage path to match how files are uploaded
+        const userPath = `${user.id}/${result.storagePath}`;
+        const { data, error } = await supabase.storage
+          .from('ocr-documents')
+          .createSignedUrl(userPath, 86400);
+
+        if (error || !data?.signedUrl) {
+          console.error(`Error generating signed URL for page ${result.pageNumber}:`, error);
+          return undefined;
+        }
+
+        // Update the result in our local state
+        setResults(prev =>
+          prev.map(r => (r.id === result.id ? { ...r, imageUrl: data.signedUrl } : r))
+        );
+
+        // Reload the image if it's the current one
+        if (imageRef.current && result.id === currentResult?.id) {
+          imageRef.current.src = data.signedUrl;
+        }
+
+        return data.signedUrl;
+      } catch (error) {
+        console.error('Error refreshing signed URL:', error);
+        return undefined;
+      }
+    },
+    [currentResult]
+  );
 
   // Function to ensure all results have valid signed URLs
   const ensureSignedUrls = useCallback(async (results: OCRResult[]) => {
@@ -705,35 +718,6 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
       setPanPosition({ x: 0, y: 0 })
     }
   }, [])
-
-  const handleImageError = useCallback(async () => {
-    setImageError(true)
-    setImageLoaded(false)
-
-    // If this is the first error, try to refresh the URL automatically
-    if (retryCount === 0 && currentResult?.storagePath) {
-      try {
-        setIsRetrying(true)
-        const refreshedUrl = await refreshSignedUrl(currentResult)
-        if (refreshedUrl) {
-          // The URL has been refreshed in the state, so the image will reload
-          setImageError(false)
-          setRetryCount(prev => prev + 1)
-          return
-        }
-      } catch (error) {
-        console.error('Error auto-refreshing image URL:', error)
-      } finally {
-        setIsRetrying(false)
-      }
-    }
-
-    toast({
-      variant: "destructive",
-      title: "Image Load Error",
-      description: "Failed to load image preview. You can still view the extracted text.",
-    })
-  }, [toast, retryCount, currentResult, refreshSignedUrl])
 
   const handleSearch = useCallback((query: string) => {
     setSearchQuery(query)
@@ -1689,7 +1673,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
                 "will-change-transform"
               )}
               onLoad={handleImageLoad}
-              onError={handleImageError}
+              onError={refreshSignedUrl}
               draggable={false}
               loading="eager"
               decoding="async"
