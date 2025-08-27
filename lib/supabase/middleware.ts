@@ -1,5 +1,6 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { type NextRequest, NextResponse } from 'next/server'
+import { middlewareLog, prodError } from '@/lib/log'
 
 /**
  * Middleware helper function that handles:
@@ -65,20 +66,58 @@ export async function updateSession(request: NextRequest) {
     }
   )
 
-  // Refresh the session - this will set the necessary cookies
+  // Determine if the session needs refreshing based on cookie expiry
+  let shouldRefresh = true
   try {
-    await supabase.auth.getUser()
-  } catch (error) {
-    console.error('Error refreshing auth session:', error)
-    // Implement retry for specific network errors
-    if (error instanceof Error && 
-        (error.name === 'AggregateError' || error.message?.includes('fetch failed'))) {
-      console.warn('Retrying Supabase session refresh due to network error')
-      await new Promise(resolve => setTimeout(resolve, 500))
-      try {
-        await supabase.auth.getUser()
-      } catch (retryError) {
-        console.error('Retry also failed:', retryError)
+    // Handle multiple possible auth cookie names (dev and prod)
+    const cookieNames = ['sb-auth-token', 'sb-localhost:8000-auth-token']
+    const projectRef = process.env.NEXT_PUBLIC_SUPABASE_URL?.split('//')[1]?.split('.')[0]
+    if (projectRef && !cookieNames.includes(`sb-${projectRef}-auth-token`)) {
+      cookieNames.push(`sb-${projectRef}-auth-token`)
+    }
+
+    let authCookie: string | undefined
+    for (const name of cookieNames) {
+      const val = request.cookies.get(name)?.value
+      if (val) {
+        authCookie = val
+        break
+      }
+    }
+
+    if (authCookie) {
+      const tokenData = JSON.parse(authCookie)
+      const expiresAt = tokenData.expires_at
+      if (expiresAt) {
+        const now = Math.floor(Date.now() / 1000)
+        if (expiresAt - now > 60) {
+          shouldRefresh = false
+          middlewareLog('debug', '[Supabase-Middleware] Session valid; skipping refresh')
+        }
+      }
+    }
+  } catch (e) {
+    prodError('[Supabase-Middleware] Error parsing auth token for refresh check', e)
+  }
+
+  // Refresh the session only when necessary
+  if (shouldRefresh) {
+    try {
+      await supabase.auth.getUser()
+    } catch (error) {
+      prodError('[Supabase-Middleware] Error refreshing auth session:', error)
+      // Implement retry for specific network errors
+      if (
+        error instanceof Error &&
+        (error.name === 'AggregateError' || error.message?.includes('fetch failed'))
+      ) {
+        middlewareLog('debug', '[Supabase-Middleware] Retrying session refresh after network error')
+        await new Promise(resolve => setTimeout(resolve, 500))
+        try {
+          await supabase.auth.getUser()
+        } catch (retryError) {
+          prodError('[Supabase-Middleware] Retry also failed:', retryError)
+        }
       }
     }
   }

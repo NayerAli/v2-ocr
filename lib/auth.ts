@@ -1,6 +1,6 @@
 import type { User, Session } from '@supabase/supabase-js'
 import { getSupabaseClient } from './supabase/singleton-client'
-import { debugLog, debugError } from './log'
+import { middlewareLog, prodError } from './log'
 
 /**
  * Get the current user session
@@ -14,19 +14,19 @@ export async function getSession(): Promise<Session | null> {
     const { data, error } = await supabase.auth.getSession()
 
     if (error) {
-      debugError('Error getting session:', error.message)
+      prodError('[Auth] Error getting session:', error.message)
       return null
     }
 
     if (data.session) {
-      debugLog('Session found for user:', data.session.user.email)
+      middlewareLog('debug', '[Auth] Session found')
       return data.session
     } else {
-      debugLog('No session found')
+      middlewareLog('debug', '[Auth] No session found')
       return null
     }
   } catch (error) {
-    debugError('Exception getting session:', error)
+    prodError('[Auth] Exception getting session:', error)
     return null
   }
 }
@@ -36,24 +36,23 @@ export async function getSession(): Promise<Session | null> {
  */
 export async function getUser(): Promise<User | null> {
   try {
-    // First try to get the session
-    const session = await getSession()
-    if (session?.user) {
-      return session.user
-    }
-
-    // If no session, try to get the user directly
     const supabase = getSupabaseClient()
     const { data, error } = await supabase.auth.getUser()
 
     if (error) {
-      debugError('Error getting user:', error.message)
+      prodError('[Auth] Error getting user:', error.message)
       return null
     }
 
-    return data.user || null
+    if (data.user) {
+      middlewareLog('debug', '[Auth] User found:', data.user.email)
+      return data.user
+    }
+
+    middlewareLog('debug', '[Auth] No user found')
+    return null
   } catch (error) {
-    debugError('Exception getting user:', error)
+    prodError('[Auth] Exception getting user:', error)
     return null
   }
 }

@@ -34,6 +34,8 @@ function shouldShowInProduction(message: string): boolean {
   );
 }
 
+// Basic logging wrappers without deduplication
+
 /**
  * Log debug messages (development only)
  * Use for verbose debugging information that should not appear in production
@@ -100,7 +102,7 @@ export function middlewareLog(type: 'important' | 'debug', message: string, ...a
   // In development, show all logs
   // In production, only show logs that match the allowed patterns
   if (!isProduction || (type === 'important' && shouldShowInProduction(message))) {
-    console.log(message, ...args);
+    console.log(message, ...args)
   }
 }
 
