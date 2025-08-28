@@ -6,6 +6,7 @@ import type { OCRProvider } from "./providers/types";
 import { MistralOCRProvider } from "./providers/mistral";
 import { getUser } from "@/lib/auth";
 import { getSupabaseClient } from "@/lib/supabase/singleton-client";
+import { getUUID } from "@/lib/uuid";
 
 // Configuration
 const STORAGE_CONFIG = {
@@ -105,7 +106,7 @@ export class FileProcessor {
       if (!user) throw new Error("User not authenticated");
 
       // Generate a unique ID for the OCR result
-      const resultId = crypto.randomUUID();
+      const resultId = getUUID();
 
       // Use the storage path from the status object (already uploaded in queue manager)
       const path = status.storagePath;
@@ -183,7 +184,7 @@ export class FileProcessor {
               }
 
               // Generate a unique ID for the OCR result
-              const resultId = crypto.randomUUID();
+              const resultId = getUUID();
 
               // Use the storage path from the status object (already uploaded in queue manager)
               const pdfPath = status.storagePath;
@@ -395,7 +396,7 @@ export class FileProcessor {
       if (!user) throw new Error("User not authenticated");
 
       // Generate a unique ID for the OCR result
-      const resultId = crypto.randomUUID();
+      const resultId = getUUID();
 
       const blob = await this.base64ToBlob(base64Data, 'image/jpeg');
       // Use the new naming convention: Page_(page_number).(image_extension)
@@ -470,7 +471,7 @@ export class FileProcessor {
 
       // Create an error result
       const errorResult: OCRResult = {
-        id: crypto.randomUUID(),
+        id: getUUID(),
         documentId: status.id,
         text: `Error processing page ${pageNum}: ${error instanceof Error ? error.message : String(error)}`,
         confidence: 0,

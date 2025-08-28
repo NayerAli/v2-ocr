@@ -5,6 +5,7 @@
 import fs from 'fs'
 import path from 'path'
 import { NextRequest, NextResponse } from 'next/server'
+import { getUUID } from '@/lib/uuid'
 import { debugLog, prodError } from './log'
 
 // Configure log directory and file
@@ -43,7 +44,7 @@ export function logApiRequest(
   body?: Record<string, unknown>
 ) {
   const timestamp = new Date().toISOString()
-  const requestId = crypto.randomUUID()
+  const requestId = getUUID()
 
   const logEntry = {
     timestamp,

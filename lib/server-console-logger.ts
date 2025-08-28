@@ -3,6 +3,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { getUUID } from '@/lib/uuid'
 import { serverLog, serverError } from './log'
 
 /**
@@ -16,7 +17,7 @@ export function logApiRequestToConsole(
   url: string,
   params?: Record<string, unknown>
 ) {
-  const requestId = crypto.randomUUID().substring(0, 8)
+  const requestId = getUUID().substring(0, 8)
 
   // Note: We're not logging headers to avoid exposing sensitive information
 
@@ -50,7 +51,7 @@ export function withConsoleApiLogging(handler: (req: NextRequest) => Promise<Nex
     const pathname = req.nextUrl.pathname
 
     // Generate a unique request ID
-    const requestId = crypto.randomUUID().substring(0, 8)
+    const requestId = getUUID().substring(0, 8)
 
     // Extract query parameters if needed in the future
     // const { searchParams } = new URL(url)

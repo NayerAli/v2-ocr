@@ -1,6 +1,7 @@
 // Results-related database operations
 
 import { getUser } from '../../auth'
+import { getUUID } from '@/lib/uuid'
 import type { OCRResult } from '@/types'
 // camelToSnake is imported but not used in this file
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -87,7 +88,7 @@ export async function saveResults(documentId: string, results: OCRResult[]): Pro
     const preparedResult = {
       ...rest, // Include remaining properties
       document_id: documentId, // Always use the parameter value for document_id
-      id: result.id || crypto.randomUUID(),
+      id: result.id || getUUID(),
       user_id: userId,
       text: result.text || '',
       confidence: result.confidence || 0,

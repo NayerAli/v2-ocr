@@ -1,4 +1,5 @@
 import type { OCRResult, OCRSettings } from "@/types";
+import { getUUID } from "@/lib/uuid";
 import type { OCRProvider } from "./types";
 
 export class GoogleVisionProvider implements OCRProvider {
@@ -48,7 +49,7 @@ export class GoogleVisionProvider implements OCRProvider {
 
     if (!result?.fullTextAnnotation) {
       return {
-        id: crypto.randomUUID(),
+        id: getUUID(),
         documentId: "",
         text: "",
         confidence: 0,
@@ -59,7 +60,7 @@ export class GoogleVisionProvider implements OCRProvider {
     }
 
     return {
-      id: crypto.randomUUID(),
+      id: getUUID(),
       documentId: "",
       text: result.fullTextAnnotation.text,
       confidence: result.fullTextAnnotation.pages?.[0]?.confidence || 1,

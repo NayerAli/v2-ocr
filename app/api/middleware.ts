@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getUUID } from '@/lib/uuid'
 import { logServerMessage } from '@/lib/server-logger'
 
 /**
@@ -11,7 +12,7 @@ export function withApiLogging(handler: (req: NextRequest) => Promise<NextRespon
     const pathname = req.nextUrl.pathname
 
     // Generate a unique request ID
-    const requestId = crypto.randomUUID()
+    const requestId = getUUID()
 
     // Extract query parameters
     const { searchParams } = new URL(url)
