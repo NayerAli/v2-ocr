@@ -666,6 +666,34 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     }
   }, [])
 
+  const handleImageError = useCallback(async () => {
+    setImageError(true)
+    setImageLoaded(false)
+
+    // Attempt a single automatic refresh on first failure
+    if (retryCount === 0 && currentResult?.storagePath) {
+      try {
+        setIsRetrying(true)
+        const refreshedUrl = await refreshSignedUrl(currentResult)
+        if (refreshedUrl) {
+          setImageError(false)
+          setRetryCount(prev => prev + 1)
+          return
+        }
+      } catch (error) {
+        console.error('Error auto-refreshing image URL:', error)
+      } finally {
+        setIsRetrying(false)
+      }
+    }
+
+    toast({
+      variant: 'destructive',
+      title: 'Image Load Error',
+      description: "Failed to load image preview. You can still view the extracted text.",
+    })
+  }, [toast, retryCount, currentResult, refreshSignedUrl])
+
   const handleSearch = useCallback((query: string) => {
     setSearchQuery(query)
     if (!query.trim()) {
@@ -1620,7 +1648,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
                 "will-change-transform"
               )}
               onLoad={handleImageLoad}
-              onError={refreshSignedUrl}
+              onError={handleImageError}
               draggable={false}
               loading="eager"
               decoding="async"
