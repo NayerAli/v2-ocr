@@ -1,4 +1,5 @@
 import type { OCRResult, OCRSettings } from "@/types";
+import { getUUID } from "@/lib/uuid";
 import type { MistralOCRResponse, OCRProvider } from "./types";
 import { MistralRateLimiter } from "../rate-limiter";
 
@@ -109,7 +110,7 @@ export class MistralOCRProvider implements OCRProvider {
           } else {
             // Return a special result indicating rate limiting
             return {
-              id: crypto.randomUUID(),
+              id: getUUID(),
               documentId: "",
               text: "Rate limit exceeded. Please try again later.",
               confidence: 0,
@@ -222,7 +223,7 @@ export class MistralOCRProvider implements OCRProvider {
         console.log(`[Mistral] Successfully processed image page ${pageNumber}/${totalPages}`);
 
         return {
-          id: crypto.randomUUID(),
+          id: getUUID(),
           documentId: "",
           text: extractedText,
           confidence: 1, // Mistral doesn't provide confidence scores, so we use 1
@@ -486,7 +487,7 @@ export class MistralOCRProvider implements OCRProvider {
       this.rateLimiter.setRateLimit(retryDelaySeconds);
 
       return {
-        id: crypto.randomUUID(),
+        id: getUUID(),
         documentId: "",
         text: `Rate limited. Will retry after ${retryDelaySeconds}s.`,
         confidence: 0,
@@ -563,7 +564,7 @@ export class MistralOCRProvider implements OCRProvider {
     console.log(`[Mistral] Successfully processed PDF with ${totalPages} page(s)`);
 
     return {
-      id: crypto.randomUUID(),
+      id: getUUID(),
       documentId: "",
       text: extractedText,
       confidence: 1, // Mistral doesn't provide confidence scores, so we use 1

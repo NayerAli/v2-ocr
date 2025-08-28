@@ -1,8 +1,10 @@
 import type { ProcessingStatus } from "@/types";
+import "@/lib/polyfills";
 import type { ProcessingSettings, UploadSettings } from "@/types/settings";
 import { db } from "../database";
 import { FileProcessor } from "./file-processor";
 import { updateDocumentStatus, retryDocument as retryDocumentUtil } from "./document-status-utils";
+import { getUUID } from "@/lib/uuid";
 
 export class QueueManager {
   private queueMap: Map<string, ProcessingStatus> = new Map();
@@ -72,7 +74,7 @@ export class QueueManager {
         throw new Error(`Invalid file: ${file.name}`);
       }
 
-      const id = crypto.randomUUID();
+      const id = getUUID();
       const now = new Date();
 
       // Generate a storage path for the file using the new naming convention
