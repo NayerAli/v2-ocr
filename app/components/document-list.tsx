@@ -132,14 +132,23 @@ export function DocumentList({
     { type: 'delete' | 'cancel'; id: string } | null
   >(null)
 
-  const handleConfirm = () => {
+  const [busy, setBusy] = useState(false)
+
+  const handleConfirm = async () => {
     if (!pendingAction) return
-    if (pendingAction.type === 'delete') {
-      onDelete(pendingAction.id)
-    } else if (pendingAction.type === 'cancel' && onCancel) {
-      onCancel(pendingAction.id)
+    setBusy(true)
+    try {
+      if (pendingAction.type === 'delete') {
+        await Promise.resolve(onDelete(pendingAction.id))
+      } else if (pendingAction.type === 'cancel' && onCancel) {
+        await Promise.resolve(onCancel(pendingAction.id))
+      }
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setBusy(false)
+      setPendingAction(null)
     }
-    setPendingAction(null)
   }
 
   const dialog = (
@@ -158,10 +167,11 @@ export function DocumentList({
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
-          <Button variant="outline" onClick={() => setPendingAction(null)}>
+          <Button variant="outline" onClick={() => setPendingAction(null)} disabled={busy}>
             {t('close', language)}
           </Button>
-          <Button variant="destructive" onClick={handleConfirm}>
+          <Button variant="destructive" onClick={handleConfirm} disabled={busy}>
+            {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {pendingAction?.type === 'delete'
               ? t('delete', language)
               : t('cancel', language)}
