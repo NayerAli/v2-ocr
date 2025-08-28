@@ -405,48 +405,39 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
       // If we have a result but no imageUrl, try to refresh it
       if (currentResult && currentResult.storagePath) {
         refreshSignedUrl(currentResult).catch(err => {
-          console.error('Error refreshing URL on page change:', err);
-        });
+          console.error('Error refreshing URL on page change:', err)
+        })
       }
-      return;
+      return
     }
 
     // Check if image is already in cache
-    const cachedImage = imageCache.has(currentResult.imageUrl);
+    const cachedImage = imageCache.has(currentResult.imageUrl)
     if (cachedImage) {
-      setImageLoaded(true);
-      setImageError(false);
-      setIsRetrying(false);
-      return;
+      setImageLoaded(true)
+      setImageError(false)
+      setIsRetrying(false)
+      return
     }
 
-    const img = new Image();
+    const img = new Image()
     img.onload = () => {
-      setImageLoaded(true);
-      setImageError(false);
-      setIsRetrying(false);
+      setImageLoaded(true)
+      setImageError(false)
+      setIsRetrying(false)
       // Add to cache
-      imageCache.set(currentResult.imageUrl!, img);
-    };
+      imageCache.set(currentResult.imageUrl!, img)
+    }
     img.onerror = () => {
-      setImageError(true);
-      setImageLoaded(false);
-      setIsRetrying(false);
-
-      // If image fails to load, try to refresh the URL automatically
-      if (currentResult.storagePath) {
-        refreshSignedUrl(currentResult).catch(err => {
-          console.error('Error auto-refreshing URL after load error:', err);
-        });
-      }
-    };
-    img.src = currentResult.imageUrl;
+      void handleImageError()
+    }
+    img.src = currentResult.imageUrl
 
     return () => {
-      img.onload = null;
-      img.onerror = null;
-    };
-  }, [currentResult, refreshSignedUrl])
+      img.onload = null
+      img.onerror = null
+    }
+  }, [currentResult, refreshSignedUrl, handleImageError])
 
   // Reset states when page changes
   useEffect(() => {
