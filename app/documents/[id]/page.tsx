@@ -97,6 +97,19 @@ function isRTLText(text: string): boolean {
   return rtlRegex.test(text)
 }
 
+function deriveStoragePathFromUrl(url: string | undefined, userId: string): string | undefined {
+  if (!url) return undefined
+  try {
+    const match = url.match(/\/object\/sign\/[^/]+\/([^?]+)/)
+    if (!match) return undefined
+    const fullPath = decodeURIComponent(match[1])
+    const prefix = `${userId}/`
+    return fullPath.startsWith(prefix) ? fullPath.slice(prefix.length) : fullPath
+  } catch {
+    return undefined
+  }
+}
+
 function FileNameDisplay({ filename }: { filename: string }) {
   const isRTL = isRTLText(filename)
   return (
@@ -234,44 +247,47 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
 
   // Function to refresh a signed URL using the storage path
   const refreshSignedUrl = useCallback(async (result: OCRResult | undefined): Promise<string | undefined> => {
-    if (!result || !result.storagePath) return undefined;
+    if (!result) return undefined
 
     try {
-      // Generate a new signed URL
-      const { supabase } = await import('@/lib/database/utils');
-      const { getUser } = await import('@/lib/auth');
-      const user = await getUser();
-      
+      const { supabase } = await import('@/lib/database/utils')
+      const { getUser } = await import('@/lib/auth')
+      const user = await getUser()
+
       if (!user) {
-        console.error('User not authenticated, cannot generate signed URL');
-        return undefined;
+        console.error('User not authenticated, cannot generate signed URL')
+        return undefined
       }
-      
-      // Add the user ID to the storage path to match how files are uploaded
-      const userPath = `${user.id}/${result.storagePath}`;
+
+      const storagePath = result.storagePath ?? deriveStoragePathFromUrl(result.imageUrl, user.id)
+      if (!storagePath) {
+        console.error('Missing storage path for result', result.id)
+        return undefined
+      }
+
       const { data, error } = await supabase.storage
         .from('ocr-documents')
-        .createSignedUrl(userPath, 86400);
+        .createSignedUrl(`${user.id}/${storagePath}`, 86400)
 
       if (error || !data?.signedUrl) {
-        console.error(`Error generating signed URL for page ${result.pageNumber}:`, error);
-        return undefined;
+        console.error(`Error generating signed URL for page ${result.pageNumber}:`, error)
+        return undefined
       }
 
       // Update the result in our local state
       setResults(prev => prev.map(r => {
         if (r.id === result.id) {
-          return { ...r, imageUrl: data.signedUrl };
+          return { ...r, imageUrl: data.signedUrl, storagePath }
         }
-        return r;
-      }));
+        return r
+      }))
 
-      return data.signedUrl;
+      return data.signedUrl
     } catch (error) {
-      console.error('Error refreshing signed URL:', error);
-      return undefined;
+      console.error('Error refreshing signed URL:', error)
+      return undefined
     }
-  }, []);
+  }, [])
 
   // Function to ensure all results have valid signed URLs
   const ensureSignedUrls = useCallback(async (results: OCRResult[]) => {
@@ -291,43 +307,37 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
 
     // Process all results in parallel for efficiency
     const updatePromises = results.map(async (result, index) => {
-      // Skip results that don't have a storage path
-      if (!result.storagePath) return null;
+      const storagePath = result.storagePath ?? deriveStoragePathFromUrl(result.imageUrl, user.id)
+      if (!storagePath) return null
 
-      // If the result already has a valid imageUrl that's not expired, skip it
       if (result.imageUrl && result.imageUrl.startsWith('http')) {
         try {
-          // Quick check if URL is valid by creating a HEAD request
-          const response = await fetch(result.imageUrl, { method: 'HEAD', cache: 'no-store' });
-          if (response.ok) return null; // URL is still valid
+          const response = await fetch(result.imageUrl, { method: 'HEAD', cache: 'no-store' })
+          if (response.ok) return null
         } catch {
-          // URL is invalid or expired, continue to refresh it
+          // URL invalid, proceed to refresh
         }
       }
 
       try {
-        // Generate a new signed URL with the user ID in the path
-        const { supabase } = await import('@/lib/database/utils');
-        const userPath = `${user.id}/${result.storagePath}`;
-        
+        const { supabase } = await import('@/lib/database/utils')
         const { data, error } = await supabase.storage
           .from('ocr-documents')
-          .createSignedUrl(userPath, 86400);
+          .createSignedUrl(`${user.id}/${storagePath}`, 86400)
 
         if (error || !data?.signedUrl) {
-          console.error(`Error generating signed URL for page ${result.pageNumber}:`, error);
-          return null;
+          console.error(`Error generating signed URL for page ${result.pageNumber}:`, error)
+          return null
         }
 
-        // Update the result with the new URL
-        resultsWithUrls[index] = { ...result, imageUrl: data.signedUrl };
-        hasUpdates = true;
-        return index; // Return the index that was updated
+        resultsWithUrls[index] = { ...result, imageUrl: data.signedUrl, storagePath }
+        hasUpdates = true
+        return index
       } catch (error) {
-        console.error(`Error refreshing signed URL for page ${result.pageNumber}:`, error);
-        return null;
+        console.error(`Error refreshing signed URL for page ${result.pageNumber}:`, error)
+        return null
       }
-    });
+    })
 
     await Promise.all(updatePromises);
 
@@ -443,12 +453,12 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
   useEffect(() => {
     if (!currentResult?.imageUrl) {
       // If we have a result but no imageUrl, try to refresh it
-      if (currentResult && currentResult.storagePath) {
+      if (currentResult) {
         refreshSignedUrl(currentResult).catch(err => {
           console.error('Error refreshing URL on page change:', err);
-        });
+        })
       }
-      return;
+      return
     }
 
     // Check if image is already in cache
@@ -474,10 +484,10 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
       setIsRetrying(false);
 
       // If image fails to load, try to refresh the URL automatically
-      if (currentResult.storagePath) {
+      if (currentResult) {
         refreshSignedUrl(currentResult).catch(err => {
-          console.error('Error auto-refreshing URL after load error:', err);
-        });
+          console.error('Error auto-refreshing URL after load error:', err)
+        })
       }
     };
     img.src = currentResult.imageUrl;
@@ -545,12 +555,10 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     setRetryCount(prev => prev + 1);
 
     // Try to refresh the signed URL if available
-    let imageUrl = result.imageUrl;
-    if (result.storagePath) {
-      const refreshedUrl = await refreshSignedUrl(result);
-      if (refreshedUrl) {
-        imageUrl = refreshedUrl;
-      }
+    let imageUrl = result.imageUrl
+    const refreshedUrl = await refreshSignedUrl(result)
+    if (refreshedUrl) {
+      imageUrl = refreshedUrl
     }
 
     if (!imageUrl) {
@@ -711,7 +719,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     setImageLoaded(false)
 
     // If this is the first error, try to refresh the URL automatically
-    if (retryCount === 0 && currentResult?.storagePath) {
+    if (retryCount === 0 && currentResult) {
       try {
         setIsRetrying(true)
         const refreshedUrl = await refreshSignedUrl(currentResult)
@@ -1531,7 +1539,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     }
 
     // If we have a current result but no image URL, try to refresh it
-    if (currentResult && !currentResult.imageUrl && currentResult.storagePath && !isRetrying) {
+    if (currentResult && !currentResult.imageUrl && !isRetrying) {
       // Attempt to refresh the URL
       refreshSignedUrl(currentResult).catch(console.error);
 
@@ -1771,12 +1779,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
                           size="sm"
                           onClick={() => {
                             // Force refresh the current result
-                            if (currentResult.storagePath) {
-                              refreshSignedUrl(currentResult).catch(console.error);
-                            } else {
-                              // If no storage path, try a full page refresh
-                              window.location.reload();
-                            }
+                            refreshSignedUrl(currentResult).catch(console.error)
                           }}
                         >
                           Refresh Data

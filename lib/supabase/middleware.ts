@@ -86,18 +86,27 @@ export async function updateSession(request: NextRequest) {
     }
 
     if (authCookie) {
-      const tokenData = JSON.parse(authCookie)
-      const expiresAt = tokenData.expires_at
-      if (expiresAt) {
-        const now = Math.floor(Date.now() / 1000)
-        if (expiresAt - now > 60) {
-          shouldRefresh = false
-          middlewareLog('debug', '[Supabase-Middleware] Session valid; skipping refresh')
+      try {
+        let tokenString = authCookie
+        if (tokenString.startsWith('base64-')) {
+          const base64 = tokenString.slice('base64-'.length)
+          tokenString = Buffer.from(base64, 'base64').toString('utf-8')
         }
+        const tokenData = JSON.parse(tokenString)
+        const expiresAt = tokenData.expires_at
+        if (expiresAt) {
+          const now = Math.floor(Date.now() / 1000)
+          if (expiresAt - now > 60) {
+            shouldRefresh = false
+            middlewareLog('debug', '[Supabase-Middleware] Session valid; skipping refresh')
+          }
+        }
+      } catch (e) {
+        prodError('[Supabase-Middleware] Error parsing auth token for refresh check', e)
       }
     }
   } catch (e) {
-    prodError('[Supabase-Middleware] Error parsing auth token for refresh check', e)
+    prodError('[Supabase-Middleware] Error reading auth cookie for refresh check', e)
   }
 
   // Refresh the session only when necessary
