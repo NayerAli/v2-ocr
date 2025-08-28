@@ -81,6 +81,10 @@ interface TranslationKeys {
   downloaded: string
   tryAgain: string
   maxRetriesReached: string
+  deleteSuccess: string
+  deleteError: string
+  cancelSuccess: string
+  cancelError: string
 
   // Confirmations
   confirmDeleteTitle: string
@@ -367,6 +371,10 @@ export const translations: Record<Language, Partial<TranslationKeys>> = {
     downloaded: 'Downloaded',
     tryAgain: 'Try Again',
     maxRetriesReached: 'Max Retries Reached',
+    deleteSuccess: 'Document deleted',
+    deleteError: 'Failed to delete document',
+    cancelSuccess: 'Processing cancelled',
+    cancelError: 'Failed to cancel processing',
 
     // Confirmations
     confirmDeleteTitle: 'Delete document?',
@@ -646,8 +654,12 @@ export const translations: Record<Language, Partial<TranslationKeys>> = {
     copied: 'Copié',
     download: 'Télécharger',
     downloaded: 'Téléchargé',
-    tryAgain: 'Réessayer',
+   tryAgain: 'Réessayer',
     maxRetriesReached: 'Nombre maximal de tentatives atteint',
+    deleteSuccess: 'Document supprimé',
+    deleteError: 'Échec de la suppression du document',
+    cancelSuccess: 'Traitement annulé',
+    cancelError: 'Échec de l\'annulation du traitement',
 
     // Confirmations
     confirmDeleteTitle: 'Supprimer le document ?',
@@ -917,6 +929,10 @@ export const translations: Record<Language, Partial<TranslationKeys>> = {
     downloaded: 'تم التحميل',
     tryAgain: 'حاول مرة أخرى',
     maxRetriesReached: 'تم الوصول إلى الحد الأقصى للمحاولات',
+    deleteSuccess: 'تم حذف المستند',
+    deleteError: 'فشل حذف المستند',
+    cancelSuccess: 'تم إلغاء المعالجة',
+    cancelError: 'فشل إلغاء المعالجة',
 
     // Confirmations
     confirmDeleteTitle: 'حذف المستند؟',
@@ -1178,6 +1194,10 @@ export const translations: Record<Language, Partial<TranslationKeys>> = {
     downloaded: 'تم التحمیل',
     tryAgain: 'تلاش مجدد',
     maxRetriesReached: 'حداکثر تلاش‌ها انجام شد',
+    deleteSuccess: 'سند حذف شد',
+    deleteError: 'حذف سند انجام نشد',
+    cancelSuccess: 'پردازش لغو شد',
+    cancelError: 'لغو پردازش انجام نشد',
 
     // Confirmations
     confirmDeleteTitle: 'حذف سند؟',
