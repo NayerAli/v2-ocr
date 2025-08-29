@@ -99,7 +99,7 @@ export async function getAuthenticatedUser(
     const tokenCookie = cookies.find(c => c.startsWith('sb-access-token='))
     if (tokenCookie) {
       const token = tokenCookie.split('=')[1]
-      const claims = verifyAccessToken(token)
+      const claims = await verifyAccessToken(token)
       if (claims) {
         middlewareLog('important', '[Server-Auth] User authenticated from JWT', {
           email: claims.email

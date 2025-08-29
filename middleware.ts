@@ -34,7 +34,7 @@ export async function middleware(req: NextRequest) {
       }
     }
 
-    const claims = verifyAccessToken(accessToken)
+    const claims = await verifyAccessToken(accessToken)
     if (claims) {
       user = {
         id: claims.id,
