@@ -17,6 +17,7 @@ import { formatFileSize } from "@/lib/file-utils"
 import { cn } from "@/lib/utils"
 import type { ProcessingStatus } from "@/types"
 import { Language, t } from "@/lib/i18n/translations"
+import { useToast } from "@/hooks/use-toast"
 
 interface FileUploadProps {
   onFilesAccepted: (files: File[]) => void
@@ -53,14 +54,29 @@ export function FileUpload({
   const [countdowns, setCountdowns] = useState<Record<string, number>>({})
   const [pendingCancel, setPendingCancel] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const { toast } = useToast()
 
   const handleConfirm = async () => {
     if (!pendingCancel) return
     setBusy(true)
     try {
+      const item = processingQueue.find(i => i.id === pendingCancel)
+      if (!item || item.status !== 'processing') {
+        toast({
+          title: t('error', language),
+          description: t('cancelError', language),
+          variant: 'destructive'
+        })
+        return
+      }
       await Promise.resolve(onCancel(pendingCancel))
     } catch (err) {
       console.error(err)
+      toast({
+        title: t('error', language),
+        description: t('cancelError', language),
+        variant: 'destructive'
+      })
     } finally {
       setBusy(false)
       setPendingCancel(null)
@@ -371,7 +387,11 @@ export function FileUpload({
                       variant="ghost"
                       size="sm"
                       className="h-7 text-red-600 dark:text-red-500 hover:text-red-700 dark:hover:text-red-400 px-2 text-xs gap-1.5"
-                      onClick={() => setPendingCancel(item.id)}
+                      onClick={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        setPendingCancel(item.id)
+                      }}
                     >
                       <X className="h-3.5 w-3.5" />
                       {t('cancel', language)}
