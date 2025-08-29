@@ -81,6 +81,16 @@ interface TranslationKeys {
   downloaded: string
   tryAgain: string
   maxRetriesReached: string
+  deleteSuccess: string
+  deleteError: string
+  cancelSuccess: string
+  cancelError: string
+
+  // Confirmations
+  confirmDeleteTitle: string
+  confirmDeleteDesc: string
+  confirmCancelTitle: string
+  confirmCancelDesc: string
 
   // Document Preview
   sourceDocument: string
@@ -361,6 +371,16 @@ export const translations: Record<Language, Partial<TranslationKeys>> = {
     downloaded: 'Downloaded',
     tryAgain: 'Try Again',
     maxRetriesReached: 'Max Retries Reached',
+    deleteSuccess: 'Document deleted',
+    deleteError: 'Failed to delete document',
+    cancelSuccess: 'Processing cancelled',
+    cancelError: 'Failed to cancel processing',
+
+    // Confirmations
+    confirmDeleteTitle: 'Delete document?',
+    confirmDeleteDesc: 'Are you sure you want to delete this document? This action cannot be undone.',
+    confirmCancelTitle: 'Cancel processing?',
+    confirmCancelDesc: 'Are you sure you want to cancel processing for this document?',
 
     // Document Preview
     sourceDocument: 'Source Document',
@@ -634,8 +654,18 @@ export const translations: Record<Language, Partial<TranslationKeys>> = {
     copied: 'Copié',
     download: 'Télécharger',
     downloaded: 'Téléchargé',
-    tryAgain: 'Réessayer',
+   tryAgain: 'Réessayer',
     maxRetriesReached: 'Nombre maximal de tentatives atteint',
+    deleteSuccess: 'Document supprimé',
+    deleteError: 'Échec de la suppression du document',
+    cancelSuccess: 'Traitement annulé',
+    cancelError: 'Échec de l\'annulation du traitement',
+
+    // Confirmations
+    confirmDeleteTitle: 'Supprimer le document ?',
+    confirmDeleteDesc: 'Êtes-vous sûr de vouloir supprimer ce document ? Cette action est irréversible.',
+    confirmCancelTitle: 'Annuler le traitement ?',
+    confirmCancelDesc: 'Êtes-vous sûr de vouloir annuler le traitement de ce document ?',
 
     // Document Preview
     sourceDocument: 'Document source',
@@ -899,6 +929,16 @@ export const translations: Record<Language, Partial<TranslationKeys>> = {
     downloaded: 'تم التحميل',
     tryAgain: 'حاول مرة أخرى',
     maxRetriesReached: 'تم الوصول إلى الحد الأقصى للمحاولات',
+    deleteSuccess: 'تم حذف المستند',
+    deleteError: 'فشل حذف المستند',
+    cancelSuccess: 'تم إلغاء المعالجة',
+    cancelError: 'فشل إلغاء المعالجة',
+
+    // Confirmations
+    confirmDeleteTitle: 'حذف المستند؟',
+    confirmDeleteDesc: 'هل أنت متأكد أنك تريد حذف هذا المستند؟ لا يمكن التراجع عن هذا الإجراء.',
+    confirmCancelTitle: 'إلغاء المعالجة؟',
+    confirmCancelDesc: 'هل أنت متأكد أنك تريد إلغاء معالجة هذا المستند؟',
 
     // Document Preview
     sourceDocument: 'المستند المصدر',
@@ -1154,6 +1194,16 @@ export const translations: Record<Language, Partial<TranslationKeys>> = {
     downloaded: 'تم التحمیل',
     tryAgain: 'تلاش مجدد',
     maxRetriesReached: 'حداکثر تلاش‌ها انجام شد',
+    deleteSuccess: 'سند حذف شد',
+    deleteError: 'حذف سند انجام نشد',
+    cancelSuccess: 'پردازش لغو شد',
+    cancelError: 'لغو پردازش انجام نشد',
+
+    // Confirmations
+    confirmDeleteTitle: 'حذف سند؟',
+    confirmDeleteDesc: 'آیا مطمئن هستید که می‌خواهید این سند را حذف کنید؟ این عمل برگشت‌پذیر نیست.',
+    confirmCancelTitle: 'لغو پردازش؟',
+    confirmCancelDesc: 'آیا مطمئن هستید که می‌خواهید پردازش این سند را لغو کنید؟',
 
     // Document Preview
     sourceDocument: 'سند منبع',

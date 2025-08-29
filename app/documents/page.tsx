@@ -139,9 +139,14 @@ export default function DocumentsPage() {
           }
         });
 
-        if (!cancelResponse.ok) {
-          console.error('[DEBUG] Failed to cancel processing:', await cancelResponse.text());
-        }
+      if (!cancelResponse.ok) {
+        console.error('[DEBUG] Failed to cancel processing:', await cancelResponse.text());
+        toast({
+          title: t('error', language),
+          description: t('cancelError', language),
+          variant: 'destructive'
+        });
+      }
       }
 
       // Delete the document
@@ -154,16 +159,30 @@ export default function DocumentsPage() {
 
       if (!deleteResponse.ok) {
         console.error('[DEBUG] Failed to delete document:', await deleteResponse.text());
+        toast({
+          title: t('error', language),
+          description: t('deleteError', language),
+          variant: 'destructive'
+        });
         return;
       }
 
       // Update the UI
       setDocuments((prev) => prev.filter((doc) => doc.id !== id));
       console.log('[DEBUG] Document deleted successfully');
+      toast({
+        title: t('success', language),
+        description: t('deleteSuccess', language)
+      });
     } catch (error) {
       console.error('[DEBUG] Error deleting document:', error);
+      toast({
+        title: t('error', language),
+        description: t('deleteError', language),
+        variant: 'destructive'
+      });
     }
-  }, [documents])
+  }, [documents, language, toast])
 
   const handleCancel = useCallback(async (id: string) => {
     try {
@@ -178,6 +197,11 @@ export default function DocumentsPage() {
 
       if (!cancelResponse.ok) {
         console.error('[DEBUG] Failed to cancel processing:', await cancelResponse.text());
+        toast({
+          title: t('error', language),
+          description: t('cancelError', language),
+          variant: 'destructive'
+        });
         return;
       }
 
@@ -187,10 +211,19 @@ export default function DocumentsPage() {
       ));
 
       console.log('[DEBUG] Processing canceled successfully');
+      toast({
+        title: t('success', language),
+        description: t('cancelSuccess', language)
+      });
     } catch (error) {
       console.error('[DEBUG] Error canceling processing:', error);
+      toast({
+        title: t('error', language),
+        description: t('cancelError', language),
+        variant: 'destructive'
+      });
     }
-  }, []);
+  }, [language, toast]);
 
   const handleRetry = useCallback(async (id: string) => {
     try {
@@ -330,7 +363,7 @@ export default function DocumentsPage() {
         variant: "destructive"
       })
     }
-  }, [documents, db, toast])
+  }, [documents, toast])
 
   return (
     <AuthCheck>
