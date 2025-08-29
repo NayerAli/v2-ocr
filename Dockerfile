@@ -7,17 +7,18 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN --mount=type=cache,id=npm,target=/root/.npm \
     npm ci
-RUN npm prune --omit=dev
 
 # --------- 2. Environnement de dev ---------
 FROM deps AS dev
 ENV NODE_ENV=development
+ENV NEXT_TELEMETRY_DISABLED=1
 COPY . .
 CMD ["npm","run","dev"]
 
 # --------- 3. Image prod ---------
 FROM deps AS prod
 ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
 COPY . .
 RUN npm run build && npm prune --omit=dev
 # on extrait uniquement la sortie "standalone"

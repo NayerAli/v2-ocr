@@ -346,7 +346,7 @@ export class MistralOCRProvider implements OCRProvider {
     console.log(`[Mistral] Uploading PDF to Mistral's file API`);
 
     // Convert base64 to binary data
-    const binaryData = Buffer.from(pdfBase64, 'base64');
+    const binaryData = Uint8Array.from(atob(pdfBase64), c => c.charCodeAt(0));
 
     // Create a Blob from the binary data
     const blob = new Blob([binaryData], { type: 'application/pdf' });

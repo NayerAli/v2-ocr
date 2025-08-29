@@ -27,7 +27,7 @@ interface UploadLimits {
 }
 
 class SystemSettingsService {
-  private supabase
+  private supabase: ReturnType<typeof getSupabaseClient>
   private cache: Map<string, CachedData<ProcessingSettings | OCRDefaults | UploadLimits>>
   private cacheTTL: number
 
@@ -56,6 +56,10 @@ class SystemSettingsService {
       concurrentChunks: 3,
       retryAttempts: 2,
       retryDelay: 1000
+    }
+
+    if (!this.supabase) {
+      return defaultSettings
     }
 
     try {
@@ -93,6 +97,10 @@ class SystemSettingsService {
     // Validate settings
     if (!settings || typeof settings !== 'object') {
       throw new Error('Invalid settings object')
+    }
+
+    if (!this.supabase) {
+      return settings as ProcessingSettings
     }
 
     try {
@@ -144,6 +152,10 @@ class SystemSettingsService {
       language: 'en'
     }
 
+    if (!this.supabase) {
+      return defaultSettings
+    }
+
     try {
       // Fetch from database
       const { data, error } = await this.supabase
@@ -179,6 +191,10 @@ class SystemSettingsService {
     // Validate settings
     if (!settings || typeof settings !== 'object') {
       throw new Error('Invalid settings object')
+    }
+
+    if (!this.supabase) {
+      return settings as OCRDefaults
     }
 
     try {

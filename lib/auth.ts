@@ -9,6 +9,7 @@ export async function getSession(): Promise<Session | null> {
   try {
     // Get the singleton Supabase client
     const supabase = getSupabaseClient()
+    if (!supabase) return null
 
     // Try to get the session from Supabase
     const { data, error } = await supabase.auth.getSession()
@@ -37,6 +38,8 @@ export async function getSession(): Promise<Session | null> {
 export async function getUser(): Promise<User | null> {
   try {
     const supabase = getSupabaseClient()
+    if (!supabase) return null
+
     const { data, error } = await supabase.auth.getUser()
 
     if (error) {

@@ -277,7 +277,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
       const user = await getUser()
       if (!user) return undefined
       const storagePath = target.storagePath ?? deriveStoragePathFromUrl(target.imageUrl, user.id)
-      if (!storagePath) return undefined
+      if (!storagePath || !supabase) return undefined
       const { data, error } = await supabase.storage
         .from(BUCKET)
         .createSignedUrl(`${user.id}/${storagePath}`, SIGNED_URL_TTL)
@@ -320,7 +320,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
         const { getUser } = await import('@/lib/auth')
         const { supabase } = await import('@/lib/database/utils')
         const user = await getUser()
-        if (!user) return list
+        if (!user || !supabase) return list
         const updates = await Promise.all(withoutPath.map(async r => {
           const sp = deriveStoragePathFromUrl(r.imageUrl, user.id)
           if (!sp) return null
@@ -496,6 +496,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
       img.onload = null;
       img.onerror = null;
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentResult, refreshSignedUrl])
 
   // Reset states when page changes
