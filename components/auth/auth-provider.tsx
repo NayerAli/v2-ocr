@@ -19,6 +19,12 @@ type AuthContextType = {
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  if (!supabase) {
+    throw new Error('Supabase client is not configured')
+  }
+
+  // `supabase` is guaranteed to be defined above
+  const supabaseClient = supabase!
   const [user, setUser] = useState<User | null>(null)
   const [session, setSession] = useState<Session | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -29,7 +35,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsLoading(true)
 
       try {
-        const { data: sessionData, error: sessionError } = await supabase!.auth.getSession()
+        const { data: sessionData, error: sessionError } = await supabaseClient.auth.getSession()
 
         if (sessionError) {
           prodError('[Auth Provider] Error getting session:', sessionError.message)
@@ -50,7 +56,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
           // Try to refresh the session
           middlewareLog('debug', '[Auth Provider] Attempting to refresh session')
-          const { data: refreshData, error: refreshError } = await supabase!.auth.refreshSession()
+          const { data: refreshData, error: refreshError } = await supabaseClient.auth.refreshSession()
 
           if (refreshError) {
             prodError('[Auth Provider] Error refreshing session:', refreshError.message)
@@ -72,7 +78,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     getInitialSession()
 
     // Listen for auth changes
-    const { data: { subscription } } = supabase!.auth.onAuthStateChange(
+    const { data: { subscription } } = supabaseClient.auth.onAuthStateChange(
       async (event, session) => {
         middlewareLog('debug', '[Auth Provider] Auth state changed:', event)
 
@@ -112,13 +118,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       middlewareLog('important', '[Auth Provider] Attempting to sign in:', email)
 
       // Sign in with password
-      const { data, error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabaseClient.auth.signInWithPassword({
         email,
         password
       })
 
       // Set up redirect after successful sign-in
-      await supabase.auth.setSession({
+      await supabaseClient.auth.setSession({
         access_token: data?.session?.access_token || '',
         refresh_token: data?.session?.refresh_token || ''
       })
@@ -147,7 +153,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             middlewareLog('debug', '[Auth Provider] LocalStorage keys:', localStorageKeys)
 
             // Check if we can retrieve the session again
-            const { data: sessionData } = await supabase.auth.getSession()
+            const { data: sessionData } = await supabaseClient.auth.getSession()
             middlewareLog('debug', '[Auth Provider] Session verification:', !!sessionData.session)
           }
         }
@@ -194,7 +200,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       middlewareLog('important', '[Auth Provider] User created successfully:', data.user.id)
 
       // Now sign in with the created user
-      const { error: signInError } = await supabase.auth.signInWithPassword({
+      const { error: signInError } = await supabaseClient.auth.signInWithPassword({
         email,
         password
       })
@@ -219,7 +225,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signOut = async () => {
     try {
       setIsLoading(true)
-      const { error } = await supabase.auth.signOut()
+      const { error } = await supabaseClient.auth.signOut()
 
       if (error) {
         throw error
@@ -237,7 +243,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const resetPassword = async (email: string) => {
     try {
       setIsLoading(true)
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      const { error } = await supabaseClient.auth.resetPasswordForEmail(email, {
         redirectTo: `${window.location.origin}/auth/reset-password`,
       })
 
@@ -269,7 +275,15 @@ export function useAuth() {
   const context = useContext(AuthContext)
 
   if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider')
+    return {
+      user: null,
+      session: null,
+      isLoading: true,
+      signIn: async () => { throw new Error('AuthProvider is not mounted') },
+      signUp: async () => { throw new Error('AuthProvider is not mounted') },
+      signOut: async () => { throw new Error('AuthProvider is not mounted') },
+      resetPassword: async () => { throw new Error('AuthProvider is not mounted') },
+    }
   }
 
   return context

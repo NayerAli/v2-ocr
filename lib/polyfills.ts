@@ -1,5 +1,6 @@
 // Polyfills and safe shims for browser/runtime gaps
 // Currently: crypto.randomUUID fallback for older browsers/environments
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 // Lightweight RFC4122 v4 generator using crypto.getRandomValues when available
 function uuidV4(): string {
