@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react"
+import type { SyntheticEvent } from "react"
 import { ArrowLeft, Download, Copy, ChevronLeft, ChevronRight, Check, AlertCircle, Keyboard, Search, Minus, Plus, Type, ScanLine, Upload, FileText, ImageIcon } from "lucide-react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
@@ -28,9 +29,13 @@ import {
 import { useRouter } from "next/navigation"
 import { useLanguage } from "@/hooks/use-language"
 import { Language, t, tCount } from "@/lib/i18n/translations"
+import { getSignedUrlFor, getSignedUrlsForBatch } from '@/lib/storage/signed-url'
 
 const LOADING_TIMEOUT = 30000 // 30 seconds
 const OPERATION_TIMEOUT = 10000 // 10 seconds
+const BUCKET = 'ocr-documents'
+const SIGNED_URL_TTL = 3600 // 1h (refresh proactif mis en place)
+const REFRESH_MARGIN_MS = 5 * 60 * 1000 // marge 5 min avant expiration
 
 // Add LRU Cache for images
 class ImageCache {
@@ -245,104 +250,95 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     handleZoomChange(Math.max(zoomLevel - 25, 25))
   }, [handleZoomChange, zoomLevel])
 
-  // Function to refresh a signed URL using the storage path
-  const refreshSignedUrl = useCallback(async (result: OCRResult | undefined): Promise<string | undefined> => {
-    if (!result) return undefined
+  // Rafraîchir une URL signée en utilisant l'utilitaire centralisé quand possible
+  const refreshSignedUrl = useCallback(async (arg?: OCRResult | SyntheticEvent<HTMLImageElement>): Promise<string | undefined> => {
+    const target = arg && typeof arg === 'object' && 'id' in arg ? (arg as OCRResult) : (results.find(r => r.pageNumber === currentPage))
+    if (!target) return undefined
 
+    // Si storagePath est disponible, passer par l'utilitaire commun
+    if (target.storagePath) {
+      try {
+        const signed = await getSignedUrlFor(BUCKET, target.storagePath, SIGNED_URL_TTL)
+        setResults(prev => prev.map(r => (r.id === target.id ? { ...r, imageUrl: signed } : r)))
+        if (imageRef.current && target.pageNumber === currentPage) {
+          imageRef.current.src = signed
+        }
+        return signed
+      } catch (e) {
+        console.error('Error refreshing signed URL (helper):', e)
+        // Fallback below
+      }
+    }
+
+    // Fallback: ancienne méthode avec dérivation du chemin si possible
     try {
       const { supabase } = await import('@/lib/database/utils')
       const { getUser } = await import('@/lib/auth')
       const user = await getUser()
-
-      if (!user) {
-        console.error('User not authenticated, cannot generate signed URL')
-        return undefined
-      }
-
-      const storagePath = result.storagePath ?? deriveStoragePathFromUrl(result.imageUrl, user.id)
-      if (!storagePath) {
-        console.error('Missing storage path for result', result.id)
-        return undefined
-      }
-
+      if (!user) return undefined
+      const storagePath = target.storagePath ?? deriveStoragePathFromUrl(target.imageUrl, user.id)
+      if (!storagePath) return undefined
       const { data, error } = await supabase.storage
-        .from('ocr-documents')
-        .createSignedUrl(`${user.id}/${storagePath}`, 86400)
-
-      if (error || !data?.signedUrl) {
-        console.error(`Error generating signed URL for page ${result.pageNumber}:`, error)
-        return undefined
+        .from(BUCKET)
+        .createSignedUrl(`${user.id}/${storagePath}`, SIGNED_URL_TTL)
+      if (error || !data?.signedUrl) return undefined
+      setResults(prev => prev.map(r => (r.id === target.id ? { ...r, imageUrl: data.signedUrl, storagePath } : r)))
+      if (imageRef.current && target.pageNumber === currentPage) {
+        imageRef.current.src = data.signedUrl
       }
-
-      // Update the result in our local state
-      setResults(prev => prev.map(r => {
-        if (r.id === result.id) {
-          return { ...r, imageUrl: data.signedUrl, storagePath }
-        }
-        return r
-      }))
-
       return data.signedUrl
     } catch (error) {
-      console.error('Error refreshing signed URL:', error)
+      console.error('Error refreshing signed URL (fallback):', error)
       return undefined
     }
-  }, [])
+  }, [currentPage, results])
 
-  // Function to ensure all results have valid signed URLs
-  const ensureSignedUrls = useCallback(async (results: OCRResult[]) => {
-    if (!results.length) return results;
+  // Génère/rafraîchit en lot les URLs signées si possible
+  const ensureSignedUrls = useCallback(async (list: OCRResult[]) => {
+    if (!list.length) return list
 
-    const resultsWithUrls = [...results];
-    let hasUpdates = false;
+    const withPath = list.filter(r => !!r.storagePath)
+    const withoutPath = list.filter(r => !r.storagePath)
 
-    // Get the current user
-    const { getUser } = await import('@/lib/auth');
-    const user = await getUser();
-
-    if (!user) {
-      console.error('User not authenticated, cannot generate signed URLs');
-      return results;
+    // D'abord, batch pour ceux avec storagePath
+    if (withPath.length) {
+      try {
+        const paths = withPath.map(r => r.storagePath!)
+        const batch = await getSignedUrlsForBatch(BUCKET, paths, SIGNED_URL_TTL)
+        setResults(prev => prev.map(r => {
+          const signed = r.storagePath ? batch[r.storagePath] : undefined
+          return signed ? { ...r, imageUrl: signed } : r
+        }))
+      } catch (e) {
+        console.error('Error ensuring signed URLs (batch):', e)
+      }
     }
 
-    // Process all results in parallel for efficiency
-    const updatePromises = results.map(async (result, index) => {
-      const storagePath = result.storagePath ?? deriveStoragePathFromUrl(result.imageUrl, user.id)
-      if (!storagePath) return null
-
-      if (result.imageUrl && result.imageUrl.startsWith('http')) {
-        try {
-          const response = await fetch(result.imageUrl, { method: 'HEAD', cache: 'no-store' })
-          if (response.ok) return null
-        } catch {
-          // URL invalid, proceed to refresh
-        }
-      }
-
+    // Ensuite, fallback un-par-un pour ceux sans storagePath connu
+    if (withoutPath.length) {
       try {
+        const { getUser } = await import('@/lib/auth')
         const { supabase } = await import('@/lib/database/utils')
-        const { data, error } = await supabase.storage
-          .from('ocr-documents')
-          .createSignedUrl(`${user.id}/${storagePath}`, 86400)
-
-        if (error || !data?.signedUrl) {
-          console.error(`Error generating signed URL for page ${result.pageNumber}:`, error)
-          return null
+        const user = await getUser()
+        if (!user) return list
+        const updates = await Promise.all(withoutPath.map(async r => {
+          const sp = deriveStoragePathFromUrl(r.imageUrl, user.id)
+          if (!sp) return null
+          const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(`${user.id}/${sp}`, SIGNED_URL_TTL)
+          if (error || !data?.signedUrl) return null
+          return { id: r.id, imageUrl: data.signedUrl, storagePath: sp }
+        }))
+        const map = new Map(updates.filter(Boolean).map(u => [u!.id, u!]))
+        if (map.size) {
+          setResults(prev => prev.map(r => map.has(r.id) ? { ...r, imageUrl: map.get(r.id)!.imageUrl, storagePath: map.get(r.id)!.storagePath } : r))
         }
-
-        resultsWithUrls[index] = { ...result, imageUrl: data.signedUrl, storagePath }
-        hasUpdates = true
-        return index
-      } catch (error) {
-        console.error(`Error refreshing signed URL for page ${result.pageNumber}:`, error)
-        return null
+      } catch (e) {
+        console.error('Error ensuring signed URLs (fallback):', e)
       }
-    })
+    }
 
-    await Promise.all(updatePromises);
-
-    return hasUpdates ? resultsWithUrls : results;
-  }, []);
+    return list
+  }, [])
 
   useEffect(() => {
     const loadDocument = async () => {
@@ -447,6 +443,21 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     setIsRetrying(false)
   }, [])
 
+  // À chaque fois que la liste change, on (re)génère toutes les URLs signées
+  useEffect(() => {
+    if (results?.length) {
+      void ensureSignedUrls(results)
+    }
+  }, [results, ensureSignedUrls])
+
+  // Rafraîchissement proactif de l’URL de l’image courante un peu avant expiration
+  useEffect(() => {
+    const target = results.find(r => r.pageNumber === currentPage)
+    if (!target?.storagePath) return
+    const timer = setTimeout(() => { void refreshSignedUrl(target) }, SIGNED_URL_TTL * 1000 - REFRESH_MARGIN_MS)
+    return () => clearTimeout(timer)
+  }, [currentPage, results, refreshSignedUrl])
+
 
 
   // Preload image when URL changes
@@ -478,18 +489,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
       // Add to cache
       imageCache.set(currentResult.imageUrl!, img);
     };
-    img.onerror = () => {
-      setImageError(true);
-      setImageLoaded(false);
-      setIsRetrying(false);
-
-      // If image fails to load, try to refresh the URL automatically
-      if (currentResult) {
-        refreshSignedUrl(currentResult).catch(err => {
-          console.error('Error auto-refreshing URL after load error:', err)
-        })
-      }
-    };
+    img.onerror = () => { void handleImageError() };
     img.src = currentResult.imageUrl;
 
     return () => {
@@ -1851,4 +1851,3 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     </div>
   )
 }
-
