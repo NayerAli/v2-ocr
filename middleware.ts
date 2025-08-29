@@ -1,8 +1,20 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import type { User } from '@supabase/supabase-js'
-import { verifyAccessToken } from '@/lib/jwt'
 import { middlewareLog, prodError } from '@/lib/log'
+import { createServerClient } from '@supabase/ssr'
+
+function createMiddlewareClient({
+  supabaseUrl,
+  supabaseKey,
+  cookies,
+}: {
+  supabaseUrl: string
+  supabaseKey: string
+  cookies: NextRequest['cookies']
+}) {
+  return createServerClient(supabaseUrl, supabaseKey, { cookies })
+}
 
 // This function can be marked `async` if using `await` inside
 export async function middleware(req: NextRequest) {
@@ -10,41 +22,14 @@ export async function middleware(req: NextRequest) {
   middlewareLog('important', 'Middleware: Processing request for URL:', req.nextUrl.pathname)
 
   try {
-    // Check if user is authenticated
-    let user: User | null = null
+    const supabase = createMiddlewareClient({
+      supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      cookies: req.cookies,
+    })
 
-    // Try to read the access token from cookies (supports project-specific names)
-    const tokenCookieNames = ['sb-access-token', 'sb-localhost:8000-access-token']
-    const projectRef = process.env.NEXT_PUBLIC_SUPABASE_URL?.split('//')[1]?.split('.')[0]
-    if (projectRef && !tokenCookieNames.includes(`sb-${projectRef}-access-token`)) {
-      tokenCookieNames.push(`sb-${projectRef}-access-token`)
-    }
-
-    let accessToken: string | undefined
-    for (const name of tokenCookieNames) {
-      const val = req.cookies.get(name)?.value
-      if (val) {
-        accessToken = val
-        break
-      }
-    }
-
-    const claims = await verifyAccessToken(accessToken)
-    if (claims) {
-      user = {
-        id: claims.id,
-        email: claims.email,
-        role: claims.role,
-        aud: claims.aud,
-      } as User
-    }
-
-    // Prepare response with forwarded user headers
-    const requestHeaders = new Headers(req.headers)
-    if (user) {
-      requestHeaders.set('x-user', encodeURIComponent(JSON.stringify(user)))
-    }
-    const response = NextResponse.next({ request: { headers: requestHeaders } })
+    const { data } = await supabase.auth.getUser()
+    const user = data.user as User | null
 
     // Check auth condition based on route
     const url = req.nextUrl.pathname
@@ -90,11 +75,12 @@ export async function middleware(req: NextRequest) {
     }
 
     // Add cache control headers to prevent caching of protected routes
+    const res = NextResponse.next()
     if (isProtectedRoute) {
-      response.headers.set('Cache-Control', 'no-store, max-age=0')
+      res.headers.set('Cache-Control', 'no-store, max-age=0')
     }
 
-    return response
+    return res
   } catch (error) {
     prodError('Middleware error:', error)
     // Return original response to avoid breaking the application
