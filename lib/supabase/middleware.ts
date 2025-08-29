@@ -90,7 +90,9 @@ export async function updateSession(request: NextRequest) {
         let tokenString = authCookie
         if (tokenString.startsWith('base64-')) {
           const base64 = tokenString.slice('base64-'.length)
-          tokenString = Buffer.from(base64, 'base64').toString('utf-8')
+          tokenString = new TextDecoder().decode(
+            Uint8Array.from(atob(base64), c => c.charCodeAt(0))
+          )
         }
         const tokenData = JSON.parse(tokenString)
         const expiresAt = tokenData.expires_at
