@@ -248,20 +248,36 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
           : currentResult
       if (!target?.storagePath) return undefined
       try {
-        const signed = await getSignedUrlFor(BUCKET, target.storagePath, SIGNED_URL_TTL)
+        setIsRetrying(true)
+        const signed = await getSignedUrlFor(
+          BUCKET,
+          target.storagePath,
+          SIGNED_URL_TTL
+        )
         setResults(prev =>
           prev.map(r => (r.id === target.id ? { ...r, imageUrl: signed } : r))
         )
         if (imageRef.current && target.id === currentResult?.id) {
           imageRef.current.src = signed
         }
+        setImageError(false)
+        setRetryCount(prev => prev + 1)
         return signed
       } catch (e) {
         console.error('Error refreshing signed URL:', e)
+        setImageError(true)
+        toast({
+          variant: 'destructive',
+          title: 'Image Load Error',
+          description:
+            'Failed to load image preview. You can still view the extracted text.',
+        })
         return undefined
+      } finally {
+        setIsRetrying(false)
       }
     },
-    [currentResult, setResults]
+    [currentResult, setResults, toast]
   )
 
   // Assure/rafraîchit en lot toutes les URLs signées pour la liste passée
@@ -429,7 +445,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
       imageCache.set(currentResult.imageUrl!, img)
     }
     img.onerror = () => {
-      void handleImageError()
+      void refreshSignedUrl(currentResult)
     }
     img.src = currentResult.imageUrl
 
@@ -437,7 +453,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
       img.onload = null
       img.onerror = null
     }
-  }, [currentResult, refreshSignedUrl, handleImageError])
+  }, [currentResult, refreshSignedUrl])
 
   // Reset states when page changes
   useEffect(() => {
@@ -657,33 +673,6 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     }
   }, [])
 
-  const handleImageError = useCallback(async () => {
-    setImageError(true)
-    setImageLoaded(false)
-
-    // Attempt a single automatic refresh on first failure
-    if (retryCount === 0 && currentResult?.storagePath) {
-      try {
-        setIsRetrying(true)
-        const refreshedUrl = await refreshSignedUrl(currentResult)
-        if (refreshedUrl) {
-          setImageError(false)
-          setRetryCount(prev => prev + 1)
-          return
-        }
-      } catch (error) {
-        console.error('Error auto-refreshing image URL:', error)
-      } finally {
-        setIsRetrying(false)
-      }
-    }
-
-    toast({
-      variant: 'destructive',
-      title: 'Image Load Error',
-      description: "Failed to load image preview. You can still view the extracted text.",
-    })
-  }, [toast, retryCount, currentResult, refreshSignedUrl])
 
   const handleSearch = useCallback((query: string) => {
     setSearchQuery(query)
@@ -1639,7 +1628,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
                 "will-change-transform"
               )}
               onLoad={handleImageLoad}
-              onError={handleImageError}
+              onError={refreshSignedUrl}
               draggable={false}
               loading="eager"
               decoding="async"
