@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react"
+import type { SyntheticEvent } from "react"
 import { ArrowLeft, Download, Copy, ChevronLeft, ChevronRight, Check, AlertCircle, Keyboard, Search, Minus, Plus, Type, ScanLine, Upload, FileText, ImageIcon } from "lucide-react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
@@ -28,9 +29,13 @@ import {
 import { useRouter } from "next/navigation"
 import { useLanguage } from "@/hooks/use-language"
 import { Language, t, tCount } from "@/lib/i18n/translations"
+import { getSignedUrlFor, getSignedUrlsForBatch } from '@/lib/storage/signed-url'
 
 const LOADING_TIMEOUT = 30000 // 30 seconds
 const OPERATION_TIMEOUT = 10000 // 10 seconds
+const BUCKET = 'ocr-documents'
+const SIGNED_URL_TTL = 3600 // 1h (refresh proactif mis en place)
+const REFRESH_MARGIN_MS = 5 * 60 * 1000 // marge 5 min avant expiration
 
 // Add LRU Cache for images
 class ImageCache {
@@ -232,107 +237,76 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     handleZoomChange(Math.max(zoomLevel - 25, 25))
   }, [handleZoomChange, zoomLevel])
 
-  // Function to refresh a signed URL using the storage path
-  const refreshSignedUrl = useCallback(async (result: OCRResult | undefined): Promise<string | undefined> => {
-    if (!result || !result.storagePath) return undefined;
-
-    try {
-      // Generate a new signed URL
-      const { supabase } = await import('@/lib/database/utils');
-      const { getUser } = await import('@/lib/auth');
-      const user = await getUser();
-      
-      if (!user) {
-        console.error('User not authenticated, cannot generate signed URL');
-        return undefined;
-      }
-      
-      // Add the user ID to the storage path to match how files are uploaded
-      const userPath = `${user.id}/${result.storagePath}`;
-      const { data, error } = await supabase.storage
-        .from('ocr-documents')
-        .createSignedUrl(userPath, 86400);
-
-      if (error || !data?.signedUrl) {
-        console.error(`Error generating signed URL for page ${result.pageNumber}:`, error);
-        return undefined;
-      }
-
-      // Update the result in our local state
-      setResults(prev => prev.map(r => {
-        if (r.id === result.id) {
-          return { ...r, imageUrl: data.signedUrl };
-        }
-        return r;
-      }));
-
-      return data.signedUrl;
-    } catch (error) {
-      console.error('Error refreshing signed URL:', error);
-      return undefined;
-    }
-  }, []);
-
-  // Function to ensure all results have valid signed URLs
-  const ensureSignedUrls = useCallback(async (results: OCRResult[]) => {
-    if (!results.length) return results;
-
-    const resultsWithUrls = [...results];
-    let hasUpdates = false;
-
-    // Get the current user
-    const { getUser } = await import('@/lib/auth');
-    const user = await getUser();
-
-    if (!user) {
-      console.error('User not authenticated, cannot generate signed URLs');
-      return results;
-    }
-
-    // Process all results in parallel for efficiency
-    const updatePromises = results.map(async (result, index) => {
-      // Skip results that don't have a storage path
-      if (!result.storagePath) return null;
-
-      // If the result already has a valid imageUrl that's not expired, skip it
-      if (result.imageUrl && result.imageUrl.startsWith('http')) {
-        try {
-          // Quick check if URL is valid by creating a HEAD request
-          const response = await fetch(result.imageUrl, { method: 'HEAD', cache: 'no-store' });
-          if (response.ok) return null; // URL is still valid
-        } catch {
-          // URL is invalid or expired, continue to refresh it
-        }
-      }
-
+  // Rafraîchir une URL signée pour un seul résultat (utilise l'util centralisé)
+  const refreshSignedUrl = useCallback(
+    async (
+      arg?: OCRResult | SyntheticEvent<HTMLImageElement>
+    ): Promise<string | undefined> => {
+      const target =
+        arg && typeof arg === 'object' && 'storagePath' in arg
+          ? (arg as OCRResult)
+          : currentResult
+      if (!target?.storagePath) return undefined
       try {
-        // Generate a new signed URL with the user ID in the path
-        const { supabase } = await import('@/lib/database/utils');
-        const userPath = `${user.id}/${result.storagePath}`;
-        
-        const { data, error } = await supabase.storage
-          .from('ocr-documents')
-          .createSignedUrl(userPath, 86400);
-
-        if (error || !data?.signedUrl) {
-          console.error(`Error generating signed URL for page ${result.pageNumber}:`, error);
-          return null;
+        setIsRetrying(true)
+        const signed = await getSignedUrlFor(
+          BUCKET,
+          target.storagePath,
+          SIGNED_URL_TTL
+        )
+        setResults(prev =>
+          prev.map(r => (r.id === target.id ? { ...r, imageUrl: signed } : r))
+        )
+        if (imageRef.current && target.id === currentResult?.id) {
+          imageRef.current.src = signed
         }
-
-        // Update the result with the new URL
-        resultsWithUrls[index] = { ...result, imageUrl: data.signedUrl };
-        hasUpdates = true;
-        return index; // Return the index that was updated
-      } catch (error) {
-        console.error(`Error refreshing signed URL for page ${result.pageNumber}:`, error);
-        return null;
+        setImageError(false)
+        if (arg && !('storagePath' in arg)) {
+          setRetryCount(prev => prev + 1)
+        }
+        return signed
+      } catch (e) {
+        console.error('Error refreshing signed URL:', e)
+        setImageError(true)
+        toast({
+          variant: 'destructive',
+          title: 'Image Load Error',
+          description:
+            'Failed to load image preview. You can still view the extracted text.',
+        })
+        return undefined
+      } finally {
+        setIsRetrying(false)
       }
-    });
+    },
+    [currentResult, setResults, toast]
+  )
 
-    await Promise.all(updatePromises);
-
-    return hasUpdates ? resultsWithUrls : results;
-  }, []);
+  // Assure/rafraîchit en lot toutes les URLs signées pour la liste passée
+  const ensureSignedUrls = useCallback(
+    async (resultsList: OCRResult[]) => {
+      const paths = resultsList.map(r => r.storagePath).filter(Boolean) as string[]
+      if (paths.length === 0) return
+      try {
+        const batch = await getSignedUrlsForBatch(BUCKET, paths, SIGNED_URL_TTL)
+        setResults(prev => {
+          let changed = false
+          const updated = prev.map(r => {
+            const s = r.storagePath ? batch[r.storagePath] : undefined
+            if (s && r.imageUrl !== s) {
+              changed = true
+              return { ...r, imageUrl: s }
+            }
+            return r
+          })
+          return changed ? updated : prev
+        })
+      } catch (e) {
+        console.error('Error ensuring signed URLs (batch):', e)
+      }
+    },
+    [setResults]
+  )
 
   useEffect(() => {
     const loadDocument = async () => {
@@ -386,30 +360,12 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
         // Sort results by page number
         const sortedResults = docResults.sort((a, b) => a.pageNumber - b.pageNumber)
 
-        // Ensure all results have valid signed URLs before setting state
-        const resultsWithUrls = await ensureSignedUrls(sortedResults)
-
-        // Set results in state
-        setResults(resultsWithUrls)
+        // Set results in state (URLs will be generated separately)
+        setResults(sortedResults)
 
         // Set current page to first page to ensure consistent behavior
         // This is important to ensure we're not starting at the last page
         setCurrentPage(1)
-
-        // Preload images for the first few pages
-        if (resultsWithUrls.length > 0) {
-          const pagesToPreload = Math.min(3, resultsWithUrls.length)
-          for (let i = 0; i < pagesToPreload; i++) {
-            const result = resultsWithUrls[i]
-            if (result?.imageUrl) {
-              try {
-                await imageCache.preload(result.imageUrl)
-              } catch (error) {
-                console.error(`Failed to preload image for page ${i + 1}:`, error)
-              }
-            }
-          }
-        }
 
         clearTimeout(timeoutId)
       } catch (err) {
@@ -437,6 +393,28 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     setIsRetrying(false)
   }, [])
 
+  useEffect(() => {
+    // À chaque fois que la liste change, on (re)génère toutes les URLs signées
+    if (results?.length) {
+      void ensureSignedUrls(results)
+    }
+  }, [results, ensureSignedUrls])
+
+  // Rafraîchissement proactif de l’URL de l’image courante
+  useEffect(() => {
+    if (!currentResult?.storagePath) return
+    // On prévoit un refresh un peu avant l’expiration
+    const timer = setTimeout(
+      () => {
+        void refreshSignedUrl(currentResult)
+      },
+      SIGNED_URL_TTL * 1000 - REFRESH_MARGIN_MS
+    )
+    return () => {
+      clearTimeout(timer)
+    }
+  }, [currentResult, refreshSignedUrl])
+
 
 
   // Preload image when URL changes
@@ -445,47 +423,38 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
       // If we have a result but no imageUrl, try to refresh it
       if (currentResult && currentResult.storagePath) {
         refreshSignedUrl(currentResult).catch(err => {
-          console.error('Error refreshing URL on page change:', err);
-        });
+          console.error('Error refreshing URL on page change:', err)
+        })
       }
-      return;
+      return
     }
 
     // Check if image is already in cache
-    const cachedImage = imageCache.has(currentResult.imageUrl);
+    const cachedImage = imageCache.has(currentResult.imageUrl)
     if (cachedImage) {
-      setImageLoaded(true);
-      setImageError(false);
-      setIsRetrying(false);
-      return;
+      setImageLoaded(true)
+      setImageError(false)
+      setIsRetrying(false)
+      return
     }
 
-    const img = new Image();
+    const img = new Image()
     img.onload = () => {
-      setImageLoaded(true);
-      setImageError(false);
-      setIsRetrying(false);
+      setImageLoaded(true)
+      setImageError(false)
+      setIsRetrying(false)
       // Add to cache
-      imageCache.set(currentResult.imageUrl!, img);
-    };
+      imageCache.set(currentResult.imageUrl!, img)
+    }
     img.onerror = () => {
-      setImageError(true);
-      setImageLoaded(false);
-      setIsRetrying(false);
-
-      // If image fails to load, try to refresh the URL automatically
-      if (currentResult.storagePath) {
-        refreshSignedUrl(currentResult).catch(err => {
-          console.error('Error auto-refreshing URL after load error:', err);
-        });
-      }
-    };
-    img.src = currentResult.imageUrl;
+      void refreshSignedUrl(currentResult)
+    }
+    img.src = currentResult.imageUrl
 
     return () => {
-      img.onload = null;
-      img.onerror = null;
-    };
+      img.onload = null
+      img.onerror = null
+    }
   }, [currentResult, refreshSignedUrl])
 
   // Reset states when page changes
@@ -706,34 +675,6 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     }
   }, [])
 
-  const handleImageError = useCallback(async () => {
-    setImageError(true)
-    setImageLoaded(false)
-
-    // If this is the first error, try to refresh the URL automatically
-    if (retryCount === 0 && currentResult?.storagePath) {
-      try {
-        setIsRetrying(true)
-        const refreshedUrl = await refreshSignedUrl(currentResult)
-        if (refreshedUrl) {
-          // The URL has been refreshed in the state, so the image will reload
-          setImageError(false)
-          setRetryCount(prev => prev + 1)
-          return
-        }
-      } catch (error) {
-        console.error('Error auto-refreshing image URL:', error)
-      } finally {
-        setIsRetrying(false)
-      }
-    }
-
-    toast({
-      variant: "destructive",
-      title: "Image Load Error",
-      description: "Failed to load image preview. You can still view the extracted text.",
-    })
-  }, [toast, retryCount, currentResult, refreshSignedUrl])
 
   const handleSearch = useCallback((query: string) => {
     setSearchQuery(query)
@@ -1689,7 +1630,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
                 "will-change-transform"
               )}
               onLoad={handleImageLoad}
-              onError={handleImageError}
+              onError={refreshSignedUrl}
               draggable={false}
               loading="eager"
               decoding="async"
