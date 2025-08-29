@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/tooltip"
 import { useLanguage } from "@/hooks/use-language"
 import { t, type Language } from "@/lib/i18n/translations"
+import { useToast } from "@/hooks/use-toast"
 import {
   Dialog,
   DialogContent,
@@ -127,6 +128,7 @@ export function DocumentList({
 }: DocumentListProps) {
   const router = useRouter()
   const { language } = useLanguage()
+  const { toast } = useToast()
 
   const [pendingAction, setPendingAction] = useState<
     { type: 'delete' | 'cancel'; id: string } | null
@@ -141,10 +143,26 @@ export function DocumentList({
       if (pendingAction.type === 'delete') {
         await Promise.resolve(onDelete(pendingAction.id))
       } else if (pendingAction.type === 'cancel' && onCancel) {
+        const doc = documents.find(d => d.id === pendingAction.id)
+        if (!doc || doc.status !== 'processing') {
+          toast({
+            title: t('error', language),
+            description: t('cancelError', language),
+            variant: 'destructive'
+          })
+          return
+        }
         await Promise.resolve(onCancel(pendingAction.id))
       }
     } catch (err) {
       console.error(err)
+      toast({
+        title: t('error', language),
+        description: pendingAction.type === 'delete'
+          ? t('deleteError', language)
+          : t('cancelError', language),
+        variant: 'destructive'
+      })
     } finally {
       setBusy(false)
       setPendingAction(null)
@@ -402,6 +420,7 @@ export function DocumentList({
                       {doc.status === 'processing' && onCancel && (
                         <DropdownMenuItem
                           onClick={(e) => {
+                            e.preventDefault()
                             e.stopPropagation()
                             setPendingAction({ type: 'cancel', id: doc.id })
                           }}
@@ -426,6 +445,7 @@ export function DocumentList({
                       <DropdownMenuItem
                         className="text-destructive focus:text-destructive"
                         onClick={(e) => {
+                          e.preventDefault()
                           e.stopPropagation()
                           setPendingAction({ type: 'delete', id: doc.id })
                         }}
@@ -560,6 +580,7 @@ export function DocumentList({
                       {doc.status === 'processing' && onCancel && (
                         <DropdownMenuItem
                           onClick={(e) => {
+                            e.preventDefault();
                             e.stopPropagation();
                             setPendingAction({ type: 'cancel', id: doc.id });
                           }}
@@ -585,6 +606,7 @@ export function DocumentList({
                       <DropdownMenuItem
                         className="text-destructive focus:text-destructive"
                         onClick={(e) => {
+                          e.preventDefault();
                           e.stopPropagation();
                           setPendingAction({ type: 'delete', id: doc.id });
                         }}
