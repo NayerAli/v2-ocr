@@ -2,19 +2,7 @@ import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import type { User } from '@supabase/supabase-js'
 import { middlewareLog, prodError } from '@/lib/log'
-import { createServerClient } from '@supabase/ssr'
-
-function createMiddlewareClient({
-  supabaseUrl,
-  supabaseKey,
-  cookies,
-}: {
-  supabaseUrl: string
-  supabaseKey: string
-  cookies: NextRequest['cookies']
-}) {
-  return createServerClient(supabaseUrl, supabaseKey, { cookies })
-}
+import { createServerClient, type CookieOptions } from '@supabase/ssr'
 
 // This function can be marked `async` if using `await` inside
 export async function middleware(req: NextRequest) {
@@ -22,11 +10,24 @@ export async function middleware(req: NextRequest) {
   middlewareLog('important', 'Middleware: Processing request for URL:', req.nextUrl.pathname)
 
   try {
-    const supabase = createMiddlewareClient({
-      supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      cookies: req.cookies,
-    })
+    const res = NextResponse.next()
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          get(name: string) {
+            return req.cookies.get(name)?.value
+          },
+          set(name: string, value: string, options: CookieOptions) {
+            res.cookies.set({ name, value, ...options })
+          },
+          remove(name: string, options: CookieOptions) {
+            res.cookies.set({ name, value: '', ...options })
+          }
+        }
+      }
+    )
 
     const { data } = await supabase.auth.getUser()
     const user = data.user as User | null
@@ -75,7 +76,6 @@ export async function middleware(req: NextRequest) {
     }
 
     // Add cache control headers to prevent caching of protected routes
-    const res = NextResponse.next()
     if (isProtectedRoute) {
       res.headers.set('Cache-Control', 'no-store, max-age=0')
     }
