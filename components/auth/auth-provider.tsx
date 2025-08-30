@@ -112,21 +112,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const signIn = async (email: string, password: string, redirectTo: string = '/') => {
+  const signIn = async (email: string, password: string, redirectTo: string = '/documents') => {
     try {
       setIsLoading(true)
       middlewareLog('important', '[Auth Provider] Attempting to sign in:', email)
 
-      // Sign in with password
       const { data, error } = await supabaseClient.auth.signInWithPassword({
         email,
-        password
-      })
-
-      // Set up redirect after successful sign-in
-      await supabaseClient.auth.setSession({
-        access_token: data?.session?.access_token || '',
-        refresh_token: data?.session?.refresh_token || ''
+        password,
       })
 
       if (error) {
@@ -135,37 +128,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (data?.user) {
-        middlewareLog('important', '[Auth Provider] Sign in successful for user:', data.user.email)
-        middlewareLog('debug', '[Auth Provider] Session established:', !!data.session)
-
-        // Set the session and user in state
         setSession(data.session)
         setUser(data.user)
-
-        // Log session details
-        if (data.session) {
-          middlewareLog('debug', '[Auth Provider] Session expires at:', new Date(data.session.expires_at! * 1000).toLocaleString())
-          middlewareLog('debug', '[Auth Provider] Access token:', data.session.access_token ? 'Present' : 'Missing')
-
-          // Verify the session was stored
-          if (typeof window !== 'undefined') {
-            const localStorageKeys = Object.keys(localStorage)
-            middlewareLog('debug', '[Auth Provider] LocalStorage keys:', localStorageKeys)
-
-            // Check if we can retrieve the session again
-            const { data: sessionData } = await supabaseClient.auth.getSession()
-            middlewareLog('debug', '[Auth Provider] Session verification:', !!sessionData.session)
-          }
-        }
-
         middlewareLog('important', '[Auth Provider] Redirecting to:', redirectTo)
-
-        // Force a brief delay to ensure the session is properly established
-        setTimeout(() => {
-          router.push(redirectTo)
-        }, 500)
+        router.replace(redirectTo)
+        router.refresh()
       } else {
-      prodError('[Auth Provider] Sign in returned no user')
+        prodError('[Auth Provider] Sign in returned no user')
         throw new Error('Sign in failed - no user returned')
       }
     } catch (error) {

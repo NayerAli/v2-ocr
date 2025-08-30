@@ -32,8 +32,8 @@ export function LoginForm() {
     setError(null)
 
     try {
-      console.log('Login Form: Attempting to sign in with redirect to:', redirectTo || '/')
-      await signIn(email, password, redirectTo || '/')
+      console.log('Login Form: Attempting to sign in with redirect to:', redirectTo || '/documents')
+      await signIn(email, password, redirectTo || '/documents')
     } catch (err) {
       console.error('Login Form: Sign in error:', err)
       const errorMessage = err instanceof Error ? err.message : 'Failed to sign in'
