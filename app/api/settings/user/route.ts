@@ -7,11 +7,11 @@ import { middlewareLog, prodError } from '@/lib/log'
  * GET /api/settings/user
  * Retrieves the user-specific settings
  */
-export async function GET(request: Request) {
+export async function GET() {
   try {
     // Get the current user using server-side auth
     const supabase = await createServerSupabaseClient()
-    const user = await getAuthenticatedUser(supabase, request)
+    const user = await getAuthenticatedUser(supabase)
 
     if (!user) {
       prodError('GET /api/settings/user - Auth session missing!')
@@ -70,7 +70,7 @@ export async function PUT(request: Request) {
   try {
     // Get the current user using server-side auth
     const supabase = await createServerSupabaseClient()
-    const user = await getAuthenticatedUser(supabase, request)
+    const user = await getAuthenticatedUser(supabase)
 
     if (!user) {
       prodError('[API] PUT /api/settings/user - Unauthorized, no user found')

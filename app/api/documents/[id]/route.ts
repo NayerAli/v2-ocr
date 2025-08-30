@@ -16,7 +16,7 @@ export async function GET(
   try {
     // Get the current user using server-side auth
     const supabase = await createServerSupabaseClient()
-    const user = await getAuthenticatedUser(supabase, req)
+    const user = await getAuthenticatedUser(supabase)
 
     if (!user) {
       prodError('[SERVER] GET /api/documents/[id] - Unauthorized, no user found')
@@ -83,7 +83,7 @@ export async function PUT(
   try {
     // Get the current user using server-side auth
     const supabase = await createServerSupabaseClient()
-    const user = await getAuthenticatedUser(supabase, req)
+    const user = await getAuthenticatedUser(supabase)
 
     if (!user) {
       prodError('[SERVER] PUT /api/documents/[id] - Unauthorized, no user found')
@@ -206,7 +206,7 @@ export async function DELETE(
   try {
     // Get the current user using server-side auth
     const supabase = await createServerSupabaseClient()
-    const user = await getAuthenticatedUser(supabase, req)
+    const user = await getAuthenticatedUser(supabase)
 
     if (!user) {
       prodError('[SERVER] DELETE /api/documents/[id] - Unauthorized, no user found')

@@ -19,8 +19,7 @@ import { useLanguage } from "@/hooks/use-language"
 import { t } from "@/lib/i18n/translations"
 import { useToast } from "@/hooks/use-toast"
 import { retryDocument } from "@/lib/tests/document-status-validation"
-// Auth hook is not directly used in this component
-// import { useAuth } from "@/components/auth/auth-provider"
+import { useAuth } from "@/components/auth/auth-provider"
 import { AuthCheck } from "@/components/auth/auth-check"
 import { getSafeDownloadName } from "@/lib/utils"
 // These UI components are not used in this file
@@ -30,9 +29,7 @@ export default function DocumentsPage() {
   const { isInitialized } = useSettingsInit()
   const { language } = useLanguage()
   const { toast } = useToast()
-  // These variables are not used in this component
-  // const { user } = useAuth()
-  // const router = useRouter()
+  const { user } = useAuth()
   const [documents, setDocuments] = useState<ProcessingStatus[]>([])
   const [isLoadingData, setIsLoadingData] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
@@ -49,7 +46,7 @@ export default function DocumentsPage() {
 
   // Load documents when initialized
   useEffect(() => {
-    if (!isInitialized) return
+    if (!isInitialized || !user) return
 
     console.log('Documents page: Initialized, loading documents for user')
     setIsLoadingData(true)
@@ -62,14 +59,14 @@ export default function DocumentsPage() {
       console.error('Error loading documents:', error)
       setIsLoadingData(false)
     })
-  }, [isInitialized])
+  }, [isInitialized, user])
 
   useEffect(() => {
     let isSubscribed = true
 
     // Setup polling for document updates
     const loadDocuments = async () => {
-      if (!isInitialized) return
+      if (!isInitialized || !user) return
 
       try {
         const queue = await db.getQueue()
@@ -88,7 +85,7 @@ export default function DocumentsPage() {
       isSubscribed = false
       clearInterval(interval)
     }
-  }, [isInitialized])
+  }, [isInitialized, user])
 
   const getSortedDocuments = useCallback((docs: ProcessingStatus[], sort: string, order: "asc" | "desc") => {
     return [...docs].sort((a, b) => {

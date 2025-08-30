@@ -9,7 +9,7 @@ import { middlewareLog, prodError } from '@/lib/log'
  * Delete a document from the queue
  */
 export async function DELETE(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
@@ -24,7 +24,7 @@ export async function DELETE(
 
     // Create Supabase client and get current user
     const supabase = await createServerSupabaseClient()
-    const user = await getAuthenticatedUser(supabase, request)
+    const user = await getAuthenticatedUser(supabase)
 
     if (!user) {
       prodError('[API] DELETE /api/queue/[id]/delete - Unauthorized')

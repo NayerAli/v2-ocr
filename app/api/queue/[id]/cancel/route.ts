@@ -10,7 +10,7 @@ import { middlewareLog, prodError } from '@/lib/log'
  * Cancel processing for a document
  */
 export async function POST(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
@@ -25,7 +25,7 @@ export async function POST(
 
     // Get the current user securely
     const supabase = await createServerSupabaseClient()
-    const user = await getAuthenticatedUser(supabase, request)
+    const user = await getAuthenticatedUser(supabase)
     if (!user) {
       prodError('[API] POST /api/queue/[id]/cancel - Unauthorized')
       return NextResponse.json(
