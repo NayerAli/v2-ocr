@@ -20,7 +20,8 @@ jobs:
           fetch-depth: 1
 
       - name: Display Commit SHA
-        run: echo "Commit SHA: ${{ github.sha }}"
+        run: |
+          echo "Commit SHA: $GITHUB_SHA"
 
       - name: Define Version (short SHA)
         run: |
