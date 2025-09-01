@@ -1,6 +1,7 @@
 // Main database service class
 
 import type { ProcessingStatus, OCRResult } from '@/types'
+import { getUUID } from '@/lib/uuid'
 import type { DatabaseStats } from '@/types/settings'
 import * as QueueService from './services/queue-service'
 import * as ResultsService from './services/results-service'
@@ -146,7 +147,7 @@ class DatabaseService {
     const camelCaseResults = results.map(result => ({
       ...result,
       documentId,
-      id: result.id || crypto.randomUUID()
+      id: result.id || getUUID()
     }))
 
     this.cache.results.set(documentId, camelCaseResults)

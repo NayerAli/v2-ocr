@@ -5,10 +5,19 @@ import { useDropzone } from "react-dropzone"
 import { Upload, X, FileText, ImageIcon, Clock, Loader2, AlertCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { formatFileSize } from "@/lib/file-utils"
 import { cn } from "@/lib/utils"
 import type { ProcessingStatus } from "@/types"
 import { Language, t } from "@/lib/i18n/translations"
+import { useToast } from "@/hooks/use-toast"
 
 interface FileUploadProps {
   onFilesAccepted: (files: File[]) => void
@@ -43,6 +52,56 @@ export function FileUpload({
 }: FileUploadProps) {
   const [isUploading, setIsUploading] = useState(false)
   const [countdowns, setCountdowns] = useState<Record<string, number>>({})
+  const [pendingCancel, setPendingCancel] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const { toast } = useToast()
+
+  const handleConfirm = async () => {
+    if (!pendingCancel) return
+    setBusy(true)
+    try {
+      const item = processingQueue.find(i => i.id === pendingCancel)
+      if (!item || item.status !== 'processing') {
+        toast({
+          title: t('error', language),
+          description: t('cancelError', language),
+          variant: 'destructive'
+        })
+        return
+      }
+      await Promise.resolve(onCancel(pendingCancel))
+    } catch (err) {
+      console.error(err)
+      toast({
+        title: t('error', language),
+        description: t('cancelError', language),
+        variant: 'destructive'
+      })
+    } finally {
+      setBusy(false)
+      setPendingCancel(null)
+    }
+  }
+
+  const dialog = (
+    <Dialog open={!!pendingCancel} onOpenChange={(open) => !open && setPendingCancel(null)}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t('confirmCancelTitle', language)}</DialogTitle>
+          <DialogDescription>{t('confirmCancelDesc', language)}</DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setPendingCancel(null)} disabled={busy}>
+            {t('close', language)}
+          </Button>
+          <Button variant="destructive" onClick={handleConfirm} disabled={busy}>
+            {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {t('cancel', language)}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
 
   // Update countdowns every second
   useEffect(() => {
@@ -154,7 +213,9 @@ export function FileUpload({
   }
 
   return (
-    <div className="space-y-4">
+    <>
+      {dialog}
+      <div className="space-y-4">
       <div
         {...getRootProps()}
         className={cn(
@@ -326,7 +387,11 @@ export function FileUpload({
                       variant="ghost"
                       size="sm"
                       className="h-7 text-red-600 dark:text-red-500 hover:text-red-700 dark:hover:text-red-400 px-2 text-xs gap-1.5"
-                      onClick={() => onCancel(item.id)}
+                      onClick={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        setPendingCancel(item.id)
+                      }}
                     >
                       <X className="h-3.5 w-3.5" />
                       {t('cancel', language)}
@@ -374,7 +439,8 @@ export function FileUpload({
           </div>
         </div>
       )}
-    </div>
+      </div>
+    </>
   )
 }
 

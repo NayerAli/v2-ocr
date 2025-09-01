@@ -19,9 +19,9 @@ import { useLanguage } from "@/hooks/use-language"
 import { t } from "@/lib/i18n/translations"
 import { useToast } from "@/hooks/use-toast"
 import { retryDocument } from "@/lib/tests/document-status-validation"
-// Auth hook is not directly used in this component
-// import { useAuth } from "@/components/auth/auth-provider"
+import { useAuth } from "@/components/auth/auth-provider"
 import { AuthCheck } from "@/components/auth/auth-check"
+import { getSafeDownloadName } from "@/lib/utils"
 // These UI components are not used in this file
 // import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 
@@ -29,9 +29,7 @@ export default function DocumentsPage() {
   const { isInitialized } = useSettingsInit()
   const { language } = useLanguage()
   const { toast } = useToast()
-  // These variables are not used in this component
-  // const { user } = useAuth()
-  // const router = useRouter()
+  const { user } = useAuth()
   const [documents, setDocuments] = useState<ProcessingStatus[]>([])
   const [isLoadingData, setIsLoadingData] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
@@ -48,7 +46,7 @@ export default function DocumentsPage() {
 
   // Load documents when initialized
   useEffect(() => {
-    if (!isInitialized) return
+    if (!isInitialized || !user) return
 
     console.log('Documents page: Initialized, loading documents for user')
     setIsLoadingData(true)
@@ -61,14 +59,14 @@ export default function DocumentsPage() {
       console.error('Error loading documents:', error)
       setIsLoadingData(false)
     })
-  }, [isInitialized])
+  }, [isInitialized, user])
 
   useEffect(() => {
     let isSubscribed = true
 
     // Setup polling for document updates
     const loadDocuments = async () => {
-      if (!isInitialized) return
+      if (!isInitialized || !user) return
 
       try {
         const queue = await db.getQueue()
@@ -87,7 +85,7 @@ export default function DocumentsPage() {
       isSubscribed = false
       clearInterval(interval)
     }
-  }, [isInitialized])
+  }, [isInitialized, user])
 
   const getSortedDocuments = useCallback((docs: ProcessingStatus[], sort: string, order: "asc" | "desc") => {
     return [...docs].sort((a, b) => {
@@ -138,9 +136,14 @@ export default function DocumentsPage() {
           }
         });
 
-        if (!cancelResponse.ok) {
-          console.error('[DEBUG] Failed to cancel processing:', await cancelResponse.text());
-        }
+      if (!cancelResponse.ok) {
+        console.error('[DEBUG] Failed to cancel processing:', await cancelResponse.text());
+        toast({
+          title: t('error', language),
+          description: t('cancelError', language),
+          variant: 'destructive'
+        });
+      }
       }
 
       // Delete the document
@@ -153,16 +156,30 @@ export default function DocumentsPage() {
 
       if (!deleteResponse.ok) {
         console.error('[DEBUG] Failed to delete document:', await deleteResponse.text());
+        toast({
+          title: t('error', language),
+          description: t('deleteError', language),
+          variant: 'destructive'
+        });
         return;
       }
 
       // Update the UI
       setDocuments((prev) => prev.filter((doc) => doc.id !== id));
       console.log('[DEBUG] Document deleted successfully');
+      toast({
+        title: t('success', language),
+        description: t('deleteSuccess', language)
+      });
     } catch (error) {
       console.error('[DEBUG] Error deleting document:', error);
+      toast({
+        title: t('error', language),
+        description: t('deleteError', language),
+        variant: 'destructive'
+      });
     }
-  }, [documents])
+  }, [documents, language, toast])
 
   const handleCancel = useCallback(async (id: string) => {
     try {
@@ -177,6 +194,11 @@ export default function DocumentsPage() {
 
       if (!cancelResponse.ok) {
         console.error('[DEBUG] Failed to cancel processing:', await cancelResponse.text());
+        toast({
+          title: t('error', language),
+          description: t('cancelError', language),
+          variant: 'destructive'
+        });
         return;
       }
 
@@ -186,10 +208,19 @@ export default function DocumentsPage() {
       ));
 
       console.log('[DEBUG] Processing canceled successfully');
+      toast({
+        title: t('success', language),
+        description: t('cancelSuccess', language)
+      });
     } catch (error) {
       console.error('[DEBUG] Error canceling processing:', error);
+      toast({
+        title: t('error', language),
+        description: t('cancelError', language),
+        variant: 'destructive'
+      });
     }
-  }, []);
+  }, [language, toast]);
 
   const handleRetry = useCallback(async (id: string) => {
     try {
@@ -258,20 +289,78 @@ export default function DocumentsPage() {
   }, [documents, language, toast]);
 
   const handleDownload = useCallback(async (id: string) => {
-    const results = await db.getResults(id)
-    if (!results) return
+    try {
+      const results = await db.getResults(id)
+      if (!results || results.length === 0) {
+        toast({
+          title: "No Results",
+          description: "No OCR results available for this document.",
+          variant: "destructive"
+        })
+        return
+      }
 
-    const text = results.map((r) => r.text).join("\n\n")
-    const blob = new Blob([text], { type: "text/plain" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = `results-${id}.txt`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
-  }, [])
+      const doc = documents.find(d => d.id === id)
+      if (!doc) {
+        toast({
+          title: "Document Not Found",
+          description: "Could not find document information.",
+          variant: "destructive"
+        })
+        return
+      }
+
+      const timestamp = new Date().toLocaleString()
+      const documentName = doc.filename
+      const baseName = getSafeDownloadName(documentName)
+      const separator = "=".repeat(80)
+
+      const header = [
+        separator,
+        `Document: ${documentName}`,
+        `Exported: ${timestamp}`,
+        `Total Pages: ${results.length}`,
+        separator,
+        "\n"
+      ].join("\n")
+
+      const formattedText = results
+        .sort((a, b) => a.pageNumber - b.pageNumber)
+        .map((r) => [
+          `${separator}`,
+          `Page ${r.pageNumber} of ${results.length}`,
+          `${separator}`,
+          "",
+          r.text,
+          "\n"
+        ].join("\n"))
+        .join("\n")
+
+      const fullText = header + formattedText
+
+      const blob = new Blob([fullText], { type: "text/plain;charset=utf-8" })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `${baseName}.txt`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+
+      toast({
+        title: "Download Started",
+        description: `Exporting all ${results.length} pages as a single text file.`
+      })
+    } catch (error) {
+      console.error("Download error:", error)
+      toast({
+        title: "Download Failed",
+        description: "Failed to download the document. Please try again.",
+        variant: "destructive"
+      })
+    }
+  }, [documents, toast])
 
   return (
     <AuthCheck>

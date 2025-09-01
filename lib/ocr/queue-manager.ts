@@ -1,8 +1,11 @@
 import type { ProcessingStatus } from "@/types";
+import "@/lib/polyfills";
 import type { ProcessingSettings, UploadSettings } from "@/types/settings";
 import { db } from "../database";
 import { FileProcessor } from "./file-processor";
 import { updateDocumentStatus, retryDocument as retryDocumentUtil } from "./document-status-utils";
+import { getUUID } from "@/lib/uuid";
+import { normalizeStoragePath } from "@/lib/storage/path";
 
 export class QueueManager {
   private queueMap: Map<string, ProcessingStatus> = new Map();
@@ -72,7 +75,7 @@ export class QueueManager {
         throw new Error(`Invalid file: ${file.name}`);
       }
 
-      const id = crypto.randomUUID();
+      const id = getUUID();
       const now = new Date();
 
       // Generate a storage path for the file using the new naming convention
@@ -494,7 +497,7 @@ export class QueueManager {
       }
 
       // Create a user-specific path
-      const userPath = `${user.id}/${storagePath}`;
+      const userPath = normalizeStoragePath(user.id, storagePath);
 
       // Create a signed URL that expires in 24 hours (86400 seconds)
       const { data, error } = await supabase.storage
@@ -540,7 +543,7 @@ export class QueueManager {
 
       // Create a user-specific path
       // The storagePath should be in the format: documentId/[Image|PDF|File]_ID.extension
-      const userPath = `${user.id}/${storagePath}`;
+      const userPath = normalizeStoragePath(user.id, storagePath);
 
       // Upload the file to Supabase storage
       infoLog('[DEBUG] Uploading file to Supabase storage:', userPath);

@@ -1,4 +1,6 @@
 import { openDB, type IDBPDatabase } from 'idb'
+import "@/lib/polyfills"
+import { getUUID } from '@/lib/uuid'
 import type { ProcessingStatus, OCRResult } from '@/types'
 import type { DatabaseStats } from '@/types/settings'
 
@@ -251,7 +253,7 @@ class DatabaseService {
       results.map(result => tx.store.put({
         ...result,
         documentId,
-        id: result.id || crypto.randomUUID()
+        id: result.id || getUUID()
       }))
     )
     await tx.done
@@ -263,4 +265,3 @@ class DatabaseService {
 }
 
 export const db = new DatabaseService()
-

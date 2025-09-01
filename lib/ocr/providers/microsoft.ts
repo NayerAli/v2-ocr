@@ -1,4 +1,5 @@
 import type { OCRResult, OCRSettings } from "@/types";
+import { getUUID } from "@/lib/uuid";
 import { AzureRateLimiter } from "../rate-limiter";
 import type { MicrosoftVisionResponse, OCRProvider } from "./types";
 
@@ -83,7 +84,7 @@ export class MicrosoftVisionProvider implements OCRProvider {
           .join("\n\n") || "";
 
       return {
-        id: crypto.randomUUID(),
+        id: getUUID(),
         documentId: "",
         text,
         confidence: 1,

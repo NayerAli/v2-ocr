@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
+import { getUUID } from '@/lib/uuid'
 import { logApiRequest, logApiResponse, logServerMessage } from './lib/server-logger'
 
 /**
@@ -17,7 +18,7 @@ export function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname
   
   // Generate a unique request ID
-  const requestId = crypto.randomUUID()
+  const requestId = getUUID()
   
   // Extract query parameters
   const { searchParams } = new URL(url)

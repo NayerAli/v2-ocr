@@ -2,6 +2,7 @@
 
 import { getUser } from '../../auth'
 import type { ProcessingStatus } from '@/types'
+import { getUUID } from '@/lib/uuid'
 import { supabase, isSupabaseConfigured, mapToProcessingStatus, camelToSnake } from '../utils'
 
 /**
@@ -136,7 +137,7 @@ export async function saveDocument(document: Partial<ProcessingStatus>): Promise
     createdAt: document.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     // If it's a new document, generate an ID
-    id: document.id || crypto.randomUUID()
+    id: document.id || getUUID()
   }
 
   // Convert to snake_case for Supabase

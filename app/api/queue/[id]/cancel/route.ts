@@ -1,15 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getUser } from '@/lib/auth'
 import { db } from '@/lib/database'
 import { getProcessingService } from '@/lib/ocr/processing-service'
 import { getDefaultSettings } from '@/lib/default-settings'
+import { createServerSupabaseClient, getAuthenticatedUser } from '@/lib/server-auth'
+import { middlewareLog, prodError } from '@/lib/log'
 
 /**
  * POST /api/queue/:id/cancel
  * Cancel processing for a document
  */
 export async function POST(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
@@ -22,16 +23,21 @@ export async function POST(
       )
     }
 
-    // Get the current user
-    const user = await getUser()
+    // Get the current user securely
+    const supabase = await createServerSupabaseClient()
+    const user = await getAuthenticatedUser(supabase)
     if (!user) {
+      prodError('[API] POST /api/queue/[id]/cancel - Unauthorized')
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
       )
     }
 
-    console.log(`[API] Canceling processing for document ${id}`)
+    middlewareLog('important', '[API] Canceling processing for document', {
+      documentId: id,
+      userId: user.id
+    })
 
     // Get the document from the queue
     const queue = await db.getQueue()
@@ -60,7 +66,7 @@ export async function POST(
 
     return NextResponse.json({ success: true })
   } catch (error) {
-    console.error('Error canceling processing:', error)
+    prodError('[API] POST /api/queue/[id]/cancel - Error canceling processing', error as Error)
     return NextResponse.json(
       { error: 'Failed to cancel processing' },
       { status: 500 }

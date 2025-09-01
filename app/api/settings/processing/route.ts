@@ -1,11 +1,18 @@
 import { NextResponse } from 'next/server'
 import { settingsService } from '@/lib/settings-service'
+import { createServerSupabaseClient, getAuthenticatedUser } from '@/lib/server-auth'
 
 /**
  * GET /api/settings/processing
  * Retrieves the processing settings from the server
  */
 export async function GET() {
+  const supabase = createServerSupabaseClient()
+  const user = await getAuthenticatedUser(supabase)
+  if (!user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   // Default settings to use as fallback
   const DEFAULT_SETTINGS = {
     maxConcurrentJobs: 2,
@@ -48,6 +55,12 @@ export async function GET() {
  * This endpoint should be protected in production
  */
 export async function PUT(request: Request) {
+  const supabase = createServerSupabaseClient()
+  const user = await getAuthenticatedUser(supabase)
+  if (!user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   try {
     const body = await request.json()
 

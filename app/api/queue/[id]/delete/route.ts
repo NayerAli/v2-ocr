@@ -1,16 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getUser } from '@/lib/auth'
-import { db } from '@/lib/database'
 import { getProcessingService } from '@/lib/ocr/processing-service'
 import { getDefaultSettings } from '@/lib/default-settings'
-// import { createApiHandler } from '@/app/api/utils'
+import { createServerSupabaseClient, getAuthenticatedUser } from '@/lib/server-auth'
+import { middlewareLog, prodError } from '@/lib/log'
+import { normalizeStoragePath } from '@/lib/storage/path'
 
 /**
  * DELETE /api/queue/:id/delete
  * Delete a document from the queue
  */
 export async function DELETE(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
@@ -23,49 +23,144 @@ export async function DELETE(
       )
     }
 
-    // Get the current user
-    const user = await getUser()
+    // Create Supabase client and get current user
+    const supabase = await createServerSupabaseClient()
+    const user = await getAuthenticatedUser(supabase)
+
     if (!user) {
+      prodError('[API] DELETE /api/queue/[id]/delete - Unauthorized')
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
       )
     }
 
-    console.log(`[API] Deleting document ${id}`)
+    middlewareLog('important', '[API] Deleting document', {
+      documentId: id,
+      userId: user.id
+    })
 
-    // Get the document from the queue
-    const queue = await db.getQueue()
-    const document = queue.find(doc => doc.id === id)
+    // Fetch the document to verify ownership and status
+    const { data: document, error: documentError } = await supabase
+      .from('documents')
+      .select('*')
+      .eq('id', id)
+      .eq('user_id', user.id)
+      .single()
 
-    if (!document) {
+    if (documentError || !document) {
       return NextResponse.json(
         { error: 'Document not found' },
         { status: 404 }
       )
     }
 
-    // Check if the document belongs to the current user
-    if (document.user_id !== user.id) {
+    // If the document is queued or processing, cancel it first
+    if (document.status === 'processing' || document.status === 'queued') {
+      try {
+        const processingService = await getProcessingService(getDefaultSettings())
+        await processingService.cancelProcessing(id)
+      } catch (e) {
+        prodError('[API] Error cancelling processing:', e as Error)
+      }
+    }
+
+    // Remove the source file from storage if present
+    if (document.storage_path) {
+      const docPath = normalizeStoragePath(user.id, document.storage_path)
+
+      const { error: storageError } = await supabase.storage
+        .from('ocr-documents')
+        .remove([docPath])
+
+      if (storageError) {
+        prodError('[API] Error removing document from storage:', storageError)
+        return NextResponse.json(
+          { error: 'Failed to delete source file' },
+          { status: 500 }
+        )
+      }
+    }
+
+    // Fetch OCR result storage paths to remove files from storage
+    const { data: results, error: resultsFetchError } = await supabase
+      .from('ocr_results')
+      .select('storage_path')
+      .eq('document_id', id)
+      .eq('user_id', user.id)
+
+    if (resultsFetchError) {
+      prodError('[API] Error fetching OCR results for storage cleanup:', resultsFetchError)
       return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 403 }
+        { error: 'Failed to fetch OCR results' },
+        { status: 500 }
       )
     }
 
-    // If the document is being processed, cancel it first
-    if (document.status === 'processing') {
-      // Get processing service with default settings
-      const processingService = await getProcessingService(getDefaultSettings())
-      await processingService.cancelProcessing(id)
+    const resultPaths = (results || [])
+      .map((r) => r.storage_path)
+      .filter((p): p is string => !!p)
+      .map((p) => normalizeStoragePath(user.id, p))
+
+    if (resultPaths.length > 0) {
+      const { error: resultStorageError } = await supabase.storage
+        .from('ocr-documents')
+        .remove(resultPaths)
+
+      if (resultStorageError) {
+        prodError('[API] Error removing OCR result files:', resultStorageError)
+        return NextResponse.json(
+          { error: 'Failed to delete OCR result files' },
+          { status: 500 }
+        )
+      }
     }
 
-    // Remove from queue
-    await db.removeFromQueue(id)
+    // Delete any OCR results for this document
+    const { error: ocrDeleteError } = await supabase
+      .from('ocr_results')
+      .delete()
+      .eq('document_id', id)
+      .eq('user_id', user.id)
+
+    if (ocrDeleteError) {
+      prodError('[API] Error removing OCR results:', ocrDeleteError)
+      return NextResponse.json(
+        { error: 'Failed to delete OCR results' },
+        { status: 500 }
+      )
+    }
+
+    // Delete the document itself
+    const { error: deleteError } = await supabase
+      .from('documents')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', user.id)
+
+    if (deleteError) {
+      prodError('[API] Error removing document:', deleteError)
+      return NextResponse.json(
+        { error: 'Failed to delete document' },
+        { status: 500 }
+      )
+    }
+
+    // Clean up the empty document folder
+    try {
+      // Remove the document folder by attempting to remove a placeholder file
+      // This will remove the empty folder structure
+      await supabase.storage
+        .from('ocr-documents')
+        .remove([normalizeStoragePath(user.id, `${id}/.keep`)])
+    } catch (e) {
+      // Ignore folder cleanup errors as they're not critical
+      middlewareLog('debug', '[API] Delete: Could not clean up empty document folder', e)
+    }
 
     return NextResponse.json({ success: true })
   } catch (error) {
-    console.error('Error deleting document:', error)
+    prodError('[API] DELETE /api/queue/[id]/delete - Error deleting document', error as Error)
     return NextResponse.json(
       { error: 'Failed to delete document' },
       { status: 500 }

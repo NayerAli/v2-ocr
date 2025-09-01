@@ -2,44 +2,43 @@
 // IMPORTANT: This file should only be imported in App Router components (app directory)
 // It uses next/headers which is not compatible with Pages Router (pages directory)
 
-import type { User, Session } from '@supabase/supabase-js'
-import { debugError, middlewareLog } from './log'
-import { createClient } from './supabase/server'
+import type { User, SupabaseClient } from '@supabase/supabase-js'
+import { middlewareLog, prodError } from './log'
+import { createServerClient, type CookieOptions } from '@supabase/ssr'
+import { cookies } from 'next/headers'
+import type { Database } from '@/types/supabase'
 
 /**
  * Create a Supabase client for server-side use
  */
-export async function createServerSupabaseClient() {
-  // Create the Supabase client with SSR configuration
-  const supabase = await createClient()
-  
-  return supabase
-}
+export function createServerSupabaseClient() {
+  const cookieStore = cookies()
 
-/**
- * Get the current user session on the server
- */
-export async function getServerSession(): Promise<Session | null> {
-  try {
-    const supabase = await createServerSupabaseClient()
-    const { data, error } = await supabase.auth.getSession()
-
-    if (error) {
-      debugError('[Server] Error getting session:', error.message)
-      return null
+  return createServerClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return cookieStore.get(name)?.value
+        },
+        set(name: string, value: string, options: CookieOptions) {
+          try {
+            cookieStore.set({ name, value, ...options })
+          } catch {
+            console.debug('Cookie set failed in server component (expected)', { name })
+          }
+        },
+        remove(name: string, options: CookieOptions) {
+          try {
+            cookieStore.set({ name, value: '', ...options })
+          } catch {
+            console.debug('Cookie remove failed in server component (expected)', { name })
+          }
+        }
+      }
     }
-
-    if (data.session) {
-      middlewareLog('debug', '[Server] Session found for user:', data.session.user.email)
-      return data.session
-    }
-
-    middlewareLog('debug', '[Server-Auth] No session found')
-    return null
-  } catch (e) {
-    debugError('[Server-Auth] Exception getting session', e)
-    return null
-  }
+  )
 }
 
 /**
@@ -47,30 +46,51 @@ export async function getServerSession(): Promise<Session | null> {
  */
 export async function getServerUser(): Promise<User | null> {
   try {
-    // First try to get the session
-    const session = await getServerSession()
-    if (session?.user) {
-      return session.user
-    }
-
-    // If no session, try to get the user directly
-    const supabase = await createServerSupabaseClient()
+    const supabase = createServerSupabaseClient()
     const { data, error } = await supabase.auth.getUser()
 
     if (error) {
-      debugError('[Server] Error getting user:', error.message)
+      prodError('[Server] Error getting user:', error.message)
       return null
     }
 
     if (data.user) {
-      middlewareLog('debug', '[Server] User found:', data.user.email)
+      middlewareLog('important', '[Server] User found:', data.user.email)
       return data.user
     }
 
-    middlewareLog('debug', '[Server] No user found')
+    middlewareLog('important', '[Server] No user found')
     return null
   } catch (e) {
-    debugError('[Server] Exception getting user', e)
+    prodError('[Server] Exception getting user', e)
+    return null
+  }
+}
+
+/**
+ * Retrieve authenticated user with local JWT validation and session refresh
+ */
+export async function getAuthenticatedUser(
+  supabase: SupabaseClient
+): Promise<User | null> {
+  try {
+    const { data, error } = await supabase.auth.getUser()
+
+    if (data?.user) {
+      middlewareLog('important', '[Server-Auth] User authenticated from getUser', {
+        email: data.user.email
+      })
+      return data.user
+    }
+
+    if (error) {
+      prodError('[Server-Auth] Error getting user:', error.message)
+    }
+
+    middlewareLog('important', '[Server-Auth] No authenticated user found')
+    return null
+  } catch (e) {
+    prodError('[Server-Auth] Exception getting user', e)
     return null
   }
 }
@@ -79,6 +99,6 @@ export async function getServerUser(): Promise<User | null> {
  * Check if the user is authenticated on the server
  */
 export async function isServerAuthenticated(): Promise<boolean> {
-  const session = await getServerSession()
-  return !!session
+  const user = await getServerUser()
+  return !!user
 }

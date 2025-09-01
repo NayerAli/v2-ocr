@@ -4,6 +4,7 @@ import { ThemeProvider } from "@/components/theme-provider"
 import { AuthProvider } from "@/components/auth/auth-provider"
 import { Toaster } from "@/components/ui/toaster"
 import { Header } from "./components/header"
+import ClientInit from "./client-init"
 import "./globals.css"
 import type React from "react"
 
@@ -23,6 +24,7 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body className={`${inter.className} ${ibmPlexSansArabic.variable} min-h-screen bg-background antialiased`}>
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+          <ClientInit />
           <AuthProvider>
             <div className="relative flex min-h-screen flex-col">
               <Header />
@@ -41,4 +43,3 @@ export default function RootLayout({
     </html>
   )
 }
-

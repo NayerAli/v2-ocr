@@ -1,5 +1,6 @@
 "use client"
 
+import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { FileText, MoreVertical, Download, Trash2, ImageIcon, Clock, Loader2, CheckCircle, AlertCircle, Pause, Eye } from "lucide-react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -16,6 +17,15 @@ import {
 } from "@/components/ui/tooltip"
 import { useLanguage } from "@/hooks/use-language"
 import { t, type Language } from "@/lib/i18n/translations"
+import { useToast } from "@/hooks/use-toast"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogFooter,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog"
 
 interface DocumentListProps {
   documents: ProcessingStatus[]
@@ -118,6 +128,76 @@ export function DocumentList({
 }: DocumentListProps) {
   const router = useRouter()
   const { language } = useLanguage()
+  const { toast } = useToast()
+
+  const [pendingAction, setPendingAction] = useState<
+    { type: 'delete' | 'cancel'; id: string } | null
+  >(null)
+
+  const [busy, setBusy] = useState(false)
+
+  const handleConfirm = async () => {
+    if (!pendingAction) return
+    setBusy(true)
+    try {
+      if (pendingAction.type === 'delete') {
+        await Promise.resolve(onDelete(pendingAction.id))
+      } else if (pendingAction.type === 'cancel' && onCancel) {
+        const doc = documents.find(d => d.id === pendingAction.id)
+        if (!doc || doc.status !== 'processing') {
+          toast({
+            title: t('error', language),
+            description: t('cancelError', language),
+            variant: 'destructive'
+          })
+          return
+        }
+        await Promise.resolve(onCancel(pendingAction.id))
+      }
+    } catch (err) {
+      console.error(err)
+      toast({
+        title: t('error', language),
+        description: pendingAction.type === 'delete'
+          ? t('deleteError', language)
+          : t('cancelError', language),
+        variant: 'destructive'
+      })
+    } finally {
+      setBusy(false)
+      setPendingAction(null)
+    }
+  }
+
+  const dialog = (
+    <Dialog open={!!pendingAction} onOpenChange={(open) => !open && setPendingAction(null)}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            {pendingAction?.type === 'delete'
+              ? t('confirmDeleteTitle', language)
+              : t('confirmCancelTitle', language)}
+          </DialogTitle>
+          <DialogDescription>
+            {pendingAction?.type === 'delete'
+              ? t('confirmDeleteDesc', language)
+              : t('confirmCancelDesc', language)}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setPendingAction(null)} disabled={busy}>
+            {t('close', language)}
+          </Button>
+          <Button variant="destructive" onClick={handleConfirm} disabled={busy}>
+            {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {pendingAction?.type === 'delete'
+              ? t('delete', language)
+              : t('cancel', language)}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
 
   const canViewDocument = (doc: ProcessingStatus) => {
     if (doc.status === "completed") return true
@@ -184,64 +264,71 @@ export function DocumentList({
 
   if (isLoading) {
     return (
-      <div className="rounded-md border bg-card">
-        <Table>
-          <TableHeader>
-            <TableRow className="hover:bg-transparent">
-              <TableHead>{t('fileName', language)}</TableHead>
-              <TableHead>{t('status', language)}</TableHead>
-              <TableHead>{t('date', language)}</TableHead>
-              <TableHead>{t('pages', language)}</TableHead>
-              <TableHead>{t('size', language)}</TableHead>
-              <TableHead className="w-[100px] text-center">{t('actions', language)}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {Array.from({ length: 3 }).map((_, i) => (
-              <TableRow key={i}>
-                <TableCell>
-                  <div className="flex items-center gap-4">
-                    <div className="h-4 w-4 rounded bg-muted animate-pulse" />
-                    <div className="h-4 w-48 bg-muted rounded animate-pulse" />
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <div className="h-4 w-24 bg-muted rounded animate-pulse" />
-                </TableCell>
-                <TableCell>
-                  <div className="h-4 w-24 bg-muted rounded animate-pulse" />
-                </TableCell>
-                <TableCell>
-                  <div className="h-4 w-12 bg-muted rounded animate-pulse" />
-                </TableCell>
-                <TableCell>
-                  <div className="h-4 w-16 bg-muted rounded animate-pulse" />
-                </TableCell>
-                <TableCell>
-                  <div className="flex justify-center">
-                    <div className="h-8 w-8 rounded bg-muted animate-pulse" />
-                  </div>
-                </TableCell>
+      <>
+        <div className="rounded-md border bg-card">
+          <Table>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead>{t('fileName', language)}</TableHead>
+                <TableHead>{t('status', language)}</TableHead>
+                <TableHead>{t('date', language)}</TableHead>
+                <TableHead>{t('pages', language)}</TableHead>
+                <TableHead>{t('size', language)}</TableHead>
+                <TableHead className="w-[100px] text-center">{t('actions', language)}</TableHead>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
+            </TableHeader>
+            <TableBody>
+              {Array.from({ length: 3 }).map((_, i) => (
+                <TableRow key={i}>
+                  <TableCell>
+                    <div className="flex items-center gap-4">
+                      <div className="h-4 w-4 rounded bg-muted animate-pulse" />
+                      <div className="h-4 w-48 bg-muted rounded animate-pulse" />
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="h-4 w-24 bg-muted rounded animate-pulse" />
+                  </TableCell>
+                  <TableCell>
+                    <div className="h-4 w-24 bg-muted rounded animate-pulse" />
+                  </TableCell>
+                  <TableCell>
+                    <div className="h-4 w-12 bg-muted rounded animate-pulse" />
+                  </TableCell>
+                  <TableCell>
+                    <div className="h-4 w-16 bg-muted rounded animate-pulse" />
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex justify-center">
+                      <div className="h-8 w-8 rounded bg-muted animate-pulse" />
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+        {dialog}
+      </>
     )
   }
 
   if (documents.length === 0) {
     return (
-      <div className="text-center py-8">
-        <p className="text-muted-foreground">{t('noDocuments', language)}</p>
-      </div>
+      <>
+        <div className="text-center py-8">
+          <p className="text-muted-foreground">{t('noDocuments', language)}</p>
+        </div>
+        {dialog}
+      </>
     )
   }
 
   if (variant === "grid") {
     return (
-      <div className="space-y-4">
-        {documents.map((doc) => (
+      <>
+        <div className="space-y-4">
+          {documents.map((doc) => (
           <div
             key={doc.id}
             className={cn(
@@ -284,7 +371,12 @@ export function DocumentList({
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => onShowDetails(doc)}>
+                      <DropdownMenuItem
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onShowDetails(doc)
+                        }}
+                      >
                         <Eye className="mr-2 h-4 w-4" />
                         {t('viewDetails', language)}
                       </DropdownMenuItem>
@@ -295,7 +387,10 @@ export function DocumentList({
                               <TooltipTrigger asChild>
                                 <div>
                                   <DropdownMenuItem
-                                    onClick={() => onDownload(doc.id)}
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      onDownload(doc.id)
+                                    }}
                                     disabled={true}
                                     className="opacity-50 cursor-not-allowed"
                                   >
@@ -310,7 +405,12 @@ export function DocumentList({
                             </Tooltip>
                           </TooltipProvider>
                         ) : (
-                          <DropdownMenuItem onClick={() => onDownload(doc.id)}>
+                          <DropdownMenuItem
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              onDownload(doc.id)
+                            }}
+                          >
                             <Download className="h-4 w-4 mr-2" />
                             {t('download', language)}
                           </DropdownMenuItem>
@@ -319,7 +419,11 @@ export function DocumentList({
                       {/* Show cancel button for processing documents */}
                       {doc.status === 'processing' && onCancel && (
                         <DropdownMenuItem
-                          onClick={() => onCancel(doc.id)}
+                          onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            setPendingAction({ type: 'cancel', id: doc.id })
+                          }}
                         >
                           <Pause className="h-4 w-4 mr-2" />
                           {t('cancel', language) || 'Cancel'}
@@ -329,7 +433,10 @@ export function DocumentList({
                       {/* Show retry button for error/failed documents */}
                       {(doc.status === 'error' || doc.status === 'failed') && onRetry && (
                         <DropdownMenuItem
-                          onClick={() => onRetry(doc.id)}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            onRetry(doc.id)
+                          }}
                         >
                           <Clock className="h-4 w-4 mr-2" />
                           {t('retry', language) || 'Retry'}
@@ -337,7 +444,11 @@ export function DocumentList({
                       )}
                       <DropdownMenuItem
                         className="text-destructive focus:text-destructive"
-                        onClick={() => onDelete(doc.id)}
+                        onClick={(e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          setPendingAction({ type: 'delete', id: doc.id })
+                        }}
                       >
                         <Trash2 className="h-4 w-4 mr-2" />
                         {t('delete', language)}
@@ -350,13 +461,16 @@ export function DocumentList({
             {getProgressIndicator(doc)}
           </div>
         ))}
-      </div>
+        </div>
+        {dialog}
+      </>
     )
   }
 
   return (
-    <div className="rounded-md border bg-card">
-      <Table>
+    <>
+      <div className="rounded-md border bg-card">
+        <Table>
         <TableHeader>
           <TableRow className="hover:bg-transparent">
             <TableColumnHeader>{t('fileName', language)}</TableColumnHeader>
@@ -466,8 +580,9 @@ export function DocumentList({
                       {doc.status === 'processing' && onCancel && (
                         <DropdownMenuItem
                           onClick={(e) => {
+                            e.preventDefault();
                             e.stopPropagation();
-                            onCancel(doc.id);
+                            setPendingAction({ type: 'cancel', id: doc.id });
                           }}
                         >
                           <Pause className="h-4 w-4 mr-2" />
@@ -491,8 +606,9 @@ export function DocumentList({
                       <DropdownMenuItem
                         className="text-destructive focus:text-destructive"
                         onClick={(e) => {
+                          e.preventDefault();
                           e.stopPropagation();
-                          onDelete(doc.id);
+                          setPendingAction({ type: 'delete', id: doc.id });
                         }}
                       >
                         <Trash2 className="h-4 w-4 mr-2" />
@@ -505,7 +621,9 @@ export function DocumentList({
             </TableRow>
           ))}
         </TableBody>
-      </Table>
-    </div>
+        </Table>
+      </div>
+      {dialog}
+    </>
   )
 }

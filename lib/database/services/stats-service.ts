@@ -11,13 +11,20 @@ export async function getDatabaseStats(): Promise<DatabaseStats> {
     console.error('Supabase not configured. Cannot get database stats.')
     return { totalDocuments: 0, totalResults: 0, dbSize: 0 }
   }
+  // Get the current user's ID once and reuse it
+  const { data: userData, error: userError } = await supabase.auth.getUser()
+  const userId = userData.user?.id
+
+  if (userError || !userId) {
+    console.error('Error getting authenticated user:', userError)
+    return { totalDocuments: 0, totalResults: 0, dbSize: 0 }
+  }
 
   // Get documents count for the current user
   const { count: documentsCount, error: documentsError } = await supabase
     .from('documents')
     .select('*', { count: 'exact', head: true })
-    // Only count the current user's documents
-    .eq('user_id', (await supabase.auth.getUser()).data.user?.id)
+    .eq('user_id', userId)
 
   if (documentsError) {
     console.error('Error getting documents count:', documentsError)
@@ -28,8 +35,7 @@ export async function getDatabaseStats(): Promise<DatabaseStats> {
   const { count: resultsCount, error: resultsError } = await supabase
     .from('ocr_results')
     .select('*', { count: 'exact', head: true })
-    // Only count the current user's OCR results
-    .eq('user_id', (await supabase.auth.getUser()).data.user?.id)
+    .eq('user_id', userId)
 
   if (resultsError) {
     console.error('Error getting results count:', resultsError)
@@ -84,8 +90,7 @@ export async function getDatabaseStats(): Promise<DatabaseStats> {
     const { data: allFileSizes, error: allFileSizesError } = await supabase
       .from('documents')
       .select('file_size')
-      // Only get the current user's documents
-      .eq('user_id', (await supabase.auth.getUser()).data.user?.id)
+      .eq('user_id', userId)
 
     if (!allFileSizesError && allFileSizes) {
       totalFileSize = allFileSizes.reduce((sum, doc) => sum + (doc.file_size || 0), 0)
@@ -110,8 +115,7 @@ export async function getDatabaseStats(): Promise<DatabaseStats> {
     const { data: allOcrData, error: allOcrError } = await supabase
       .from('ocr_results')
       .select('text')
-      // Only get the current user's OCR results
-      .eq('user_id', (await supabase.auth.getUser()).data.user?.id)
+      .eq('user_id', userId)
 
     if (!allOcrError && allOcrData) {
       // Calculate size based on text length (1 character ≈ 1 byte in UTF-8 for basic Latin)
@@ -143,11 +147,11 @@ export async function cleanupOldRecords(retentionPeriod: number): Promise<number
   }
 
   // Get the current user's ID
-  const { data: userData } = await supabase.auth.getUser()
+  const { data: userData, error: userError } = await supabase.auth.getUser()
   const userId = userData.user?.id
 
-  if (!userId) {
-    console.error('No authenticated user found. Cannot cleanup old records.')
+  if (userError || !userId) {
+    console.error('No authenticated user found. Cannot cleanup old records.', userError)
     return 0
   }
 
@@ -206,11 +210,11 @@ export async function clearDatabase(type?: 'documents' | 'ocr_results' | 'all'):
   }
 
   // Get the current user's ID
-  const { data: userData } = await supabase.auth.getUser()
+  const { data: userData, error: userError } = await supabase.auth.getUser()
   const userId = userData.user?.id
 
-  if (!userId) {
-    console.error('No authenticated user found. Cannot clear database.')
+  if (userError || !userId) {
+    console.error('No authenticated user found. Cannot clear database.', userError)
     return
   }
 
