@@ -1,4 +1,4 @@
-name: CI/CD Docker Deploy 🚀
+name: CI/CD Docker Deploy
 
 on:
   push:
@@ -14,21 +14,21 @@ jobs:
       DOCKER_BUILDKIT: 1
 
     steps:
-      - name: 📦 Checkout Repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
-      - name: 🔍 Display Commit SHA
+      - name: Display Commit SHA
         run: echo "Commit SHA: ${{ github.sha }}"
 
-      - name: 🏷️ Define Version (short SHA)
+      - name: Define Version (short SHA)
         run: |
           VERSION=$(git rev-parse --short HEAD)
           echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
           echo "Deploying version ${VERSION}"
 
-      - name: 🏗️ Build Docker Image (fresh, cache-busted)
+      - name: Build Docker Image (fresh, cache-busted)
         run: |
           echo "Building image rehanalimahomed/inoor-ocr:${VERSION} (and :latest)"
           docker build --pull \
@@ -36,26 +36,23 @@ jobs:
             -t rehanalimahomed/inoor-ocr:${VERSION} \
             -t rehanalimahomed/inoor-ocr:latest .
 
-      - name: 📤 Push Docker Image to Docker Hub
+      - name: Push Docker Image to Docker Hub
         run: |
           docker push rehanalimahomed/inoor-ocr:${VERSION}
           docker push rehanalimahomed/inoor-ocr:latest
 
-      - name: 🚀 Deploy New Container (by exact version)
+      - name: Deploy New Container (by exact version)
         run: |
           set -e
           CONTAINER_NAME="inoor-ocr"
           IMAGE="rehanalimahomed/inoor-ocr:${VERSION}"
-
           echo "Removing old container if it exists..."
           docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true
-
           echo "Starting ${CONTAINER_NAME} from ${IMAGE} on port 3000..."
           docker run -d --restart always \
             --name "${CONTAINER_NAME}" \
             -p 3000:3000 \
             "${IMAGE}"
-
           echo "Verifying container status..."
           sleep 3
           docker ps --filter "name=${CONTAINER_NAME}" --format "table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}"
