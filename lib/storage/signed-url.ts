@@ -1,12 +1,13 @@
 import { supabase } from '@/lib/database/utils'
 import { getUser } from '@/lib/auth'
+import { normalizeStoragePath } from './path'
 
 /** TTL par défaut: 3600s (1h). Ajuste si besoin. */
 const DEFAULT_TTL = 3600
 
 /** Construit le chemin "bucket/userId/storagePath" attendu par le Storage. */
 function buildUserScopedPath(userId: string, storagePath: string) {
-  return `${userId}/${storagePath}`
+  return normalizeStoragePath(userId, storagePath)
 }
 
 /** Génère une URL signée pour un seul fichier. */
