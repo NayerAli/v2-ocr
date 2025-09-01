@@ -5,6 +5,7 @@ import { db } from "../database";
 import { FileProcessor } from "./file-processor";
 import { updateDocumentStatus, retryDocument as retryDocumentUtil } from "./document-status-utils";
 import { getUUID } from "@/lib/uuid";
+import { normalizeStoragePath } from "@/lib/storage/path";
 
 export class QueueManager {
   private queueMap: Map<string, ProcessingStatus> = new Map();
@@ -496,7 +497,7 @@ export class QueueManager {
       }
 
       // Create a user-specific path
-      const userPath = `${user.id}/${storagePath}`;
+      const userPath = normalizeStoragePath(user.id, storagePath);
 
       // Create a signed URL that expires in 24 hours (86400 seconds)
       const { data, error } = await supabase.storage
@@ -542,7 +543,7 @@ export class QueueManager {
 
       // Create a user-specific path
       // The storagePath should be in the format: documentId/[Image|PDF|File]_ID.extension
-      const userPath = `${user.id}/${storagePath}`;
+      const userPath = normalizeStoragePath(user.id, storagePath);
 
       // Upload the file to Supabase storage
       infoLog('[DEBUG] Uploading file to Supabase storage:', userPath);

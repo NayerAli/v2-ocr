@@ -3,6 +3,7 @@ import { getProcessingService } from '@/lib/ocr/processing-service'
 import { getDefaultSettings } from '@/lib/default-settings'
 import { createServerSupabaseClient, getAuthenticatedUser } from '@/lib/server-auth'
 import { middlewareLog, prodError } from '@/lib/log'
+import { normalizeStoragePath } from '@/lib/storage/path'
 
 /**
  * DELETE /api/queue/:id/delete
@@ -66,9 +67,7 @@ export async function DELETE(
 
     // Remove the source file from storage if present
     if (document.storage_path) {
-      const docPath = document.storage_path.startsWith(`${user.id}/`)
-        ? document.storage_path
-        : `${user.id}/${document.storage_path}`
+      const docPath = normalizeStoragePath(user.id, document.storage_path)
 
       const { error: storageError } = await supabase.storage
         .from('ocr-documents')
@@ -101,7 +100,7 @@ export async function DELETE(
     const resultPaths = (results || [])
       .map((r) => r.storage_path)
       .filter((p): p is string => !!p)
-      .map((p) => (p.startsWith(`${user.id}/`) ? p : `${user.id}/${p}`))
+      .map((p) => normalizeStoragePath(user.id, p))
 
     if (resultPaths.length > 0) {
       const { error: resultStorageError } = await supabase.storage
@@ -153,7 +152,7 @@ export async function DELETE(
       // This will remove the empty folder structure
       await supabase.storage
         .from('ocr-documents')
-        .remove([`${user.id}/${id}/.keep`])
+        .remove([normalizeStoragePath(user.id, `${id}/.keep`)])
     } catch (e) {
       // Ignore folder cleanup errors as they're not critical
       middlewareLog('debug', '[API] Delete: Could not clean up empty document folder', e)
