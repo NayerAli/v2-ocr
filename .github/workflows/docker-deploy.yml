@@ -46,16 +46,13 @@ jobs:
           set -e
           CONTAINER_NAME="inoor-ocr"
           IMAGE="rehanalimahomed/inoor-ocr:${VERSION}"
-
           echo "Removing old container if it exists..."
           docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true
-
           echo "Starting ${CONTAINER_NAME} from ${IMAGE} on port 3000..."
           docker run -d --restart always \
             --name "${CONTAINER_NAME}" \
             -p 3000:3000 \
             "${IMAGE}"
-
           echo "Verifying container status..."
           sleep 3
           docker ps --filter "name=${CONTAINER_NAME}" --format "table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}"
