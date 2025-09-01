@@ -17,11 +17,14 @@ CMD ["npm","run","dev"]
 
 # --------- 3. Image prod ---------
 FROM deps AS prod
+ARG BUILD_ID
+ENV BUILD_ID=$BUILD_ID
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV NEXT_CACHE_DISABLED=1
 COPY . .
-RUN npm run build && npm prune --omit=dev
-# on extrait uniquement la sortie "standalone"
+RUN  npm run build && npm prune --omit=dev
+
 RUN mkdir -p /opt \
   && cp -a .next/standalone/. /opt/ \
   && cp -a .next/static /opt/.next/static \

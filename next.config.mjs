@@ -2,6 +2,7 @@
 const nextConfig = {
   reactStrictMode: false,
   output: 'standalone',
+  telemetry: false,
   webpack: (config, { isServer }) => {
     // Exclude Supabase Deno functions from webpack build
     config.module.rules.push({
