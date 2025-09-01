@@ -28,24 +28,24 @@ jobs:
       - name: 🏗️ Build Docker Image
         run: |
           echo "Using version: ${{ env.VERSION }}"
-          echo "Building Docker image with tags: rehanalimahomed/inoor-ocr:${{ env.VERSION }} and latest"
-          docker build -t rehanalimahomed/inoor-ocr:${{ env.VERSION }} -t rehanalimahomed/inoor-ocr:latest .
+          echo "Building Docker image with tags: rehanalimahomed/amadiy-ocr:${{ env.VERSION }} and latest"
+          docker build -t rehanalimahomed/amadiy-ocr:${{ env.VERSION }} -t rehanalimahomed/amadiy-ocr:latest .
           echo "Docker image built successfully"
-          echo "  - Specific tag: rehanalimahomed/inoor-ocr:${{ env.VERSION }}"
-          echo "  - Latest tag: rehanalimahomed/inoor-ocr:latest"
+          echo "  - Specific tag: rehanalimahomed/amadiy-ocr:${{ env.VERSION }}"
+          echo "  - Latest tag: rehanalimahomed/amadiy-ocr:latest"
 
       - name: 📤 Push Docker Image to Docker Hub
         run: |
-          echo "Pushing image with tag: rehanalimahomed/inoor-ocr:${{ env.VERSION }}"
-          docker push rehanalimahomed/inoor-ocr:${{ env.VERSION }}
-          echo "Pushing image with tag 'latest': rehanalimahomed/inoor-ocr:latest"
-          docker push rehanalimahomed/inoor-ocr:latest
+          echo "Pushing image with tag: rehanalimahomed/amadiy-ocr:${{ env.VERSION }}"
+          docker push rehanalimahomed/amadiy-ocr:${{ env.VERSION }}
+          echo "Pushing image with tag 'latest': rehanalimahomed/amadiy-ocr:latest"
+          docker push rehanalimahomed/amadiy-ocr:latest
           echo "Docker images pushed successfully to Docker Hub"
 
       - name: 🚀 Deploy New Container 
         run: |
-          export CONTAINER_NAME="inoor-ocr"
-          echo "Deploying image: rehanalimahomed/inoor-ocr:latest"
+          export CONTAINER_NAME="amadiy-ocr"
+          echo "Deploying image: rehanalimahomed/amadiy-ocr:latest"
           echo "Container name: ${CONTAINER_NAME}"
           echo "Exposing port: 3000"
           EXISTING_CONTAINER=$(docker ps -aq -f name=${CONTAINER_NAME})
@@ -56,5 +56,6 @@ jobs:
             echo "No existing container found for ${CONTAINER_NAME}"
           fi
           echo "Launching new container with restart always policy..."
-          docker run -d --restart always --name ${CONTAINER_NAME} -p 3000:3000 rehanalimahomed/inoor-ocr:latest
-          echo "New container deployed successfully using image rehanalimahomed/inoor-ocr:latest"
+          docker run -d --restart always --name ${CONTAINER_NAME} -p 3000:3000 rehanalimahomed/amadiy-ocr:latest
+
+          echo "New container deployed successfully using image rehanalimahomed/amadiy-ocr:latest"
