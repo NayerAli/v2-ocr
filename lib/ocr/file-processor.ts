@@ -7,6 +7,7 @@ import { MistralOCRProvider } from "./providers/mistral";
 import { getUser } from "@/lib/auth";
 import { getSupabaseClient } from "@/lib/supabase/singleton-client";
 import { getUUID } from "@/lib/uuid";
+import { normalizeStoragePath } from "@/lib/storage/path";
 
 // Configuration
 const STORAGE_CONFIG = {
@@ -399,23 +400,24 @@ export class FileProcessor {
       const resultId = getUUID();
 
       const blob = await this.base64ToBlob(base64Data, 'image/jpeg');
-      // Use the new naming convention: Page_(page_number).(image_extension)
-      const path = `${user.id}/${status.id}/Page_${pageNum}_${resultId}.jpg`;
+      // Build relative and full paths to avoid double user prefixes
+      const relativePath = `${status.id}/Page_${pageNum}_${resultId}.jpg`;
+      const uploadPath = normalizeStoragePath(user.id, relativePath);
       let uploadSuccessful = false;
 
       try {
-          infoLog(`[Process] Uploading page ${pageNum} to ${path}`);
+          infoLog(`[Process] Uploading page ${pageNum} to ${uploadPath}`);
           const { error: uploadError } = await supabase
             .storage
             .from(STORAGE_CONFIG.storageBucket)
-            .upload(path, blob, { upsert: true });
+            .upload(uploadPath, blob, { upsert: true });
 
           if (uploadError) {
             infoLog(`[Process] Error uploading page ${pageNum} to storage:`, uploadError);
             // Do not throw here, let OCR proceed but mark upload as failed
           } else {
             uploadSuccessful = true;
-            infoLog(`[Process] Successfully uploaded page ${pageNum} to ${path}`);
+            infoLog(`[Process] Successfully uploaded page ${pageNum} to ${uploadPath}`);
           }
       } catch (uploadCatchError) {
           infoLog(`[Process] Exception during upload for page ${pageNum}:`, uploadCatchError);
@@ -435,11 +437,11 @@ export class FileProcessor {
 
       // IMPORTANT: Only set storagePath and generate URL if upload was successful
       if (uploadSuccessful) {
-        result.storagePath = path;
+        result.storagePath = relativePath;
 
         // Generate a signed URL for the page image
         try {
-          const imageUrl = await this.generateSignedUrl(path);
+          const imageUrl = await this.generateSignedUrl(relativePath);
           infoLog(`[Process] Generated signed URL for page ${pageNum}: ${imageUrl.substring(0, 50)}...`);
           result.imageUrl = imageUrl; // Use the signed URL instead of base64
         } catch (urlError) {
@@ -555,12 +557,7 @@ export class FileProcessor {
       }
 
       // Normalize the path to prevent double user ID prefixes
-      // This handles both initial uploads (already have user ID) and 
-      // PDF page processing (where user ID might be added twice)
-      const userIdPrefix = `${user.id}/`;
-      const normalizedPath = storagePath.startsWith(userIdPrefix)
-        ? storagePath 
-        : `${userIdPrefix}${storagePath}`;
+      const normalizedPath = normalizeStoragePath(user.id, storagePath);
 
       // Create a signed URL that expires in the configured time
       const { data, error } = await supabase.storage

@@ -3,6 +3,7 @@ import { getServiceClient } from '@/lib/supabase/service-client'
 import { logApiRequestToConsole } from '@/lib/server-console-logger'
 import { middlewareLog, prodError } from '@/lib/log'
 import { createServerSupabaseClient, getAuthenticatedUser } from '@/lib/server-auth'
+import { normalizeStoragePath } from '@/lib/storage/path'
 
 /**
  * GET /api/documents/[id]/signed-url
@@ -37,9 +38,10 @@ export async function GET(
 
   // Generate signed URL (reuse serviceClient)
   const bucket = 'ocr-documents'
+  const fullPath = normalizeStoragePath(user.id, document.storage_path)
   const { data, error } = await serviceClient.storage
     .from(bucket)
-    .createSignedUrl(document.storage_path, 60)
+    .createSignedUrl(fullPath, 60)
   if (error || !data.signedUrl) {
     prodError('[API] Error generating signed URL:', error as Error)
     return NextResponse.json({ error: 'Failed to generate signed URL' }, { status: 500 })

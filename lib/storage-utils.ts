@@ -1,4 +1,5 @@
 import { supabase } from "./database/utils";
+import { normalizeStoragePath } from "./storage/path";
 
 /**
  * Infer the MIME type from a filename
@@ -37,10 +38,8 @@ function inferMimeType(filename: string): string {
  */
 export async function downloadFileFromStorage(userId: string, storagePath: string): Promise<File | null> {
   try {
-    console.log(`[DEBUG] Downloading file from storage: ${userId}/${storagePath}`);
-
-    // Create the full path with user ID
-    const fullPath = `${userId}/${storagePath}`;
+    const fullPath = normalizeStoragePath(userId, storagePath);
+    console.log(`[DEBUG] Downloading file from storage: ${fullPath}`);
 
     // Download the file from Supabase storage
     const { data, error } = await supabase
