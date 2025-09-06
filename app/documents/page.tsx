@@ -120,14 +120,13 @@ export default function DocumentsPage() {
   }, [])
 
   const handleDelete = useCallback(async (id: string) => {
+    // Find the document first so we can reference its filename in notifications
+    const doc = documents.find(d => d.id === id);
     try {
       console.log('[DEBUG] Deleting document:', id);
 
-      // Get the document status
-      const doc = documents.find(d => d.id === id);
-
-      // If the document is processing, cancel it first
-      if (doc && doc.status === 'processing') {
+      // If the document is processing or queued, cancel it first
+      if (doc && (doc.status === 'processing' || doc.status === 'queued')) {
         console.log('[DEBUG] Canceling processing before delete');
         const cancelResponse = await fetch(`/api/queue/${id}/cancel`, {
           method: 'POST',
@@ -154,32 +153,38 @@ export default function DocumentsPage() {
         }
       });
 
-      if (!deleteResponse.ok) {
-        console.error('[DEBUG] Failed to delete document:', await deleteResponse.text());
-        toast({
-          title: t('error', language),
-          description: t('deleteError', language),
-          variant: 'destructive'
-        });
-        return;
-      }
+        if (!deleteResponse.ok) {
+          console.error('[DEBUG] Failed to delete document:', await deleteResponse.text());
+          toast({
+            title: t('error', language),
+            description: doc
+              ? `${t('deleteError', language)}: ${doc.filename}`
+              : t('deleteError', language),
+            variant: 'destructive'
+          });
+          return;
+        }
 
       // Update the UI
       setDocuments((prev) => prev.filter((doc) => doc.id !== id));
       console.log('[DEBUG] Document deleted successfully');
-      toast({
-        title: t('success', language),
-        description: t('deleteSuccess', language)
-      });
-    } catch (error) {
-      console.error('[DEBUG] Error deleting document:', error);
-      toast({
-        title: t('error', language),
-        description: t('deleteError', language),
-        variant: 'destructive'
-      });
-    }
-  }, [documents, language, toast])
+        toast({
+          title: t('success', language),
+          description: doc
+            ? `${t('deleteSuccess', language)}: ${doc.filename}`
+            : t('deleteSuccess', language)
+        });
+      } catch (error) {
+        console.error('[DEBUG] Error deleting document:', error);
+        toast({
+          title: t('error', language),
+          description: doc
+            ? `${t('deleteError', language)}: ${doc.filename}`
+            : t('deleteError', language),
+          variant: 'destructive'
+        });
+      }
+    }, [documents, language, toast])
 
   const handleCancel = useCallback(async (id: string) => {
     try {

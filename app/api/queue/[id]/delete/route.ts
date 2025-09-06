@@ -73,7 +73,9 @@ export async function DELETE(
         .from('ocr-documents')
         .remove([docPath])
 
-      if (storageError) {
+      // Ignore not found errors but surface any other issues
+      const storageStatus = (storageError as { status?: number })?.status
+      if (storageError && storageStatus !== 404) {
         prodError('[API] Error removing document from storage:', storageError)
         return NextResponse.json(
           { error: 'Failed to delete source file' },
@@ -91,10 +93,6 @@ export async function DELETE(
 
     if (resultsFetchError) {
       prodError('[API] Error fetching OCR results for storage cleanup:', resultsFetchError)
-      return NextResponse.json(
-        { error: 'Failed to fetch OCR results' },
-        { status: 500 }
-      )
     }
 
     const resultPaths = (results || [])
@@ -107,16 +105,14 @@ export async function DELETE(
         .from('ocr-documents')
         .remove(resultPaths)
 
-      if (resultStorageError) {
+      // Continue even if some result files are missing
+      const resultStatus = (resultStorageError as { status?: number })?.status
+      if (resultStorageError && resultStatus !== 404) {
         prodError('[API] Error removing OCR result files:', resultStorageError)
-        return NextResponse.json(
-          { error: 'Failed to delete OCR result files' },
-          { status: 500 }
-        )
       }
     }
 
-    // Delete any OCR results for this document
+    // Delete any OCR results for this document (continue on error)
     const { error: ocrDeleteError } = await supabase
       .from('ocr_results')
       .delete()
@@ -125,10 +121,6 @@ export async function DELETE(
 
     if (ocrDeleteError) {
       prodError('[API] Error removing OCR results:', ocrDeleteError)
-      return NextResponse.json(
-        { error: 'Failed to delete OCR results' },
-        { status: 500 }
-      )
     }
 
     // Delete the document itself
