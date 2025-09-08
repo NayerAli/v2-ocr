@@ -6,12 +6,10 @@ import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { FileText, Upload, CheckCircle, AlertCircle, ArrowRight, Clock, LogIn } from "lucide-react"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { FileUpload } from "./components/file-upload"
 import type { ProcessingStatus } from "@/types"
 import type { OCRSettings, ProcessingSettings, UploadSettings } from "@/types/settings"
 import { useSettings } from "@/store/settings"
-import { useSettingsInit } from "@/hooks/use-settings-init"
 import { useToast } from "@/hooks/use-toast"
 import { cn } from "@/lib/utils"
 import { db } from "@/lib/database"
@@ -46,7 +44,6 @@ export default function DashboardPage() {
   const settings = useSettings()
   const { toast } = useToast()
   const { language } = useLanguage()
-  const { isInitialized, isConfigured } = useSettingsInit()
   const { user, isLoading: isAuthLoading } = useAuth()
   const [processingQueue, setProcessingQueue] = useState<ProcessingStatus[]>([])
   const [isDraggingOverPage, setIsDraggingOverPage] = useState(false)
@@ -96,12 +93,10 @@ export default function DashboardPage() {
     });
   }, [settings.ocr, settings.processing, settings.upload])
 
-  // Initialize PDF.js only after settings are loaded
+  // Initialize PDF.js
   useEffect(() => {
-    if (isInitialized) {
-      initializePDFJS()
-    }
-  }, [isInitialized])
+    initializePDFJS()
+  }, [])
 
   // Load queue and update stats
   useEffect(() => {
@@ -111,15 +106,7 @@ export default function DashboardPage() {
       // Only log on initial load or in development mode
       if (isInitialLoad && process.env.NODE_ENV === 'development') {
         debugLog('[DEBUG] loadQueue called, isInitialLoad:', isInitialLoad);
-        debugLog('[DEBUG] isInitialized:', isInitialized);
         debugLog('[DEBUG] isAuthenticated:', !!user);
-      }
-
-      if (!isInitialized) {
-        if (isInitialLoad && process.env.NODE_ENV === 'development') {
-          debugLog('[DEBUG] Not initialized, skipping queue load');
-        }
-        return;
       }
 
       // Skip loading queue if user is not authenticated
@@ -197,7 +184,7 @@ export default function DashboardPage() {
       isMounted = false
       clearInterval(interval)
     }
-  }, [isInitialized, user, isAuthLoading])
+  }, [user, isAuthLoading])
 
   const handleFilesAccepted = async (files: File[]) => {
     if (process.env.NODE_ENV === 'development') {
@@ -441,23 +428,6 @@ export default function DashboardPage() {
           ) : (
             // Upload card for authenticated users
             <>
-              {isConfigured && !settings.ocr.apiKey && !settings.ocr.useSystemKey && (
-                <Alert variant="destructive" className="mb-4">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertTitle>API Key Missing</AlertTitle>
-                  <AlertDescription className="flex flex-col gap-2">
-                    <p>You need to set an API key for the OCR service to work. Files will be uploaded but not processed.</p>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => router.push('/settings')}
-                      className="self-start"
-                    >
-                      Open Settings
-                    </Button>
-                  </AlertDescription>
-                </Alert>
-              )}
               <Card className={cn(
                 "border-dashed transition-all duration-300",
                 isDraggingOverPage && "ring-2 ring-primary shadow-lg"
@@ -510,7 +480,6 @@ export default function DashboardPage() {
                 }}
                 onRemove={handleRemoveFromQueue}
                 onCancel={handleCancel}
-                disabled={!isInitialized}
                 maxFileSize={settings.upload.maxFileSize}
                 maxSimultaneousUploads={settings.upload.maxSimultaneousUploads}
                 allowedFileTypes={settings.upload.allowedFileTypes}

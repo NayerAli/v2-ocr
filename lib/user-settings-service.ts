@@ -5,6 +5,7 @@ import type { OCRSettings, ProcessingSettings, UploadSettings, DisplaySettings }
 import { CONFIG } from '@/config/constants'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/supabase'
+import { systemSettingsService } from './system-settings-service'
 
 // Import the service client for admin operations
 // This is only used on the server side
@@ -19,7 +20,7 @@ if (typeof window === 'undefined') {
 // Default settings
 const DEFAULT_OCR_SETTINGS: OCRSettings = {
   provider: "google" as const,
-  apiKey: process.env.NEXT_PUBLIC_DEFAULT_OCR_API_KEY || "",
+  apiKey: "",
   region: "",
   language: CONFIG.DEFAULT_LANGUAGE,
   useSystemKey: true, // Flag to indicate using the system API key
@@ -69,6 +70,18 @@ class UserSettingsService {
 
   constructor() {
     // Constructor
+  }
+
+  private async getOcrDefaults(): Promise<{ provider: string; region?: string; language: string; apiKey: string }> {
+    if (typeof window === 'undefined') {
+      return await systemSettingsService.getOCRDefaults()
+    }
+    try {
+      const res = await fetch('/api/settings/ocr-defaults')
+      return await res.json()
+    } catch {
+      return { provider: 'google', region: '', language: CONFIG.DEFAULT_LANGUAGE, apiKey: '' }
+    }
   }
 
   /**
@@ -145,11 +158,15 @@ class UserSettingsService {
         // Fall back to authenticated client
         console.log('[DEBUG] Using authenticated client to fetch OCR settings');
         const authenticatedSupabase = getSupabaseClient();
-        ({ data, error } = await authenticatedSupabase
-          .from('user_settings')
-          .select('ocr_settings')
-          .eq('id', user.id)
-          .maybeSingle());
+        if (authenticatedSupabase) {
+          ({ data, error } = await authenticatedSupabase
+            .from('user_settings')
+            .select('ocr_settings')
+            .eq('id', user.id)
+            .maybeSingle());
+        } else {
+          console.log('[DEBUG] Supabase not configured, cannot fetch OCR settings');
+        }
       }
 
       if (error) {
@@ -171,10 +188,22 @@ class UserSettingsService {
 
       console.log('[DEBUG] Successfully retrieved OCR settings from database:', JSON.stringify(data));
 
+      let ocrSettings = data.ocr_settings as OCRSettings;
+      if (ocrSettings.useSystemKey !== false) {
+        const defaults = await this.getOcrDefaults();
+        ocrSettings = {
+          ...ocrSettings,
+          provider: defaults.provider as OCRSettings['provider'],
+          region: defaults.region || '',
+          language: defaults.language || ocrSettings.language,
+          apiKey: ''
+        };
+      }
+
       // Update cache
-      this.cache.ocr = data.ocr_settings as OCRSettings;
+      this.cache.ocr = ocrSettings;
       this.lastUpdate = now;
-      return data.ocr_settings as OCRSettings;
+      return ocrSettings;
     } catch (error) {
       console.error('Error getting user OCR settings:', error)
       return DEFAULT_OCR_SETTINGS
@@ -205,9 +234,21 @@ class UserSettingsService {
       const currentSettings = await this.getOCRSettings()
 
       // Update settings
-      const updatedSettings = {
+      let updatedSettings = {
         ...currentSettings,
         ...settings
+      }
+
+      // If using the system key, ensure system defaults are applied and API key is not stored
+      if (updatedSettings.useSystemKey !== false) {
+        const defaults = await this.getOcrDefaults();
+        updatedSettings = {
+          ...updatedSettings,
+          provider: defaults.provider as OCRSettings['provider'],
+          region: defaults.region || '',
+          language: defaults.language || updatedSettings.language,
+          apiKey: ''
+        };
       }
 
       console.log('[DEBUG] Updated OCR settings:', updatedSettings);
@@ -220,7 +261,12 @@ class UserSettingsService {
       
       // Determine which client to use
       const client = serviceClient || authenticatedSupabase;
-      
+
+      if (!client) {
+        console.log('[DEBUG] No Supabase client available for OCR settings update');
+        return null;
+      }
+
       if (serviceClient) {
         console.log('[DEBUG] Using service client for OCR settings update (bypasses RLS)');
       } else {
@@ -449,11 +495,15 @@ class UserSettingsService {
       } else {
         // Fall back to authenticated client
         const authenticatedSupabase = getSupabaseClient();
-        ({ data, error } = await authenticatedSupabase
-          .from('user_settings')
-          .select('processing_settings')
-          .eq('id', user.id)
-          .maybeSingle());
+        if (authenticatedSupabase) {
+          ({ data, error } = await authenticatedSupabase
+            .from('user_settings')
+            .select('processing_settings')
+            .eq('id', user.id)
+            .maybeSingle());
+        } else {
+          console.log('[DEBUG] Supabase not configured, cannot fetch processing settings');
+        }
       }
 
       if (error) {
@@ -521,7 +571,12 @@ class UserSettingsService {
       
       // Determine which client to use
       const client = serviceClient || authenticatedSupabase;
-      
+
+      if (!client) {
+        console.log('[DEBUG] No Supabase client available for processing settings update');
+        return null;
+      }
+
       if (serviceClient) {
         console.log('[DEBUG] Using service client for processing settings update (bypasses RLS)');
       } else {
@@ -688,11 +743,15 @@ class UserSettingsService {
       } else {
         // Fall back to authenticated client
         const authenticatedSupabase = getSupabaseClient();
-        ({ data, error } = await authenticatedSupabase
-          .from('user_settings')
-          .select('upload_settings')
-          .eq('id', user.id)
-          .maybeSingle());
+        if (authenticatedSupabase) {
+          ({ data, error } = await authenticatedSupabase
+            .from('user_settings')
+            .select('upload_settings')
+            .eq('id', user.id)
+            .maybeSingle());
+        } else {
+          console.log('[DEBUG] Supabase not configured, cannot fetch upload settings');
+        }
       }
 
       if (error) {
@@ -760,7 +819,12 @@ class UserSettingsService {
       
       // Determine which client to use
       const client = serviceClient || authenticatedSupabase;
-      
+
+      if (!client) {
+        console.log('[DEBUG] No Supabase client available for upload settings update');
+        return null;
+      }
+
       if (serviceClient) {
         console.log('[DEBUG] Using service client for upload settings update (bypasses RLS)');
       } else {
@@ -926,11 +990,15 @@ class UserSettingsService {
       } else {
         // Fall back to authenticated client
         const authenticatedSupabase = getSupabaseClient();
-        ({ data, error } = await authenticatedSupabase
-          .from('user_settings')
-          .select('display_settings')
-          .eq('id', user.id)
-          .maybeSingle());
+        if (authenticatedSupabase) {
+          ({ data, error } = await authenticatedSupabase
+            .from('user_settings')
+            .select('display_settings')
+            .eq('id', user.id)
+            .maybeSingle());
+        } else {
+          console.log('[DEBUG] Supabase not configured, cannot fetch display settings');
+        }
       }
 
       if (error) {
@@ -998,7 +1066,12 @@ class UserSettingsService {
       
       // Determine which client to use
       const client = serviceClient || authenticatedSupabase;
-      
+
+      if (!client) {
+        console.log('[DEBUG] No Supabase client available for display settings update');
+        return null;
+      }
+
       if (serviceClient) {
         console.log('[DEBUG] Using service client for display settings update (bypasses RLS)');
       } else {
@@ -1153,7 +1226,12 @@ class UserSettingsService {
       
       // Determine which client to use
       const client = serviceClient || authenticatedSupabase;
-      
+
+      if (!client) {
+        console.log('[DEBUG] No Supabase client available for default settings creation');
+        return false;
+      }
+
       if (serviceClient) {
         console.log('[DEBUG] Using service client for default settings creation (bypasses RLS)');
       } else {
@@ -1179,9 +1257,16 @@ class UserSettingsService {
       }
 
       // Create default settings
+      const ocrDefaults = await this.getOcrDefaults();
       const defaultSettings = {
         id: user.id,
-        ocr_settings: DEFAULT_OCR_SETTINGS,
+        ocr_settings: {
+          provider: ocrDefaults.provider as OCRSettings['provider'],
+          apiKey: '',
+          region: ocrDefaults.region || '',
+          language: ocrDefaults.language || CONFIG.DEFAULT_LANGUAGE,
+          useSystemKey: true
+        } as OCRSettings,
         processing_settings: DEFAULT_PROCESSING_SETTINGS,
         upload_settings: DEFAULT_UPLOAD_SETTINGS,
         display_settings: DEFAULT_DISPLAY_SETTINGS,

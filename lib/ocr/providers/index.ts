@@ -5,6 +5,7 @@ import { MicrosoftVisionProvider } from "./microsoft";
 import { MistralOCRProvider } from "./mistral";
 import type { OCRProvider } from "./types";
 import { userSettingsService } from "@/lib/user-settings-service";
+import { systemSettingsService } from "@/lib/system-settings-service";
 
 export * from "./types";
 
@@ -39,21 +40,25 @@ export async function createOCRProviderWithLatestSettings(settings: OCRSettings,
   }
 
   // Create the provider with the latest settings
-  return createOCRProvider(settings, azureRateLimiter);
+  return await createOCRProvider(settings, azureRateLimiter);
 }
 
 /**
  * Create an OCR provider with the given settings
  */
-export function createOCRProvider(settings: OCRSettings, azureRateLimiter: AzureRateLimiter): OCRProvider {
-  // If using system key, use the default API key from environment
+export async function createOCRProvider(settings: OCRSettings, azureRateLimiter: AzureRateLimiter): Promise<OCRProvider> {
+  // If using system key, retrieve defaults from the server
   let apiKey = settings.apiKey;
-  const defaultApiKey = process.env.NEXT_PUBLIC_DEFAULT_OCR_API_KEY || "";
-
-  // Check if we should use the system key
   if (settings.useSystemKey !== false && (!apiKey || apiKey.length === 0)) {
-    apiKey = defaultApiKey;
-    console.log('[DEBUG] Using system API key for', settings.provider, 'Default key present:', !!defaultApiKey);
+    const defaults = await systemSettingsService.getOCRDefaults();
+    apiKey = defaults.apiKey;
+    settings = {
+      ...settings,
+      provider: defaults.provider as OCRSettings['provider'],
+      region: defaults.region || '',
+      language: defaults.language || settings.language
+    };
+    console.log('[DEBUG] Using system defaults for', settings.provider, 'Default key present:', !!apiKey);
   }
 
   // Create a new settings object with the potentially updated API key

@@ -67,10 +67,8 @@ export class FileProcessor {
     // @ts-expect-error - Accessing private property for debugging
     const useSystemKey = this.ocrProvider.settings?.useSystemKey;
 
-    // Consider the provider valid if:
-    // 1. There's an API key with length > 0, OR
-    // 2. System key usage is enabled (useSystemKey is true or undefined/null - default is true)
-    const isValid = (!!apiKey && apiKey.length > 0) || useSystemKey !== false;
+    // The provider is valid only if an API key is actually present
+    const isValid = !!apiKey && apiKey.length > 0;
 
     infoLog('[DEBUG] OCR provider API key check:', {
       isValid,
@@ -78,6 +76,10 @@ export class FileProcessor {
       apiKeyLength: apiKey ? apiKey.length : 0,
       useSystemKey: useSystemKey !== false
     });
+
+    if (!isValid) {
+      infoLog('[DEBUG] Missing OCR API key. Ensure system or user settings provide a valid key.');
+    }
 
     return isValid;
   }
@@ -406,18 +408,22 @@ export class FileProcessor {
       let uploadSuccessful = false;
 
       try {
-          infoLog(`[Process] Uploading page ${pageNum} to ${uploadPath}`);
-          const { error: uploadError } = await supabase
-            .storage
-            .from(STORAGE_CONFIG.storageBucket)
-            .upload(uploadPath, blob, { upsert: true });
-
-          if (uploadError) {
-            infoLog(`[Process] Error uploading page ${pageNum} to storage:`, uploadError);
-            // Do not throw here, let OCR proceed but mark upload as failed
+          if (!supabase) {
+            infoLog('[Process] Supabase not configured. Skipping page upload.');
           } else {
-            uploadSuccessful = true;
-            infoLog(`[Process] Successfully uploaded page ${pageNum} to ${uploadPath}`);
+            infoLog(`[Process] Uploading page ${pageNum} to ${uploadPath}`);
+            const { error: uploadError } = await supabase
+              .storage
+              .from(STORAGE_CONFIG.storageBucket)
+              .upload(uploadPath, blob, { upsert: true });
+
+            if (uploadError) {
+              infoLog(`[Process] Error uploading page ${pageNum} to storage:`, uploadError);
+              // Do not throw here, let OCR proceed but mark upload as failed
+            } else {
+              uploadSuccessful = true;
+              infoLog(`[Process] Successfully uploaded page ${pageNum} to ${uploadPath}`);
+            }
           }
       } catch (uploadCatchError) {
           infoLog(`[Process] Exception during upload for page ${pageNum}:`, uploadCatchError);
@@ -550,6 +556,11 @@ export class FileProcessor {
       const supabase = getSupabaseClient();
       const user = await getUser();
       const { infoLog } = await import('@/lib/log');
+
+      if (!supabase) {
+        infoLog('[Process] Supabase not configured. Cannot generate signed URL.');
+        return '';
+      }
 
       if (!user) {
         infoLog('[Process] User not authenticated. Cannot generate signed URL.');

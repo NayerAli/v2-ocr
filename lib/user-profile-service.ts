@@ -26,7 +26,9 @@ class UserProfileService {
   private cacheTTL: number
 
   constructor() {
-    this.supabase = getSupabaseClient()
+    // Use non-null assertion to allow compilation when credentials are missing;
+    // actual runtime usage should ensure Supabase is configured.
+    this.supabase = getSupabaseClient()!
     this.cache = new Map()
     this.cacheTTL = 5 * 60 * 1000 // 5 minutes
   }
