@@ -158,11 +158,15 @@ class UserSettingsService {
         // Fall back to authenticated client
         console.log('[DEBUG] Using authenticated client to fetch OCR settings');
         const authenticatedSupabase = getSupabaseClient();
-        ({ data, error } = await authenticatedSupabase
-          .from('user_settings')
-          .select('ocr_settings')
-          .eq('id', user.id)
-          .maybeSingle());
+        if (authenticatedSupabase) {
+          ({ data, error } = await authenticatedSupabase
+            .from('user_settings')
+            .select('ocr_settings')
+            .eq('id', user.id)
+            .maybeSingle());
+        } else {
+          console.log('[DEBUG] Supabase not configured, cannot fetch OCR settings');
+        }
       }
 
       if (error) {
@@ -257,7 +261,12 @@ class UserSettingsService {
       
       // Determine which client to use
       const client = serviceClient || authenticatedSupabase;
-      
+
+      if (!client) {
+        console.log('[DEBUG] No Supabase client available for OCR settings update');
+        return null;
+      }
+
       if (serviceClient) {
         console.log('[DEBUG] Using service client for OCR settings update (bypasses RLS)');
       } else {
@@ -486,11 +495,15 @@ class UserSettingsService {
       } else {
         // Fall back to authenticated client
         const authenticatedSupabase = getSupabaseClient();
-        ({ data, error } = await authenticatedSupabase
-          .from('user_settings')
-          .select('processing_settings')
-          .eq('id', user.id)
-          .maybeSingle());
+        if (authenticatedSupabase) {
+          ({ data, error } = await authenticatedSupabase
+            .from('user_settings')
+            .select('processing_settings')
+            .eq('id', user.id)
+            .maybeSingle());
+        } else {
+          console.log('[DEBUG] Supabase not configured, cannot fetch processing settings');
+        }
       }
 
       if (error) {
@@ -558,7 +571,12 @@ class UserSettingsService {
       
       // Determine which client to use
       const client = serviceClient || authenticatedSupabase;
-      
+
+      if (!client) {
+        console.log('[DEBUG] No Supabase client available for processing settings update');
+        return null;
+      }
+
       if (serviceClient) {
         console.log('[DEBUG] Using service client for processing settings update (bypasses RLS)');
       } else {
@@ -725,11 +743,15 @@ class UserSettingsService {
       } else {
         // Fall back to authenticated client
         const authenticatedSupabase = getSupabaseClient();
-        ({ data, error } = await authenticatedSupabase
-          .from('user_settings')
-          .select('upload_settings')
-          .eq('id', user.id)
-          .maybeSingle());
+        if (authenticatedSupabase) {
+          ({ data, error } = await authenticatedSupabase
+            .from('user_settings')
+            .select('upload_settings')
+            .eq('id', user.id)
+            .maybeSingle());
+        } else {
+          console.log('[DEBUG] Supabase not configured, cannot fetch upload settings');
+        }
       }
 
       if (error) {
@@ -797,7 +819,12 @@ class UserSettingsService {
       
       // Determine which client to use
       const client = serviceClient || authenticatedSupabase;
-      
+
+      if (!client) {
+        console.log('[DEBUG] No Supabase client available for upload settings update');
+        return null;
+      }
+
       if (serviceClient) {
         console.log('[DEBUG] Using service client for upload settings update (bypasses RLS)');
       } else {
@@ -963,11 +990,15 @@ class UserSettingsService {
       } else {
         // Fall back to authenticated client
         const authenticatedSupabase = getSupabaseClient();
-        ({ data, error } = await authenticatedSupabase
-          .from('user_settings')
-          .select('display_settings')
-          .eq('id', user.id)
-          .maybeSingle());
+        if (authenticatedSupabase) {
+          ({ data, error } = await authenticatedSupabase
+            .from('user_settings')
+            .select('display_settings')
+            .eq('id', user.id)
+            .maybeSingle());
+        } else {
+          console.log('[DEBUG] Supabase not configured, cannot fetch display settings');
+        }
       }
 
       if (error) {
@@ -1035,7 +1066,12 @@ class UserSettingsService {
       
       // Determine which client to use
       const client = serviceClient || authenticatedSupabase;
-      
+
+      if (!client) {
+        console.log('[DEBUG] No Supabase client available for display settings update');
+        return null;
+      }
+
       if (serviceClient) {
         console.log('[DEBUG] Using service client for display settings update (bypasses RLS)');
       } else {
@@ -1190,7 +1226,12 @@ class UserSettingsService {
       
       // Determine which client to use
       const client = serviceClient || authenticatedSupabase;
-      
+
+      if (!client) {
+        console.log('[DEBUG] No Supabase client available for default settings creation');
+        return false;
+      }
+
       if (serviceClient) {
         console.log('[DEBUG] Using service client for default settings creation (bypasses RLS)');
       } else {

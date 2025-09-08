@@ -1,6 +1,7 @@
 // System settings service for global system settings
 
 import { getSupabaseClient } from './supabase/singleton-client'
+import { getServiceClient } from './supabase/service-client'
 
 interface CachedData<T> {
   data: T
@@ -34,7 +35,8 @@ class SystemSettingsService {
   private cacheTTL: number
 
   constructor() {
-    this.supabase = getSupabaseClient()
+    // Prefer the service role client when available to bypass RLS for server-side operations
+    this.supabase = getServiceClient() || getSupabaseClient()
     this.cache = new Map()
     this.cacheTTL = 5 * 60 * 1000 // 5 minutes
   }
@@ -251,6 +253,10 @@ class SystemSettingsService {
       maxSimultaneousUploads: 5
     }
 
+    if (!this.supabase) {
+      return defaultSettings
+    }
+
     try {
       // Fetch from database
       const { data, error } = await this.supabase
@@ -286,6 +292,10 @@ class SystemSettingsService {
     // Validate settings
     if (!settings || typeof settings !== 'object') {
       throw new Error('Invalid settings object')
+    }
+
+    if (!this.supabase) {
+      return settings as UploadLimits
     }
 
     try {
