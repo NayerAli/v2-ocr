@@ -1,6 +1,5 @@
 // System settings service for global system settings
 
-import { getSupabaseClient } from './supabase/singleton-client'
 import { getServiceClient } from './supabase/service-client'
 
 interface CachedData<T> {
@@ -30,15 +29,22 @@ interface UploadLimits {
 }
 
 class SystemSettingsService {
-  private supabase: ReturnType<typeof getSupabaseClient>
+  private supabase: ReturnType<typeof getServiceClient> | null
   private cache: Map<string, CachedData<ProcessingSettings | OCRDefaults | UploadLimits>>
   private cacheTTL: number
 
   constructor() {
-    // Prefer the service role client when available to bypass RLS for server-side operations
-    this.supabase = getServiceClient() || getSupabaseClient()
+    this.supabase = null
     this.cache = new Map()
     this.cacheTTL = 5 * 60 * 1000 // 5 minutes
+  }
+
+  private get client() {
+    if (typeof window !== 'undefined') return null
+    if (!this.supabase) {
+      this.supabase = getServiceClient()
+    }
+    return this.supabase
   }
 
   /**
@@ -62,13 +68,14 @@ class SystemSettingsService {
       retryDelay: 1000
     }
 
-    if (!this.supabase) {
+    const supabase = this.client
+    if (!supabase) {
       return defaultSettings
     }
 
     try {
       // Fetch from database
-      const { data, error } = await this.supabase
+      const { data, error } = await supabase
         .from('system_settings')
         .select('value')
         .eq('key', 'processing')
@@ -103,7 +110,8 @@ class SystemSettingsService {
       throw new Error('Invalid settings object')
     }
 
-    if (!this.supabase) {
+    const supabase = this.client
+    if (!supabase) {
       return settings as ProcessingSettings
     }
 
@@ -113,7 +121,7 @@ class SystemSettingsService {
       const updatedSettings = { ...currentSettings, ...settings }
 
       // Update in database
-      const { data, error } = await this.supabase
+      const { data, error } = await supabase
         .from('system_settings')
         .update({
           value: updatedSettings,
@@ -158,13 +166,14 @@ class SystemSettingsService {
       region: ''
     }
 
-    if (!this.supabase) {
+    const supabase = this.client
+    if (!supabase) {
       return defaultSettings
     }
 
     try {
       // Fetch from database
-      const { data, error } = await this.supabase
+      const { data, error } = await supabase
         .from('system_settings')
         .select('value')
         .eq('key', 'ocr_defaults')
@@ -199,7 +208,8 @@ class SystemSettingsService {
       throw new Error('Invalid settings object')
     }
 
-    if (!this.supabase) {
+    const supabase = this.client
+    if (!supabase) {
       return settings as OCRDefaults
     }
 
@@ -209,7 +219,7 @@ class SystemSettingsService {
       const updatedSettings = { ...currentSettings, ...settings }
 
       // Update in database
-      const { data, error } = await this.supabase
+      const { data, error } = await supabase
         .from('system_settings')
         .update({
           value: updatedSettings,
@@ -253,13 +263,14 @@ class SystemSettingsService {
       maxSimultaneousUploads: 5
     }
 
-    if (!this.supabase) {
+    const supabase = this.client
+    if (!supabase) {
       return defaultSettings
     }
 
     try {
       // Fetch from database
-      const { data, error } = await this.supabase
+      const { data, error } = await supabase
         .from('system_settings')
         .select('value')
         .eq('key', 'upload_limits')
@@ -294,7 +305,8 @@ class SystemSettingsService {
       throw new Error('Invalid settings object')
     }
 
-    if (!this.supabase) {
+    const supabase = this.client
+    if (!supabase) {
       return settings as UploadLimits
     }
 
@@ -304,7 +316,7 @@ class SystemSettingsService {
       const updatedSettings = { ...currentSettings, ...settings }
 
       // Update in database
-      const { data, error } = await this.supabase
+      const { data, error } = await supabase
         .from('system_settings')
         .update({
           value: updatedSettings,
