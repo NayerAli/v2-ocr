@@ -118,6 +118,65 @@ export interface Database {
           user_id?: string | null
         }
       }
+      documents: {
+        Row: {
+          id: string
+          filename: string
+          original_filename: string | null
+          status: 'pending' | 'processing' | 'completed' | 'failed' | 'queued' | 'error' | 'cancelled'
+          progress: number | null
+          current_page: number | null
+          total_pages: number | null
+          file_size: number | null
+          file_type: string | null
+          storage_path: string | null
+          thumbnail_path: string | null
+          error: string | null
+          created_at: string
+          updated_at: string
+          processing_started_at: string | null
+          processing_completed_at: string | null
+          user_id: string | null
+        }
+        Insert: {
+          id: string
+          filename: string
+          original_filename?: string | null
+          status: 'pending' | 'processing' | 'completed' | 'failed' | 'queued' | 'error' | 'cancelled'
+          progress?: number | null
+          current_page?: number | null
+          total_pages?: number | null
+          file_size?: number | null
+          file_type?: string | null
+          storage_path?: string | null
+          thumbnail_path?: string | null
+          error?: string | null
+          created_at?: string
+          updated_at?: string
+          processing_started_at?: string | null
+          processing_completed_at?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          id?: string
+          filename?: string
+          original_filename?: string | null
+          status?: 'pending' | 'processing' | 'completed' | 'failed' | 'queued' | 'error' | 'cancelled'
+          progress?: number | null
+          current_page?: number | null
+          total_pages?: number | null
+          file_size?: number | null
+          file_type?: string | null
+          storage_path?: string | null
+          thumbnail_path?: string | null
+          error?: string | null
+          created_at?: string
+          updated_at?: string
+          processing_started_at?: string | null
+          processing_completed_at?: string | null
+          user_id?: string | null
+        }
+      }
       metadata: {
         Row: {
           key: string

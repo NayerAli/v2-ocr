@@ -2,6 +2,24 @@ import { NextRequest, NextResponse } from "next/server"
 import { logApiRequestToConsole } from "@/lib/server-console-logger"
 import { createServerSupabaseClient, getAuthenticatedUser } from "@/lib/server-auth"
 import { middlewareLog, prodError } from "@/lib/log"
+import type { Database } from "@/types/supabase"
+
+type DocumentRow = Database["public"]["Tables"]["documents"]["Row"]
+interface DocumentUpdatePayload {
+  filename?: string
+  originalFilename?: string | null
+  status?: DocumentRow["status"]
+  progress?: number | null
+  currentPage?: number | null
+  totalPages?: number | null
+  fileSize?: number | null
+  fileType?: string | null
+  storagePath?: string | null
+  thumbnailPath?: string | null
+  error?: string | null
+  processingStartedAt?: string | null
+  processingCompletedAt?: string | null
+}
 
 /**
  * GET /api/documents/[id]
@@ -27,12 +45,14 @@ export async function GET(
     }
 
     // Get the document directly from Supabase instead of using db.getDocument
-    const { data: document, error: documentError } = await supabase
+    const { data: documentData, error: documentError } = await supabase
       .from('documents')
       .select('*')
       .eq('id', params.id)
       .eq('user_id', user.id)
       .single()
+
+    const document = documentData as DocumentRow | null
 
     if (documentError || !document) {
       prodError('[SERVER] Error fetching document:', documentError?.message || 'Document not found')
@@ -94,12 +114,14 @@ export async function PUT(
     }
 
     // Get the document directly from Supabase instead of using db.getDocument
-    const { data: existingDocument, error: documentError } = await supabase
+    const { data: existingData, error: documentError } = await supabase
       .from('documents')
       .select('*')
       .eq('id', params.id)
       .eq('user_id', user.id)
       .single()
+
+    const existingDocument = existingData as DocumentRow | null
 
     if (documentError || !existingDocument) {
       prodError('[SERVER] Error fetching document:', documentError?.message || 'Document not found')
@@ -109,7 +131,7 @@ export async function PUT(
     // Document exists and belongs to the user
 
     // Get the updated document data from the request
-    const updatedData = await req.json()
+    const updatedData = (await req.json()) as DocumentUpdatePayload
     middlewareLog('debug', '[SERVER] Updating document with data:', updatedData)
     middlewareLog('debug', '[SERVER] Original document from database:', {
       id: existingDocument.id,
@@ -119,37 +141,37 @@ export async function PUT(
     })
 
     // Merge the existing document with the updated data
-    const documentToUpdate = {
-      ...existingDocument,
+    const documentToUpdate: DocumentRow & DocumentUpdatePayload = {
+      ...(existingDocument as DocumentRow),
       ...updatedData,
-      id: params.id, // Ensure ID doesn't change
-      user_id: user.id, // Ensure user_id doesn't change
+      id: params.id,
+      user_id: user.id,
     }
 
     // Ensure error field is cleared when status is not 'error'
     if (documentToUpdate.status !== 'error') {
-      documentToUpdate.error = undefined
+      documentToUpdate.error = null
       middlewareLog('debug', '[SERVER] Status is not error, clearing error field')
     }
 
     // Convert to snake_case for Supabase
-    const snakeCaseDocument = {
+    const snakeCaseDocument: DocumentRow = {
       id: documentToUpdate.id,
-      filename: documentToUpdate.filename,
-      original_filename: documentToUpdate.originalFilename,
-      status: documentToUpdate.status,
-      progress: documentToUpdate.progress,
-      current_page: documentToUpdate.currentPage,
-      total_pages: documentToUpdate.totalPages,
-      file_size: documentToUpdate.fileSize,
-      file_type: documentToUpdate.fileType,
-      storage_path: documentToUpdate.storagePath,
-      thumbnail_path: documentToUpdate.thumbnailPath,
-      error: documentToUpdate.error,
-      created_at: documentToUpdate.createdAt,
+      filename: documentToUpdate.filename ?? existingDocument!.filename,
+      original_filename: documentToUpdate.originalFilename ?? existingDocument!.original_filename,
+      status: documentToUpdate.status ?? existingDocument!.status,
+      progress: documentToUpdate.progress ?? existingDocument!.progress,
+      current_page: documentToUpdate.currentPage ?? existingDocument!.current_page,
+      total_pages: documentToUpdate.totalPages ?? existingDocument!.total_pages,
+      file_size: documentToUpdate.fileSize ?? existingDocument!.file_size,
+      file_type: documentToUpdate.fileType ?? existingDocument!.file_type,
+      storage_path: documentToUpdate.storagePath ?? existingDocument!.storage_path,
+      thumbnail_path: documentToUpdate.thumbnailPath ?? existingDocument!.thumbnail_path,
+      error: documentToUpdate.error ?? existingDocument!.error,
+      created_at: existingDocument!.created_at,
       updated_at: new Date().toISOString(),
-      processing_started_at: documentToUpdate.processingStartedAt,
-      processing_completed_at: documentToUpdate.processingCompletedAt,
+      processing_started_at: documentToUpdate.processingStartedAt ?? existingDocument!.processing_started_at,
+      processing_completed_at: documentToUpdate.processingCompletedAt ?? existingDocument!.processing_completed_at,
       user_id: documentToUpdate.user_id
     }
 
@@ -162,11 +184,13 @@ export async function PUT(
     })
 
     // Save the updated document directly to Supabase
-    const { data: updatedDocument, error: updateError } = await supabase
+    const { data: updatedDataRow, error: updateError } = await supabase
       .from('documents')
       .upsert(snakeCaseDocument)
-      .select()
+      .select('*')
       .single()
+
+    const updatedDocument = updatedDataRow as DocumentRow | null
 
     if (updateError || !updatedDocument) {
       prodError('[SERVER] Error updating document:', updateError?.message || 'Update failed')
@@ -217,12 +241,14 @@ export async function DELETE(
     }
 
     // Get the document directly from Supabase instead of using db.getDocument
-    const { data: document, error: documentError } = await supabase
+    const { data: documentData, error: documentError } = await supabase
       .from('documents')
       .select('*')
       .eq('id', params.id)
       .eq('user_id', user.id)
       .single()
+
+    const document = documentData as DocumentRow | null
 
     if (documentError || !document) {
       prodError('[SERVER] Error fetching document:', documentError?.message || 'Document not found')
