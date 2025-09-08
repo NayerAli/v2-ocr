@@ -11,6 +11,7 @@ export async function POST(req: Request) {
   }
 
   const { jobId } = await req.json();
+  console.log('[Process] Starting job', jobId);
   const supabase = getServiceClient();
   if (!supabase) {
     return NextResponse.json({ error: 'Supabase not configured' }, { status: 500 });
@@ -74,8 +75,10 @@ export async function POST(req: Request) {
       })
       .eq('id', jobId);
 
+    console.log('[Process] Completed job', jobId);
     return NextResponse.json({ status: 'completed', metadata });
-  } catch {
+  } catch (error) {
+    console.error('[Process] Failed job', jobId, error);
     await supabase
       .from('documents')
       .update({ status: 'failed', error: 'OCR failed' })

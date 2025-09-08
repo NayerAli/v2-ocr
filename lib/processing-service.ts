@@ -15,11 +15,13 @@ export async function getProcessingService(settings: ServiceSettings) {
       for (const file of files) {
         const form = new FormData();
         form.append('file', file);
+        console.log('[ProcessingService] Uploading file', file.name);
         const res = await fetch('/api/ocr/queue/enqueue', {
           method: 'POST',
           body: form,
         });
         const json = await res.json();
+        console.log('[ProcessingService] File queued with ID', json.jobId);
         ids.push(json.jobId);
       }
       return ids;
@@ -43,12 +45,17 @@ export async function getProcessingService(settings: ServiceSettings) {
     getStatus: async (id: string): Promise<ProcessingStatus | undefined> => {
       const res = await fetch(`/api/ocr/queue/status?jobId=${id}`);
       const json = await res.json();
+      console.log('[ProcessingService] Status for', id, json.job?.status);
+      if (json.job?.status === 'completed') {
+        console.log('[ProcessingService] Job', id, 'completed');
+      }
       return json.job as ProcessingStatus | undefined;
     },
 
     getAllStatus: async (): Promise<ProcessingStatus[]> => {
       const res = await fetch('/api/ocr/queue/status');
       const json = await res.json();
+      console.log('[ProcessingService] Retrieved', json.jobs?.length ?? 0, 'jobs');
       return json.jobs as ProcessingStatus[];
     },
 
