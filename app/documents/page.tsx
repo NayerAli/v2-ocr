@@ -14,7 +14,6 @@ import { SupabaseError } from "../components/supabase-error"
 import { db } from "@/lib/database"
 import type { ProcessingStatus } from "@/types"
 import { cn } from "@/lib/utils"
-import { useSettingsInit } from "@/hooks/use-settings-init"
 import { useLanguage } from "@/hooks/use-language"
 import { t } from "@/lib/i18n/translations"
 import { useToast } from "@/hooks/use-toast"
@@ -26,7 +25,6 @@ import { getSafeDownloadName } from "@/lib/utils"
 // import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 
 export default function DocumentsPage() {
-  const { isInitialized } = useSettingsInit()
   const { language } = useLanguage()
   const { toast } = useToast()
   const { user } = useAuth()
@@ -44,11 +42,11 @@ export default function DocumentsPage() {
     setIsDetailsOpen(true)
   }, [])
 
-  // Load documents when initialized
+  // Load documents when user is available
   useEffect(() => {
-    if (!isInitialized || !user) return
+    if (!user) return
 
-    console.log('Documents page: Initialized, loading documents for user')
+    console.log('Documents page: Loading documents for user')
     setIsLoadingData(true)
 
     db.getQueue().then(queue => {
@@ -59,14 +57,14 @@ export default function DocumentsPage() {
       console.error('Error loading documents:', error)
       setIsLoadingData(false)
     })
-  }, [isInitialized, user])
+  }, [user])
 
   useEffect(() => {
     let isSubscribed = true
 
     // Setup polling for document updates
     const loadDocuments = async () => {
-      if (!isInitialized || !user) return
+      if (!user) return
 
       try {
         const queue = await db.getQueue()
@@ -85,7 +83,7 @@ export default function DocumentsPage() {
       isSubscribed = false
       clearInterval(interval)
     }
-  }, [isInitialized, user])
+  }, [user])
 
   const getSortedDocuments = useCallback((docs: ProcessingStatus[], sort: string, order: "asc" | "desc") => {
     return [...docs].sort((a, b) => {

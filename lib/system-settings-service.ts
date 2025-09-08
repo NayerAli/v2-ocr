@@ -18,6 +18,8 @@ interface ProcessingSettings {
 interface OCRDefaults {
   provider: string
   language: string
+  apiKey: string
+  region?: string
 }
 
 interface UploadLimits {
@@ -149,7 +151,9 @@ class SystemSettingsService {
     // Default settings
     const defaultSettings: OCRDefaults = {
       provider: 'google',
-      language: 'en'
+      language: 'en',
+      apiKey: '',
+      region: ''
     }
 
     if (!this.supabase) {

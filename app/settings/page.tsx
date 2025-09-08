@@ -200,17 +200,15 @@ export default function SettingsPage() {
 
     try {
       let result;
-      // If using system key, use the default API key from environment
-      const apiKeyToValidate = settings.ocr.useSystemKey !== false
-        ? process.env.NEXT_PUBLIC_DEFAULT_OCR_API_KEY || ""
-        : settings.ocr.apiKey;
-
-      if (settings.ocr.provider === "google") {
-        result = await validateGoogleApiKey(apiKeyToValidate);
+      if (settings.ocr.useSystemKey !== false) {
+        const response = await fetch('/api/ocr/validate-system-key', { method: 'POST' });
+        result = await response.json();
+      } else if (settings.ocr.provider === "google") {
+        result = await validateGoogleApiKey(settings.ocr.apiKey);
       } else if (settings.ocr.provider === "microsoft") {
-        result = await validateMicrosoftApiKey(apiKeyToValidate, settings.ocr.region || "");
+        result = await validateMicrosoftApiKey(settings.ocr.apiKey, settings.ocr.region || "");
       } else if (settings.ocr.provider === "mistral") {
-        result = await validateMistralApiKey(apiKeyToValidate);
+        result = await validateMistralApiKey(settings.ocr.apiKey);
       }
 
       if (!result) {
@@ -323,6 +321,7 @@ export default function SettingsPage() {
                   <p className="text-xs text-muted-foreground">{t('textRecognitionDescription', language)}</p>
                   <Select
                     value={settings.ocr.provider}
+                    disabled={settings.ocr.useSystemKey !== false}
                     onValueChange={(value: (typeof CONFIG.SUPPORTED_APIS)[number]) => {
                       settings.updateOCRSettings({
                         provider: value,
@@ -361,12 +360,26 @@ export default function SettingsPage() {
                       type="checkbox"
                       id="use-system-key"
                       checked={settings.ocr.useSystemKey !== false}
-                      onChange={(e) => {
-                        settings.updateOCRSettings({
-                          useSystemKey: e.target.checked,
-                          // Clear API key if using system key
-                          apiKey: e.target.checked ? '' : settings.ocr.apiKey
-                        })
+                      onChange={async (e) => {
+                        if (e.target.checked) {
+                          try {
+                            const res = await fetch('/api/settings/ocr-defaults')
+                            const data = await res.json()
+                            settings.updateOCRSettings({
+                              useSystemKey: true,
+                              apiKey: '',
+                              provider: data.provider,
+                              region: data.region || '',
+                              language: data.language || settings.ocr.language
+                            })
+                          } catch {
+                            settings.updateOCRSettings({ useSystemKey: false })
+                          }
+                        } else {
+                          settings.updateOCRSettings({
+                            useSystemKey: false
+                          })
+                        }
                         setIsValid(null)
                         setValidationError(null)
                       }}
@@ -450,6 +463,7 @@ export default function SettingsPage() {
                       }}
                       placeholder="e.g., westeurope, eastus2"
                       className="font-mono text-sm"
+                      disabled={settings.ocr.useSystemKey !== false}
                     />
                   </div>
                 )}
