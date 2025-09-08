@@ -7,6 +7,11 @@ import type { OCRProvider } from "./types";
 import { userSettingsService } from "@/lib/user-settings-service";
 import { systemSettingsService } from "@/lib/system-settings-service";
 
+// Ensure this module runs only on the server
+if (typeof window !== 'undefined') {
+  throw new Error('OCR providers must be used on the server');
+}
+
 export * from "./types";
 
 // Create a singleton instance of MistralRateLimiter to share across all Mistral providers
