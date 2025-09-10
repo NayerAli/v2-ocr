@@ -4,8 +4,19 @@ import { executeOCR } from '@/lib/server/ocr-executor';
 import { isQueuePaused } from '@/lib/server/queue-state';
 import { mapToProcessingStatus } from '@/lib/database/utils/mappers';
 import { getUUID } from '@/lib/uuid';
+import { normalizeStoragePath } from '@/lib/storage/path'
+import { convertPdfToJpegs } from '@/lib/server/pdf-to-images'
+import type { OCRResult } from '@/types'
 
 export async function POST(req: Request) {
+  // Minimal diagnostic log
+  try {
+    const body = await req.clone().json().catch(() => null)
+    if (body?.jobId) {
+      console.log('[OCR] Processing request received for job:', body.jobId)
+    }
+  } catch {}
+
   if (isQueuePaused()) {
     return NextResponse.json({ error: 'Queue is paused' }, { status: 409 });
   }
@@ -35,35 +46,144 @@ export async function POST(req: Request) {
     .eq('id', jobId);
 
   try {
-    let base64: string | null = null;
-    if (job.storagePath) {
-      const { data, error } = await supabase.storage
-        .from('ocr-documents')
-        .download(job.storagePath);
-      if (error) throw error;
-      const buffer = Buffer.from(await data.arrayBuffer());
-      base64 = buffer.toString('base64');
+    const userId = (job as unknown as { userId?: string; user_id?: string }).userId ?? (job as unknown as { userId?: string; user_id?: string }).user_id ?? ''
+
+    let resultsArray: OCRResult[] = []
+    let metadata: Record<string, unknown> = {}
+
+    // If this looks like a PDF workflow, process page images stored under the job folder
+    const isPdf = (job as unknown as { fileType?: string; file_type?: string }).fileType === 'application/pdf'
+      || (job as unknown as { fileType?: string; file_type?: string }).file_type === 'application/pdf'
+      || (job.storagePath?.toLowerCase().endsWith('.pdf') ?? false)
+
+    if (isPdf) {
+      console.log('[OCR] PDF detected for job:', jobId)
+      // 1) Download original PDF from storage
+      let pdfData: ArrayBuffer | null = null
+      if (job.storagePath) {
+        const path = normalizeStoragePath(userId || '', job.storagePath)
+        const { data, error } = await supabase.storage
+          .from('ocr-documents')
+          .download(path)
+        if (error) throw error
+        const arr = await data.arrayBuffer()
+        pdfData = arr
+        console.log('[OCR] PDF downloaded, bytes:', arr.byteLength)
+      }
+      if (!pdfData) throw new Error('PDF file not found')
+
+      // 2) Convert PDF pages to JPEG (server-side)
+      const pages = await convertPdfToJpegs(pdfData)
+      console.log('[OCR] PDF converted to images, pages:', pages.length)
+
+      // 3) Upload page images to Storage and OCR each page
+      for (const p of pages) {
+        const relPath = `${jobId}/Page_${p.pageNumber}_${jobId}.jpg`
+        const fullPath = normalizeStoragePath(userId, relPath)
+        // Upload page image if not present
+        await supabase.storage.from('ocr-documents').upload(fullPath, Buffer.from(p.base64, 'base64'), {
+          contentType: 'image/jpeg',
+          upsert: true,
+        })
+
+        const { result, metadata: md } = await executeOCR(p.base64, {}, { fileType: 'image/jpeg' })
+        metadata = md
+        const r = Array.isArray(result) ? (result as OCRResult[])[0] : (result as OCRResult)
+        resultsArray.push({ ...r, pageNumber: p.pageNumber, totalPages: pages.length })
+      }
+    } else {
+      // Image flow – download the original storagePath and OCR it
+      let base64: string | null = null
+      if (job.storagePath) {
+        const path = normalizeStoragePath(userId || '', job.storagePath)
+        const { data, error } = await supabase.storage
+          .from('ocr-documents')
+          .download(path)
+        if (error) throw error
+        const buffer = Buffer.from(await data.arrayBuffer())
+        base64 = buffer.toString('base64')
+      }
+
+      if (!base64) {
+        throw new Error('File not found')
+      }
+
+      const exec = await executeOCR(base64, {}, { fileType: job.fileType })
+      metadata = exec.metadata as Record<string, unknown>
+      const result = exec.result
+      resultsArray = Array.isArray(result) ? (result as OCRResult[]) : ([result] as OCRResult[])
     }
 
-    if (!base64) {
-      throw new Error('File not found');
-    }
-
-    const { result, metadata } = await executeOCR(base64);
-    const resultsArray = Array.isArray(result) ? result : [result];
+    // Minimal logging for diagnostics (first 10 chars only)
+    try {
+      const previews = resultsArray.map((r, i) => ({ page: (r.pageNumber ?? i + 1), preview: String(r.text ?? '').slice(0, 10) }));
+      console.log('[OCR] Results preview:', previews);
+    } catch {}
     const now = new Date().toISOString();
     type JobUser = { userId?: string; user_id?: string };
     const jobUser = job as JobUser;
-    const rows = resultsArray.map((text, idx) => ({
+    const providerUsed = (metadata as unknown as { provider?: string }).provider ?? 'unknown';
+
+    const rows = resultsArray.map((r, idx) => ({
       id: getUUID(),
       document_id: jobId,
-      page_number: idx + 1,
-      content: text,
+      text: r.text ?? '',
+      confidence: r.confidence ?? 0,
+      language: r.language ?? 'en',
+      processing_time: r.processingTime ?? 0,
+      page_number: r.pageNumber ?? (idx + 1),
+      total_pages: r.totalPages ?? resultsArray.length,
+      // Save relative storage path (without user prefix) for signing on the client
+      storage_path: isPdf
+        ? // For PDFs we reference the page image path
+          `${jobId}/Page_${(r.pageNumber ?? (idx + 1))}_${jobId}.jpg`
+        : (job.storagePath ?? null),
+      image_url: null,
+      provider: providerUsed,
       created_at: now,
-      updated_at: now,
       user_id: jobUser.userId ?? jobUser.user_id ?? null,
     }));
-    await supabase.from('ocr_results').insert(rows);
+    // If results already exist for this document (and user), keep them to avoid duplicates.
+    // This favors stability and prevents accidental double-processing.
+    const { count: existingCount } = await supabase
+      .from('ocr_results')
+      .select('*', { head: true, count: 'exact' })
+      .eq('document_id', jobId)
+      .eq('user_id', jobUser.userId ?? jobUser.user_id ?? null)
+
+    if ((existingCount ?? 0) > 0) {
+      console.log(`[OCR] Results already exist for document ${jobId}; skipping insert.`);
+    } else {
+      // Prefer insert. If table lacks optional columns in some environments,
+      // retry without them. Always log errors minimally.
+      const insert1 = await supabase.from('ocr_results').insert(rows);
+      if (insert1.error) {
+        console.error('[OCR] Insert ocr_results failed (attempt 1):', insert1.error.message);
+        // Retry without optional columns for compatibility
+        const minimalRows = rows.map(({ id, document_id, text, confidence, language, processing_time, page_number, total_pages, created_at, user_id, provider }) => ({
+          id,
+          document_id,
+          text,
+          confidence,
+          language,
+          processing_time,
+          page_number,
+          total_pages,
+          created_at,
+          provider,
+          user_id,
+        }));
+        const insert2 = await supabase.from('ocr_results').insert(minimalRows as unknown as Record<string, unknown>[]);
+        if (insert2.error) {
+          console.error('[OCR] Insert ocr_results failed (attempt 2):', insert2.error.message);
+          throw insert2.error; // handled by catch below
+        } else {
+          console.log(`[OCR] Saved ${minimalRows.length} result(s) (compat mode) for document ${jobId}`);
+        }
+      } else {
+        console.log(`[OCR] Saved ${rows.length} result(s) for document ${jobId}`);
+      }
+    }
 
     await supabase
       .from('documents')
@@ -75,7 +195,8 @@ export async function POST(req: Request) {
       .eq('id', jobId);
 
     return NextResponse.json({ status: 'completed', metadata });
-  } catch {
+  } catch (e) {
+    console.error('[OCR] Processing failed for job', jobId, '-', e instanceof Error ? e.message : e)
     await supabase
       .from('documents')
       .update({ status: 'failed', error: 'OCR failed' })
