@@ -17,6 +17,8 @@ export class GoogleVisionProvider implements OCRProvider {
       signal,
       headers: {
         "Content-Type": "application/json",
+        // Some gateways require the API key header; keep query param too
+        "X-Goog-Api-Key": this.settings.apiKey,
       },
       body: JSON.stringify({
         requests: [
@@ -26,7 +28,8 @@ export class GoogleVisionProvider implements OCRProvider {
             },
             features: [
               {
-                type: "TEXT_DETECTION",
+                // DOCUMENT_TEXT_DETECTION works better for dense text
+                type: "DOCUMENT_TEXT_DETECTION",
               },
             ],
             imageContext: this.settings.language

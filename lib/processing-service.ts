@@ -18,18 +18,31 @@ export async function getProcessingService(settings: ServiceSettings) {
         const res = await fetch('/api/ocr/queue/enqueue', {
           method: 'POST',
           body: form,
+          credentials: 'include',
         });
         const json = await res.json();
         ids.push(json.jobId);
+
+        // Fire-and-forget: trigger server-side processing for this job
+        try {
+          void fetch('/api/ocr/queue/process', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ jobId: json.jobId }),
+            credentials: 'include',
+          });
+        } catch {
+          // Ignore; UI polls status
+        }
       }
       return ids;
     },
 
     pauseQueue: async () => {
-      await fetch('/api/ocr/queue/pause', { method: 'POST' });
+      await fetch('/api/ocr/queue/pause', { method: 'POST', credentials: 'include' });
     },
     resumeQueue: async () => {
-      await fetch('/api/ocr/queue/resume', { method: 'POST' });
+      await fetch('/api/ocr/queue/resume', { method: 'POST', credentials: 'include' });
     },
 
     cancelProcessing: async (id: string) => {
@@ -37,17 +50,18 @@ export async function getProcessingService(settings: ServiceSettings) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ jobId: id }),
+        credentials: 'include',
       });
     },
 
     getStatus: async (id: string): Promise<ProcessingStatus | undefined> => {
-      const res = await fetch(`/api/ocr/queue/status?jobId=${id}`);
+      const res = await fetch(`/api/ocr/queue/status?jobId=${id}`, { credentials: 'include' });
       const json = await res.json();
       return json.job as ProcessingStatus | undefined;
     },
 
     getAllStatus: async (): Promise<ProcessingStatus[]> => {
-      const res = await fetch('/api/ocr/queue/status');
+      const res = await fetch('/api/ocr/queue/status', { credentials: 'include' });
       const json = await res.json();
       return json.jobs as ProcessingStatus[];
     },
@@ -57,6 +71,7 @@ export async function getProcessingService(settings: ServiceSettings) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ jobId: id }),
+        credentials: 'include',
       });
       const json = await res.json();
       return json.job as ProcessingStatus | null;
@@ -67,6 +82,7 @@ export async function getProcessingService(settings: ServiceSettings) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newSettings),
+        credentials: 'include',
       });
     },
     };

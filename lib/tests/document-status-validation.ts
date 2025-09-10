@@ -1,7 +1,7 @@
 import { db } from "../database";
 import type { ProcessingStatus } from "@/types";
 import { downloadFileFromStorage } from "../storage-utils";
-import { getUser } from "../auth";
+import { getSupabaseClient } from "../supabase/singleton-client";
 
 /**
  * Test to ensure no document in the database has status "queued" and a non-null error field
@@ -94,7 +94,9 @@ export async function retryDocument(documentId: string): Promise<ProcessingStatu
   // Check if we need to download the file from storage
   if (!document.file && document.storagePath) {
     // Make sure we have a user_id
-    const userId = document.user_id || (await getUser())?.id;
+    const supabase = getSupabaseClient();
+    const { data: userData } = await supabase!.auth.getUser();
+    const userId = document.user_id || userData.user?.id;
 
     if (userId) {
       console.log(`[DEBUG] Document has no file property, downloading from storage: ${userId}/${document.storagePath}`);
@@ -138,6 +140,18 @@ export async function retryDocument(documentId: string): Promise<ProcessingStatu
   await db.saveToQueue(document);
 
   console.log(`[DEBUG] Document ${documentId} retried successfully`);
+
+  // Trigger processing on the server (fire-and-forget)
+  try {
+    void fetch('/api/ocr/queue/process', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jobId: documentId }),
+      credentials: 'include',
+    });
+  } catch (e) {
+    console.error('[DEBUG] Failed to trigger processing after retry:', e);
+  }
 
   return document;
 }

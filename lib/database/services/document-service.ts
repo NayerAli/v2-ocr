@@ -1,9 +1,10 @@
 // Document management operations
 
-import { getUser } from '../../auth'
+// Avoid importing server-only auth in shared code; fetch user via runtime client
 import type { ProcessingStatus } from '@/types'
 import { getUUID } from '@/lib/uuid'
-import { supabase, isSupabaseConfigured, mapToProcessingStatus, camelToSnake } from '../utils'
+import { isSupabaseConfigured, mapToProcessingStatus, camelToSnake } from '../utils'
+import { getRuntimeSupabase } from '@/lib/supabase/runtime-client'
 
 /**
  * Get all documents for the current user
@@ -18,7 +19,13 @@ export async function getDocuments(): Promise<ProcessingStatus[]> {
 
   // Get the current user
   console.log('[DEBUG] Getting current user');
-  const user = await getUser()
+  const supabase = await getRuntimeSupabase()
+  if (!supabase) {
+    console.error('[DEBUG] No Supabase client available. Cannot get documents.')
+    return []
+  }
+  const { data: userData } = await supabase.auth.getUser()
+  const user = userData.user
   console.log('[DEBUG] Current user:', user ? 'Authenticated' : 'Not authenticated');
 
   if (!user) {
@@ -63,7 +70,13 @@ export async function getDocument(id: string): Promise<ProcessingStatus | null> 
 
   // Get the current user
   console.log('[DEBUG] Getting current user');
-  const user = await getUser()
+  const supabase = await getRuntimeSupabase()
+  if (!supabase) {
+    console.error('[DEBUG] No Supabase client available. Cannot get document.')
+    return null
+  }
+  const { data: userData } = await supabase.auth.getUser()
+  const user = userData.user
   console.log('[DEBUG] Current user:', user ? 'Authenticated' : 'Not authenticated');
 
   if (!user) {
@@ -114,7 +127,13 @@ export async function saveDocument(document: Partial<ProcessingStatus>): Promise
 
   // Get the current user
   console.log('[DEBUG] Getting current user');
-  const user = await getUser()
+  const supabase = await getRuntimeSupabase()
+  if (!supabase) {
+    console.error('[DEBUG] No Supabase client available. Cannot save document.')
+    return null
+  }
+  const { data: userData } = await supabase.auth.getUser()
+  const user = userData.user
   console.log('[DEBUG] Current user:', user ? 'Authenticated' : 'Not authenticated');
 
   if (!user) {
@@ -150,6 +169,11 @@ export async function saveDocument(document: Partial<ProcessingStatus>): Promise
   try {
     // Upsert to Supabase
     console.log('[DEBUG] Executing Supabase upsert operation');
+    const supabase = await getRuntimeSupabase()
+    if (!supabase) {
+      console.error('[DEBUG] No Supabase client available. Cannot save document.')
+      return null
+    }
     const { data, error } = await supabase
       .from('documents')
       .upsert(snakeCaseDocument, { onConflict: 'id' })
@@ -182,7 +206,13 @@ export async function deleteDocument(id: string): Promise<boolean> {
 
   // Get the current user
   console.log('[DEBUG] Getting current user');
-  const user = await getUser()
+  const supabase = await getRuntimeSupabase()
+  if (!supabase) {
+    console.error('[DEBUG] No Supabase client available. Cannot delete document.')
+    return false
+  }
+  const { data: userData } = await supabase.auth.getUser()
+  const user = userData.user
   console.log('[DEBUG] Current user:', user ? 'Authenticated' : 'Not authenticated');
 
   if (!user) {
@@ -193,6 +223,7 @@ export async function deleteDocument(id: string): Promise<boolean> {
   try {
     // First, check if the document exists and belongs to the user
     console.log('[DEBUG] Verifying document ownership');
+    // supabase already initialized above
     const { data: document, error: documentError } = await supabase
       .from('documents')
       .select('id, storage_path, thumbnail_path')

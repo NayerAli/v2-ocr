@@ -1,5 +1,3 @@
-import { Inter } from "next/font/google"
-import { IBM_Plex_Sans_Arabic } from "next/font/google"
 import { ThemeProvider } from "@/components/theme-provider"
 import { AuthProvider } from "@/components/auth/auth-provider"
 import { Toaster } from "@/components/ui/toaster"
@@ -8,12 +6,7 @@ import ClientInit from "./client-init"
 import "./globals.css"
 import type React from "react"
 
-const inter = Inter({ subsets: ["latin"] })
-const ibmPlexSansArabic = IBM_Plex_Sans_Arabic({
-  weight: ["400", "500", "600", "700"],
-  subsets: ["arabic"],
-  variable: "--font-ibm-plex-sans-arabic",
-})
+// Removed next/font/google to avoid build-time font downloads in CI/build
 
 export default function RootLayout({
   children,
@@ -22,7 +15,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${inter.className} ${ibmPlexSansArabic.variable} min-h-screen bg-background antialiased`}>
+      <body className={`min-h-screen bg-background antialiased`}>
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
           <ClientInit />
           <AuthProvider>

@@ -1,14 +1,28 @@
 import type { User, Session } from '@supabase/supabase-js'
 import { getSupabaseClient } from './supabase/singleton-client'
 import { middlewareLog, prodError } from './log'
+// Server-side helper is imported dynamically inside functions to avoid bundling in client
 
 /**
  * Get the current user session
  */
 export async function getSession(): Promise<Session | null> {
   try {
-    // Get the singleton Supabase client
-    const supabase = getSupabaseClient()
+    // Detect environment and get appropriate Supabase client
+    const isServer = typeof window === 'undefined'
+    let supabase = getSupabaseClient()
+
+    // On the server, use a server-aware client wired to request cookies
+    if (isServer) {
+      try {
+        const { createServerSupabaseClient } = await import('./server-auth')
+        supabase = createServerSupabaseClient()
+      } catch (e) {
+        prodError('[Auth] Failed to create server Supabase client', e)
+        return null
+      }
+    }
+
     if (!supabase) return null
 
     // Try to get the session from Supabase
@@ -37,7 +51,19 @@ export async function getSession(): Promise<Session | null> {
  */
 export async function getUser(): Promise<User | null> {
   try {
-    const supabase = getSupabaseClient()
+    const isServer = typeof window === 'undefined'
+    let supabase = getSupabaseClient()
+
+    if (isServer) {
+      try {
+        const { createServerSupabaseClient } = await import('./server-auth')
+        supabase = createServerSupabaseClient()
+      } catch (e) {
+        prodError('[Auth] Failed to create server Supabase client', e)
+        return null
+      }
+    }
+
     if (!supabase) return null
 
     const { data, error } = await supabase.auth.getUser()

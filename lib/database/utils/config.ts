@@ -3,9 +3,8 @@
 import { getSupabaseClient } from '../../supabase/singleton-client'
 import { debugLog } from '../../log'
 
-// Get the singleton Supabase client. Non-null assertion is used so that
-// dependent modules can compile even when credentials are missing during
-// build; runtime checks via isSupabaseConfigured safeguard actual usage.
+// Get the singleton Supabase client for browser usage.
+// Server code should create its own request-scoped client.
 export const supabase = getSupabaseClient()!
 
 // Check if Supabase is configured
