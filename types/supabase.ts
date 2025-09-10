@@ -83,6 +83,7 @@ export interface Database {
           error: string | null
           rate_limit_info: Json | null
           created_at: string
+          provider: string
           user_id: string | null
         }
         Insert: {
@@ -99,6 +100,7 @@ export interface Database {
           error?: string | null
           rate_limit_info?: Json | null
           created_at?: string
+          provider: string
           user_id?: string | null
         }
         Update: {
@@ -115,6 +117,61 @@ export interface Database {
           error?: string | null
           rate_limit_info?: Json | null
           created_at?: string
+          provider?: string
+          user_id?: string | null
+        }
+      }
+      // Provide ocr_results with the same shape to align with current code
+      ocr_results: {
+        Row: {
+          id: string
+          document_id: string
+          text: string
+          confidence: number
+          language: string
+          processing_time: number
+          page_number: number
+          total_pages: number | null
+          image_url: string | null
+          bounding_box: Json | null
+          error: string | null
+          rate_limit_info: Json | null
+          created_at: string
+          provider: string
+          user_id: string | null
+        }
+        Insert: {
+          id: string
+          document_id: string
+          text: string
+          confidence: number
+          language: string
+          processing_time: number
+          page_number: number
+          total_pages?: number | null
+          image_url?: string | null
+          bounding_box?: Json | null
+          error?: string | null
+          rate_limit_info?: Json | null
+          created_at?: string
+          provider: string
+          user_id?: string | null
+        }
+        Update: {
+          id?: string
+          document_id?: string
+          text?: string
+          confidence?: number
+          language?: string
+          processing_time?: number
+          page_number?: number
+          total_pages?: number | null
+          image_url?: string | null
+          bounding_box?: Json | null
+          error?: string | null
+          rate_limit_info?: Json | null
+          created_at?: string
+          provider?: string
           user_id?: string | null
         }
       }

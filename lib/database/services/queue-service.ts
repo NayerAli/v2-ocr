@@ -1,8 +1,17 @@
 // Queue-related database operations
 
-import { getUser } from '../../auth'
 import type { ProcessingStatus } from '@/types'
-import { supabase, isSupabaseConfigured, mapToProcessingStatus, camelToSnake } from '../utils'
+import { isSupabaseConfigured, mapToProcessingStatus, camelToSnake } from '../utils'
+import { getRuntimeSupabase } from '@/lib/supabase/runtime-client'
+
+async function getCurrentUser() {
+  if (typeof window !== 'undefined') {
+    const { getUser } = await import('../../auth-client')
+    return getUser()
+  }
+  // Avoid importing server-only modules in shared code
+  return null
+}
 
 /**
  * Get all queue items for the current user
@@ -24,7 +33,7 @@ export async function getQueue(): Promise<ProcessingStatus[]> {
   if (shouldLog) {
     console.log('[DEBUG] Getting current user');
   }
-  const user = await getUser()
+  const user = await getCurrentUser()
   if (shouldLog) {
     console.log('[DEBUG] Current user:', user ? 'Authenticated' : 'Not authenticated');
   }
@@ -32,6 +41,11 @@ export async function getQueue(): Promise<ProcessingStatus[]> {
   // Build the query
   if (shouldLog) {
     console.log('[DEBUG] Building Supabase query');
+  }
+  const supabase = await getRuntimeSupabase()
+  if (!supabase) {
+    console.error('[DEBUG] No Supabase client available')
+    return []
   }
   let query = supabase
     .from('documents')
@@ -115,11 +129,17 @@ export async function saveToQueue(status: ProcessingStatus): Promise<void> {
     return
   }
 
+  // If running on the server and no user_id provided, avoid inserting invalid rows
+  if (typeof window === 'undefined' && !(status as unknown as Record<string, unknown>).user_id) {
+    console.error('[DEBUG] Missing user_id on server saveToQueue call; aborting to prevent invalid insert')
+    return
+  }
+
   // Get the current user
   if (shouldLog) {
     console.log('[DEBUG] Getting current user for saveToQueue');
   }
-  const user = await getUser()
+  const user = await getCurrentUser()
   if (shouldLog) {
     console.log('[DEBUG] Current user for saveToQueue:', user ? 'Authenticated' : 'Not authenticated');
   }
@@ -158,13 +178,14 @@ export async function saveToQueue(status: ProcessingStatus): Promise<void> {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { size, type, startTime, endTime, ...cleanedStatus } = mappedStatus as Record<string, unknown>
 
+  const existingUserId = (cleanedStatus as Record<string, unknown>).user_id as unknown
+  const hasValidUserId = typeof existingUserId === 'string' && existingUserId.length > 0
   const updatedStatus = {
     ...cleanedStatus,
     status: status.status || 'queued', // Ensure status is set, default to 'queued'
     createdAt: status.createdAt instanceof Date ? status.createdAt : new Date(status.createdAt || Date.now()),
     updatedAt: new Date(),
-    // Add user_id if user is authenticated
-    user_id: user?.id || null
+    ...(hasValidUserId ? {} : { user_id: user?.id ?? null })
   }
   if (shouldLog) {
     console.log('[DEBUG] Created updated status object with dates and user_id');
@@ -193,6 +214,11 @@ export async function saveToQueue(status: ProcessingStatus): Promise<void> {
     // Upsert to Supabase
     if (shouldLog) {
       console.log('[DEBUG] Executing Supabase upsert operation');
+    }
+    const supabase = await getRuntimeSupabase()
+    if (!supabase) {
+      console.error('[DEBUG] No Supabase client available for upsert')
+      return
     }
     const { data, error } = await supabase
       .from('documents')
@@ -239,7 +265,7 @@ export async function removeFromQueue(id: string): Promise<void> {
   }
 
   // Get the current user
-  const user = await getUser()
+  const user = await getCurrentUser()
   console.log('[DEBUG] Current user for removeFromQueue:', user ? 'Authenticated' : 'Not authenticated');
 
   if (!user) {
@@ -250,6 +276,11 @@ export async function removeFromQueue(id: string): Promise<void> {
   try {
     // Delete from ocr_results first
     console.log('[DEBUG] Deleting results for document:', id);
+    const supabase = await getRuntimeSupabase()
+    if (!supabase) {
+      console.error('[DEBUG] No Supabase client available for delete')
+      return
+    }
     const { error: resultsError } = await supabase
       .from('ocr_results')
       .delete()
@@ -294,7 +325,13 @@ export async function updateQueueItem(id: string, updates: Partial<ProcessingSta
   }
 
   // Get the current user
-  const user = await getUser()
+  const supabaseClient = await getRuntimeSupabase()
+  if (!supabaseClient) {
+    console.error('[DEBUG] No Supabase client available for updateQueueItem')
+    return null
+  }
+  const { data: userData } = await supabaseClient.auth.getUser()
+  const user = userData.user
   console.log('[DEBUG] Current user for updateQueueItem:', user ? 'Authenticated' : 'Not authenticated');
 
   if (!user) {
@@ -314,6 +351,11 @@ export async function updateQueueItem(id: string, updates: Partial<ProcessingSta
 
     // Update the document
     console.log('[DEBUG] Updating document:', id);
+    const supabase = supabaseClient
+    if (!supabase) {
+      console.error('[DEBUG] No Supabase client available for update')
+      return null
+    }
     const { data, error } = await supabase
       .from('documents')
       .update(snakeCaseUpdates)

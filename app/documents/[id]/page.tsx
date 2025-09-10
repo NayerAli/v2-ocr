@@ -260,7 +260,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
     if (!target) return undefined
 
     try {
-      const { getUser } = await import('@/lib/auth')
+      const { getUser } = await import('@/lib/auth-client')
       const user = await getUser()
       if (!user) return undefined
 
@@ -289,7 +289,7 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
   const ensureSignedUrls = useCallback(async (list: OCRResult[]) => {
     if (!list.length) return list
 
-    const { getUser } = await import('@/lib/auth')
+    const { getUser } = await import('@/lib/auth-client')
     const user = await getUser()
     if (!user) return list
     const prefix = `${user.id}/`
@@ -520,20 +520,23 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
         currentIdx - 1
       ].filter(idx => idx >= 0 && idx < results.length)
 
-      for (const idx of pagesToPreload) {
-        const result = results[idx]
-        if (result?.imageUrl) {
-          try {
-            await imageCache.preload(result.imageUrl)
-          } catch (error) {
-            console.error(`Failed to preload image for page ${idx + 1}:`, error)
+      // Only preload image types
+      if (isImageFile(docStatus?.fileType, docStatus?.filename)) {
+        for (const idx of pagesToPreload) {
+          const result = results[idx]
+          if (result?.imageUrl) {
+            try {
+              await imageCache.preload(result.imageUrl)
+            } catch (error) {
+              console.error(`Failed to preload image for page ${idx + 1}:`, error)
+            }
           }
         }
       }
     }
 
     preloadImages()
-  }, [currentPage, results])
+  }, [currentPage, results, docStatus?.fileType, docStatus?.filename])
 
   // Clear cache when component unmounts or document changes
   useEffect(() => {
@@ -1584,6 +1587,14 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
       )
     }
 
+    const isImage = (() => {
+      const url = currentResult?.imageUrl || ''
+      const sp = currentResult?.storagePath || ''
+      const byUrl = /\.(jpg|jpeg|png|webp)$/i.test(url)
+      const bySp = /\.(jpg|jpeg|png|webp)$/i.test(sp)
+      if (byUrl || bySp) return true
+      return isImageFile(docStatus?.fileType, docStatus?.filename)
+    })()
     if (!currentResult?.imageUrl) {
       return (
         <div className="w-full h-full flex items-center justify-center">
@@ -1596,8 +1607,8 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
       )
     }
 
-    const cachedImage = imageCache.get(currentResult.imageUrl)
-    const showLoadingState = !imageLoaded && !cachedImage
+    const cachedImage = isImage ? imageCache.get(currentResult.imageUrl) : undefined
+    const showLoadingState = isImage && !imageLoaded && !cachedImage
 
     return (
       <div
@@ -1635,24 +1646,40 @@ export default function DocumentPage({ params }: { params: { id: string } }) {
               </div>
             )}
 
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              ref={imageRef}
-              key={`${currentResult.imageUrl}-${retryCount}`}
-              src={currentResult.imageUrl}
-              alt={`Page ${currentPage}`}
-              className={cn(
-                "max-h-[calc(100vh-14rem)] w-auto rounded-lg select-none",
-                (imageLoaded || cachedImage) && !imageError ? "opacity-100" : "opacity-0",
-                "transition-opacity duration-300",
-                "will-change-transform"
-              )}
-              onLoad={handleImageLoad}
-              onError={() => handleImageFailure()}
-              draggable={false}
-              loading="eager"
-              decoding="async"
-            />
+            {isImage ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                ref={imageRef}
+                key={`${currentResult.imageUrl}-${retryCount}`}
+                src={currentResult.imageUrl}
+                alt={`Page ${currentPage}`}
+                className={cn(
+                  "max-h-[calc(100vh-14rem)] w-auto rounded-lg select-none",
+                  (imageLoaded || cachedImage) && !imageError ? "opacity-100" : "opacity-0",
+                  "transition-opacity duration-300",
+                  "will-change-transform"
+                )}
+                onLoad={handleImageLoad}
+                onError={() => handleImageFailure()}
+                draggable={false}
+                loading="eager"
+                decoding="async"
+              />
+            ) : (
+              <object
+                data={currentResult.imageUrl}
+                type="application/pdf"
+                className={cn(
+                  "max-h-[calc(100vh-14rem)] w-full rounded-lg",
+                  imageLoaded && !imageError ? "opacity-100" : "opacity-0",
+                  "transition-opacity duration-300"
+                )}
+              >
+                <p className="text-sm text-muted-foreground p-4 text-center">
+                  Unable to display preview. <a className="underline" href={currentResult.imageUrl} target="_blank" rel="noreferrer">Open in new tab</a>.
+                </p>
+              </object>
+            )}
 
             {imageError && renderImageError()}
           </div>

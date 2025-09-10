@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/database/utils'
-import { getUser } from '@/lib/auth'
+import { getUser } from '@/lib/auth-client'
 import { normalizeStoragePath } from './path'
 
 /** TTL par défaut: 3600s (1h). Ajuste si besoin. */
@@ -49,4 +49,3 @@ export async function getSignedUrlsForBatch(
   })
   return out
 }
-

@@ -1,7 +1,8 @@
 // Database statistics operations
 
 import type { DatabaseStats } from '@/types/settings'
-import { supabase, isSupabaseConfigured } from '../utils'
+import { isSupabaseConfigured } from '../utils'
+import { getRuntimeSupabase } from '@/lib/supabase/runtime-client'
 
 /**
  * Get database statistics directly from the database for the current user
@@ -9,6 +10,11 @@ import { supabase, isSupabaseConfigured } from '../utils'
 export async function getDatabaseStats(): Promise<DatabaseStats> {
   if (!isSupabaseConfigured()) {
     console.error('Supabase not configured. Cannot get database stats.')
+    return { totalDocuments: 0, totalResults: 0, dbSize: 0 }
+  }
+  const supabase = await getRuntimeSupabase()
+  if (!supabase) {
+    console.error('No Supabase client available. Cannot get database stats.')
     return { totalDocuments: 0, totalResults: 0, dbSize: 0 }
   }
   // Get the current user's ID once and reuse it
@@ -145,6 +151,11 @@ export async function cleanupOldRecords(retentionPeriod: number): Promise<number
     console.error('Supabase not configured. Cannot cleanup old records.')
     return 0
   }
+  const supabase = await getRuntimeSupabase()
+  if (!supabase) {
+    console.error('No Supabase client available. Cannot cleanup old records.')
+    return 0
+  }
 
   // Get the current user's ID
   const { data: userData, error: userError } = await supabase.auth.getUser()
@@ -206,6 +217,11 @@ export async function cleanupOldRecords(retentionPeriod: number): Promise<number
 export async function clearDatabase(type?: 'documents' | 'ocr_results' | 'all'): Promise<void> {
   if (!isSupabaseConfigured()) {
     console.error('Supabase not configured. Cannot clear database.')
+    return
+  }
+  const supabase = await getRuntimeSupabase()
+  if (!supabase) {
+    console.error('No Supabase client available. Cannot clear database.')
     return
   }
 

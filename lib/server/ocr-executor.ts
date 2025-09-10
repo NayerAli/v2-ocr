@@ -13,7 +13,7 @@ function maskKey(key: string | undefined): string {
   return `${key.slice(0, 4)}...${key.slice(-4)}`;
 }
 
-export async function executeOCR(base64Data: string, overrides: Partial<OCRSettings> = {}) {
+export async function executeOCR(base64Data: string, overrides: Partial<OCRSettings> = {}, opts?: { fileType?: string }) {
   const defaults = await systemSettingsService.getOCRDefaults();
   const settings: OCRSettings = {
     provider: defaults.provider as OCRSettings['provider'],
@@ -24,11 +24,12 @@ export async function executeOCR(base64Data: string, overrides: Partial<OCRSetti
     ...overrides,
   };
 
+
   console.log('[ocr-executor] provider:', settings.provider, 'key:', maskKey(settings.apiKey));
 
     const provider = await createOCRProvider(settings, new AzureRateLimiter());
     const start = Date.now();
-    const result = await provider.processImage(base64Data, new AbortController().signal);
+    const result = await provider.processImage(base64Data, new AbortController().signal, opts?.fileType);
   const duration = Date.now() - start;
-  return { result, metadata: { duration, pages: Array.isArray(result) ? result.length : 1 } };
+  return { result, metadata: { duration, pages: Array.isArray(result) ? result.length : 1, provider: settings.provider } };
 }

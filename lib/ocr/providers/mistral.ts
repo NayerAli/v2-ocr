@@ -12,7 +12,7 @@ export class MistralOCRProvider implements OCRProvider {
   private readonly MAX_PDF_PAGES = 1000; // 1000 pages limit for Mistral OCR API
   private readonly MAX_REQUEST_SIZE_MB = 10; // Maximum safe request size to avoid buffer issues
   // Flag to control whether to use Mistral's PDF processing or not
-  private readonly USE_MISTRAL_PDF_PROCESSING = false; // Set to false to disable Mistral PDF processing
+  private readonly USE_MISTRAL_PDF_PROCESSING = false; // Disabled; we process PDFs as images via client-side conversion
 
   constructor(settings: OCRSettings, rateLimiter: MistralRateLimiter) {
     this.settings = settings;

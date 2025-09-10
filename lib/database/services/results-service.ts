@@ -1,11 +1,12 @@
 // Results-related database operations
 
-import { getUser } from '../../auth'
+// Avoid importing server-only auth in shared code; fetch user via runtime client
 import { getUUID } from '@/lib/uuid'
 import type { OCRResult } from '@/types'
 // camelToSnake is imported but not used in this file
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-import { supabase, isSupabaseConfigured, mapToOCRResult, camelToSnake } from '../utils'
+import { isSupabaseConfigured, mapToOCRResult, camelToSnake } from '../utils'
+import { getRuntimeSupabase } from '@/lib/supabase/runtime-client'
 
 /**
  * Get OCR results for a document
@@ -16,10 +17,15 @@ export async function getResults(documentId: string): Promise<OCRResult[]> {
     return []
   }
 
-  // Get the current user
-  const user = await getUser()
-
   // Build the query
+  const supabase = await getRuntimeSupabase()
+  if (!supabase) {
+    console.error('No Supabase client available. Cannot get results.')
+    return []
+  }
+  // Get the current user
+  const { data: userData } = await supabase.auth.getUser()
+  const user = userData.user
   let query = supabase
     .from('ocr_results')
     .select('*')
@@ -55,6 +61,11 @@ export async function saveResults(documentId: string, results: OCRResult[]): Pro
   }
 
   // First, verify that the document exists in the documents table
+  const supabase = await getRuntimeSupabase()
+  if (!supabase) {
+    console.error('No Supabase client available. Cannot verify document.')
+    return
+  }
   const { data: document, error: documentError } = await supabase
     .from('documents')
     .select('id, user_id')
@@ -68,7 +79,8 @@ export async function saveResults(documentId: string, results: OCRResult[]): Pro
   }
 
   // Get the current user
-  const user = await getUser()
+  const { data: userData } = await supabase.auth.getUser()
+  const user = userData.user
   const userId = user?.id || document.user_id || null
 
   // Prepare results for Supabase with required fields
