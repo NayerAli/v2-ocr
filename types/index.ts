@@ -61,4 +61,3 @@ export interface OCRSettings {
   language?: string
   useSystemKey?: boolean
 }
-

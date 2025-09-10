@@ -24,7 +24,7 @@ import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs'
 // Node.js can handle it automatically
 
 export async function convertPdfToJpegs(
-  pdfInput: Buffer | Uint8Array | ArrayBuffer,
+  pdfInput: ArrayBuffer | Uint8Array | ArrayBufferLike | unknown,
   options?: { scale?: number; quality?: number }
 ) {
   const scale = options?.scale ?? 1.5
@@ -38,15 +38,18 @@ export async function convertPdfToJpegs(
 
   // Ensure pdf.js receives a Uint8Array, not a Node Buffer
   let pdfData: Uint8Array
-  if (typeof Buffer !== 'undefined' && Buffer.isBuffer(pdfInput)) {
-    pdfData = new Uint8Array(pdfInput.buffer, pdfInput.byteOffset, pdfInput.byteLength)
+  if (typeof Buffer !== 'undefined' && (Buffer as unknown as { isBuffer?: (i: unknown) => boolean }).isBuffer?.(pdfInput)) {
+    const buf = pdfInput as unknown as { buffer: ArrayBuffer; byteOffset: number; byteLength: number }
+    pdfData = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength)
   } else if (pdfInput instanceof Uint8Array) {
     pdfData = pdfInput
   } else if (typeof ArrayBuffer !== 'undefined' && pdfInput instanceof ArrayBuffer) {
     pdfData = new Uint8Array(pdfInput)
-  } else {
+  } else if (pdfInput && typeof pdfInput === 'object') {
     // Fallback for any ArrayBufferLike
     pdfData = new Uint8Array(pdfInput as ArrayBufferLike)
+  } else {
+    throw new Error('Unsupported PDF input type')
   }
 
   const loadingTask = pdfjsLib.getDocument({ data: pdfData })
@@ -54,22 +57,53 @@ export async function convertPdfToJpegs(
 
   const pages: { pageNumber: number; base64: string }[] = []
 
+  // Provide a Node-capable CanvasFactory so pdf.js never tries to use DOM canvas internally
+  const nodeCanvasFactory = {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    create(width: number, height: number): { canvas: any; context: CanvasRenderingContext2D } {
+      const canvas = createCanvas(Math.max(1, Math.ceil(width)), Math.max(1, Math.ceil(height)))
+      const context = canvas.getContext('2d') as unknown as CanvasRenderingContext2D
+      return { canvas, context }
+    },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    reset(target: { canvas: any; context: CanvasRenderingContext2D }, width: number, height: number) {
+      target.canvas.width = Math.max(1, Math.ceil(width))
+      target.canvas.height = Math.max(1, Math.ceil(height))
+    },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    destroy(target: { canvas: any; context: CanvasRenderingContext2D }) {
+      // Release references to help GC
+      target.canvas.width = 0
+      target.canvas.height = 0
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(target as any).canvas = null
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(target as any).context = null
+    },
+  }
+
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i)
     const viewport = page.getViewport({ scale })
 
-    const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height))
-    const ctx = canvas.getContext('2d')
+    // Allocate a rendering surface via the factory
+    const surface = nodeCanvasFactory.create(viewport.width, viewport.height)
 
-    // Render to node-canvas - use unknown then cast to satisfy both type systems
-    await page.render({ 
-      canvasContext: ctx as unknown as CanvasRenderingContext2D, 
-      viewport 
+    // Render to node-canvas with an explicit canvasFactory so all internals use node-canvas
+    await page.render({
+      canvasContext: surface.context as unknown as CanvasRenderingContext2D,
+      viewport,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      canvasFactory: nodeCanvasFactory as unknown as any,
     }).promise
 
-    const buf: Buffer = canvas.toBuffer('image/jpeg', { quality })
+    // Convert to JPEG
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const buf = (surface.canvas as any).toBuffer('image/jpeg', { quality }) as unknown as { toString: (enc: 'base64') => string }
     const base64 = buf.toString('base64')
     pages.push({ pageNumber: i, base64 })
+
+    nodeCanvasFactory.destroy(surface)
   }
 
   return pages

@@ -100,7 +100,9 @@ export async function POST(req: Request) {
           .from('ocr-documents')
           .download(path)
         if (error) throw error
-        const buffer = Buffer.from(await data.arrayBuffer())
+        const ab = await data.arrayBuffer()
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const buffer = (globalThis as any).Buffer ? (globalThis as any).Buffer.from(ab) : new Uint8Array(ab)
         base64 = buffer.toString('base64')
       }
 
