@@ -3,7 +3,7 @@ const nextConfig = {
   reactStrictMode: false,
   output: 'standalone',
   experimental: {
-    serverComponentsExternalPackages: ['canvas', '@napi-rs/canvas'],
+    serverComponentsExternalPackages: ['canvas'],
     outputFileTracingIncludes: {
       // s’assure que le worker est copié dans .next/standalone
       '/**/*': ['node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs']

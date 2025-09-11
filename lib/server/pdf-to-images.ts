@@ -16,17 +16,40 @@ if (typeof _PromiseAny.withResolvers !== 'function') {
   }
 }
 
-import { createCanvas } from 'canvas'
+import { createCanvas, Image } from 'canvas'
 // Use legacy build for Node.js environments to avoid runtime warnings
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs'
+import path from 'path'
 
 // For server-side, we don't need to configure the worker path
 // Node.js can handle it automatically
+
+let canvasInitialized = false
+
+function initializeCanvas() {
+  if (canvasInitialized) return
+  try {
+    const testCanvas = createCanvas(1, 1)
+    const testCtx = testCanvas.getContext('2d')
+    if (!testCtx) {
+      throw new Error('Canvas 2D context unavailable')
+    }
+    // Ensure pdfjs uses the Canvas Image implementation after successful probe
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(globalThis as any).Image = Image
+    canvasInitialized = true
+  } catch (error) {
+    throw new Error(`Canvas initialization failed: ${String(error)}`)
+  }
+}
 
 export async function convertPdfToJpegs(
   pdfInput: Buffer | Uint8Array | ArrayBuffer,
   options?: { scale?: number; quality?: number }
 ) {
+  // Ensure canvas/image environment is ready in Node before using pdf.js
+  initializeCanvas()
+
   const scale = options?.scale ?? 1.5
   const quality = options?.quality ?? 0.8
 
@@ -49,7 +72,9 @@ export async function convertPdfToJpegs(
     pdfData = new Uint8Array(pdfInput as ArrayBufferLike)
   }
 
-  const loadingTask = pdfjsLib.getDocument({ data: pdfData })
+  const standardFontDataUrl =
+    path.join(process.cwd(), 'node_modules', 'pdfjs-dist', 'standard_fonts') + '/'
+  const loadingTask = pdfjsLib.getDocument({ data: pdfData, standardFontDataUrl })
   const pdf = await loadingTask.promise
 
   const pages: { pageNumber: number; base64: string }[] = []
