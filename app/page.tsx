@@ -264,18 +264,32 @@ export default function DashboardPage() {
         await processingServiceRef.current.cancelProcessing(id)
       }
 
-      // Remove from active queue but keep in recent documents
-      setProcessingQueue(prev => prev.map(item =>
-        item.id === id
-          ? { ...item, status: "cancelled" }
-          : item
-      ))
+      // Actually delete the document from the database
+      const deleteResponse = await fetch(`/api/documents/${id}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!deleteResponse.ok) {
+        console.error('[DEBUG] Failed to delete document:', await deleteResponse.text());
+        toast({
+          title: "Error",
+          description: "Failed to delete document. Please try again.",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      // Only update the UI after successful backend deletion
+      setProcessingQueue(prev => prev.filter(item => item.id !== id))
 
       toast({
-        title: "File Removed",
+        title: "File Deleted",
         description: status.status === "processing"
-          ? "Processing cancelled and document removed from queue"
-          : "Document removed from queue",
+          ? "Processing cancelled and document deleted successfully"
+          : "Document deleted successfully",
       })
     } catch {
       toast({

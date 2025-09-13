@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { logApiRequestToConsole } from "@/lib/server-console-logger"
 import { createServerSupabaseClient, getAuthenticatedUser } from "@/lib/server-auth"
 import { middlewareLog, prodError } from "@/lib/log"
+import { normalizeStoragePath } from "@/lib/storage/path"
 import type { Database } from "@/types/supabase"
 
 type DocumentRow = Database["public"]["Tables"]["documents"]["Row"]
@@ -255,19 +256,37 @@ export async function DELETE(
       return NextResponse.json({ error: "Document not found" }, { status: 404 })
     }
 
-    // Delete the document directly using Supabase
-    const { error: deleteError } = await supabase
-      .from('documents')
-      .delete()
-      .eq('id', params.id)
-      .eq('user_id', user.id)
+    // Delete the document from storage if it exists
+    if (document.storage_path) {
+      const fullPath = normalizeStoragePath(user.id, document.storage_path);
+      console.log('[DEBUG] Deleting document from storage:', fullPath);
+      const { error: storageError } = await supabase
+        .storage
+        .from('ocr-documents')
+        .remove([fullPath])
 
-    if (deleteError) {
-      prodError('[SERVER] Error deleting document:', deleteError.message)
-      return NextResponse.json({ error: "Failed to delete document" }, { status: 500 })
+      if (storageError) {
+        console.error('[DEBUG] Error deleting document from storage:', storageError)
+        // Continue with deletion even if storage removal fails
+      }
     }
 
-    // Also delete any OCR results
+    // Delete the thumbnail from storage if it exists
+    if (document.thumbnail_path) {
+      const fullThumbnailPath = normalizeStoragePath(user.id, document.thumbnail_path);
+      console.log('[DEBUG] Deleting thumbnail from storage:', fullThumbnailPath);
+      const { error: thumbnailError } = await supabase
+        .storage
+        .from('thumbnails')
+        .remove([fullThumbnailPath])
+
+      if (thumbnailError) {
+        console.error('[DEBUG] Error deleting thumbnail from storage:', thumbnailError)
+        // Continue with deletion even if thumbnail removal fails
+      }
+    }
+
+    // Delete any OCR results first
     const { error: resultsError } = await supabase
       .from('ocr_results')
       .delete()
@@ -277,6 +296,18 @@ export async function DELETE(
     if (resultsError) {
       prodError('[SERVER] Error deleting OCR results:', resultsError.message)
       // Continue even if results deletion fails
+    }
+
+    // Finally, delete the document from the database
+    const { error: deleteError } = await supabase
+      .from('documents')
+      .delete()
+      .eq('id', params.id)
+      .eq('user_id', user.id)
+
+    if (deleteError) {
+      prodError('[SERVER] Error deleting document:', deleteError.message)
+      return NextResponse.json({ error: "Failed to delete document" }, { status: 500 })
     }
 
     return NextResponse.json({ success: true })

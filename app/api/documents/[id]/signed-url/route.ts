@@ -26,9 +26,10 @@ export async function GET(
     return NextResponse.json({ error: 'Server error: service client not available' }, { status: 500 })
   }
 
+  // First verify the document exists and belongs to the user
   const { data: document, error: docError } = await serviceClient
     .from('documents')
-    .select('storage_path')
+    .select('id')
     .eq('id', params.id)
     .eq('user_id', user.id)
     .single()
@@ -36,9 +37,24 @@ export async function GET(
     return NextResponse.json({ error: 'Document not found' }, { status: 404 })
   }
 
+  // Get the first OCR result for this document to get the storage path
+  const { data: ocrResult, error: ocrError } = await serviceClient
+    .from('ocr_results')
+    .select('storage_path')
+    .eq('document_id', params.id)
+    .eq('user_id', user.id)
+    .order('page_number', { ascending: true })
+    .limit(1)
+    .single()
+
+  if (ocrError || !ocrResult?.storage_path) {
+    prodError('[API] No OCR result found for document:', { documentId: params.id, error: ocrError })
+    return NextResponse.json({ error: 'No image found for this document' }, { status: 404 })
+  }
+
   // Generate signed URL (reuse serviceClient)
   const bucket = 'ocr-documents'
-  const fullPath = normalizeStoragePath(user.id, document.storage_path)
+  const fullPath = normalizeStoragePath(user.id, ocrResult.storage_path)
   const { data, error } = await serviceClient.storage
     .from(bucket)
     .createSignedUrl(fullPath, 60)

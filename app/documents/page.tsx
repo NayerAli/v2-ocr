@@ -127,25 +127,27 @@ export default function DocumentsPage() {
       // If the document is processing, cancel it first
       if (doc && doc.status === 'processing') {
         console.log('[DEBUG] Canceling processing before delete');
-        const cancelResponse = await fetch(`/api/queue/${id}/cancel`, {
+        const cancelResponse = await fetch(`/api/ocr/queue/cancel`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
-          }
+          },
+          body: JSON.stringify({ jobId: id })
         });
 
-      if (!cancelResponse.ok) {
-        console.error('[DEBUG] Failed to cancel processing:', await cancelResponse.text());
-        toast({
-          title: t('error', language),
-          description: t('cancelError', language),
-          variant: 'destructive'
-        });
-      }
+        if (!cancelResponse.ok) {
+          console.error('[DEBUG] Failed to cancel processing:', await cancelResponse.text());
+          toast({
+            title: t('error', language),
+            description: t('cancelError', language),
+            variant: 'destructive'
+          });
+          return; // Don't proceed with deletion if cancellation failed
+        }
       }
 
-      // Delete the document
-      const deleteResponse = await fetch(`/api/queue/${id}/delete`, {
+      // Delete the document using the correct endpoint
+      const deleteResponse = await fetch(`/api/documents/${id}`, {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json'
@@ -162,7 +164,7 @@ export default function DocumentsPage() {
         return;
       }
 
-      // Update the UI
+      // Only update the UI after successful backend deletion
       setDocuments((prev) => prev.filter((doc) => doc.id !== id));
       console.log('[DEBUG] Document deleted successfully');
       toast({
@@ -183,11 +185,12 @@ export default function DocumentsPage() {
     try {
       console.log('[DEBUG] Canceling processing for document:', id);
 
-      const cancelResponse = await fetch(`/api/queue/${id}/cancel`, {
+      const cancelResponse = await fetch(`/api/ocr/queue/cancel`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
-        }
+        },
+        body: JSON.stringify({ jobId: id })
       });
 
       if (!cancelResponse.ok) {
@@ -200,7 +203,7 @@ export default function DocumentsPage() {
         return;
       }
 
-      // Update the document status in the UI
+      // Only update the document status in the UI after successful backend cancellation
       setDocuments(prev => prev.map(doc =>
         doc.id === id ? { ...doc, status: 'cancelled' } : doc
       ));

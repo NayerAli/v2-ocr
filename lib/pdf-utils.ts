@@ -1,105 +1,28 @@
-import * as pdfjsLib from "pdfjs-dist"
-import { initializePDFJS } from "./pdf-init"
-import type { PDFPageProxy } from "pdfjs-dist"
+// PDF processing is now handled entirely server-side
+// This file is kept for backward compatibility but PDF functions are deprecated
 
-// Worker initialization is handled in pdf-init.ts
+console.warn("PDF processing functions are deprecated. All PDF processing is now handled server-side.")
 
-export async function loadPDF(file: File) {
-  try {
-    // Make sure PDF.js is initialized
-    await initializePDFJS()
-
-    // Simple approach that works for all file sizes
-    console.log(`Loading PDF: ${file.name} (${Math.round(file.size / 1024)}KB)`)
-
-    // Convert file to array buffer
-    const arrayBuffer = await file.arrayBuffer()
-
-    // Get any parameters from initialization
-    // Define a type for the extended window object
-    interface ExtendedWindow extends Window {
-      pdfJsParams?: {
-        disableRange?: boolean;
-        disableStream?: boolean;
-        disableAutoFetch?: boolean;
-        isEvalSupported?: boolean;
-      };
-    }
-    const pdfJsParams = typeof window !== 'undefined' ? ((window as ExtendedWindow).pdfJsParams || {}) : {};
-
-    // Load the PDF with optimized parameters for PDF.js 4.x
-    const pdf = await pdfjsLib.getDocument({
-      data: arrayBuffer,
-      ...pdfJsParams
-    }).promise;
-
-    if (pdf.numPages === 0) {
-      throw new Error("PDF file contains no pages")
-    }
-
-    return pdf
-  } catch (error) {
-    console.error("Error loading PDF:", error)
-    throw error instanceof Error
-      ? new Error(`Failed to load PDF: ${error.message}`)
-      : new Error("Failed to load PDF file")
-  }
+// Deprecated: PDF processing is now server-side only
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export async function loadPDF(_file: File) {
+  console.warn("loadPDF is deprecated. PDF processing is now handled server-side.")
+  throw new Error("PDF processing is now handled server-side. Please upload the PDF directly.")
 }
 
-export async function renderPageToBase64(page: PDFPageProxy) {
-  // Higher scale for better quality
-  const scale = 1.5
-  
-  // Get viewport
-  const viewport = page.getViewport({ scale })
-  
-  // Create canvas
-  const canvas = document.createElement('canvas')
-  canvas.width = viewport.width
-  canvas.height = viewport.height
-  
-  // Get canvas context
-  const context = canvas.getContext('2d')
-  
-  if (!context) {
-    throw new Error("Could not get canvas context")
-  }
-  
-  // Prepare rendering context
-  const renderContext = {
-    canvasContext: context,
-    viewport
-  }
-  
-  // Render the page
-  await page.render(renderContext).promise
-  
-  // Get base64
-  try {
-    const base64 = canvas.toDataURL('image/jpeg', 0.8).split(',')[1]
-    return base64
-  } catch (error) {
-    console.error("Error converting canvas to base64:", error)
-    throw error
-  }
+// Deprecated: PDF processing is now server-side only
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export async function renderPageToBase64(_page: unknown) {
+  console.warn("renderPageToBase64 is deprecated. PDF processing is now handled server-side.")
+  throw new Error("PDF processing is now handled server-side.")
 }
 
-export async function createPDFThumbnail(file: File) {
-  try {
-    // Load the PDF
-    const pdf = await loadPDF(file)
-    
-    // Get the first page
-    const page = await pdf.getPage(1)
-    
-    // Render to base64
-    const base64 = await renderPageToBase64(page)
-    
-    return `data:image/jpeg;base64,${base64}`
-  } catch (error) {
-    console.error("Error creating PDF thumbnail:", error)
-    return ''
-  }
+// Deprecated: PDF processing is now server-side only
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export async function createPDFThumbnail(_file: File) {
+  console.warn("createPDFThumbnail is deprecated. PDF processing is now handled server-side.")
+  // Return a generic PDF placeholder
+  return "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgdmlld0JveD0iMCAwIDIwMCAyMDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIyMDAiIGhlaWdodD0iMjAwIiBmaWxsPSIjRjNGNEY2Ii8+CjxwYXRoIGQ9Ik02MCA2MEgxNDBWMTQwSDYwVjYwWiIgZmlsbD0iI0VGNDQ0NCIvPgo8dGV4dCB4PSIxMDAiIHk9IjEwNSIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjE2IiBmaWxsPSJ3aGl0ZSIgdGV4dC1hbmNob3I9Im1pZGRsZSI+UERGPC90ZXh0Pgo8L3N2Zz4K"
 }
 
 export async function createImageThumbnail(file: File) {

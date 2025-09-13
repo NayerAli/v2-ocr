@@ -1,5 +1,4 @@
 import { CONFIG } from "@/config/constants"
-import { loadPDF, renderPageToBase64 } from "./pdf-utils"
 
 export async function generatePreview(file: File): Promise<string> {
   if (file.size > CONFIG.PREVIEW_MAX_SIZE) {
@@ -8,7 +7,9 @@ export async function generatePreview(file: File): Promise<string> {
       return createImageThumbnail(file)
     }
     if (file.type === "application/pdf") {
-      return createPDFThumbnail(file)
+      // For PDFs, return a generic PDF icon or placeholder
+      // PDF processing is now handled entirely server-side
+      return "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgdmlld0JveD0iMCAwIDIwMCAyMDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIyMDAiIGhlaWdodD0iMjAwIiBmaWxsPSIjRjNGNEY2Ii8+CjxwYXRoIGQ9Ik02MCA2MEgxNDBWMTQwSDYwVjYwWiIgZmlsbD0iI0VGNDQ0NCIvPgo8dGV4dCB4PSIxMDAiIHk9IjEwNSIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjE2IiBmaWxsPSJ3aGl0ZSIgdGV4dC1hbmNob3I9Im1pZGRsZSI+UERGPC90ZXh0Pgo8L3N2Zz4K"
     }
   }
 
@@ -37,40 +38,12 @@ async function createImageThumbnail(file: File): Promise<string> {
   return canvas.toDataURL("image/jpeg", 0.7)
 }
 
-async function createPDFThumbnail(file: File): Promise<string> {
-  try {
-    const pdf = await loadPDF(file)
-    const page = await pdf.getPage(1)
-    const base64 = await renderPageToBase64(page)
-    return `data:image/jpeg;base64,${base64}`
-  } catch (error) {
-    console.error("Error creating PDF thumbnail:", error)
-    throw new Error("Failed to create PDF thumbnail")
-  }
-}
-
 export async function* processLargeFile(file: File) {
+  // PDF processing is now handled entirely server-side
+  // This function is kept for backward compatibility but PDFs are no longer processed here
   if (file.type === "application/pdf") {
-    try {
-      const pdf = await loadPDF(file)
-
-      // Process PDF in chunks
-      for (let i = 1; i <= pdf.numPages; i += CONFIG.CHUNK_SIZE) {
-        const chunk = []
-        for (let j = i; j < Math.min(i + CONFIG.CHUNK_SIZE, pdf.numPages + 1); j++) {
-          const page = await pdf.getPage(j)
-          const base64 = await renderPageToBase64(page)
-          chunk.push({
-            pageNumber: j,
-            base64,
-          })
-        }
-        yield chunk
-      }
-    } catch (error) {
-      console.error("Error processing large PDF:", error)
-      throw new Error("Failed to process large PDF")
-    }
+    console.log("PDF processing is now handled server-side. This function should not be called for PDFs.")
+    throw new Error("PDF processing is handled server-side. Upload the PDF directly.")
   } else if (file.type.startsWith("image/")) {
     // For images, process directly
     const base64 = await new Promise<string>((resolve, reject) => {

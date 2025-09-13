@@ -58,38 +58,94 @@ export async function POST(req: Request) {
 
     if (isPdf) {
       console.log('[OCR] PDF detected for job:', jobId)
-      // 1) Download original PDF from storage
-      let pdfData: ArrayBuffer | null = null
-      if (job.storagePath) {
-        const path = normalizeStoragePath(userId || '', job.storagePath)
-        const { data, error } = await supabase.storage
-          .from('ocr-documents')
-          .download(path)
-        if (error) throw error
-        const arr = await data.arrayBuffer()
-        pdfData = arr
-        console.log('[OCR] PDF downloaded, bytes:', arr.byteLength)
-      }
-      if (!pdfData) throw new Error('PDF file not found')
 
-      // 2) Convert PDF pages to JPEG (server-side)
-      const pages = await convertPdfToJpegs(pdfData)
-      console.log('[OCR] PDF converted to images, pages:', pages.length)
+      try {
+        // 1) Download original PDF from storage
+        let pdfData: ArrayBuffer | null = null
+        if (job.storagePath) {
+          const path = normalizeStoragePath(userId || '', job.storagePath)
+          console.log('[OCR] Downloading PDF from storage path:', path)
 
-      // 3) Upload page images to Storage and OCR each page
-      for (const p of pages) {
-        const relPath = `${jobId}/Page_${p.pageNumber}_${jobId}.jpg`
-        const fullPath = normalizeStoragePath(userId, relPath)
-        // Upload page image if not present
-        await supabase.storage.from('ocr-documents').upload(fullPath, Buffer.from(p.base64, 'base64'), {
-          contentType: 'image/jpeg',
-          upsert: true,
-        })
+          const { data, error } = await supabase.storage
+            .from('ocr-documents')
+            .download(path)
 
-        const { result, metadata: md } = await executeOCR(p.base64, {}, { fileType: 'image/jpeg' })
-        metadata = md
-        const r = Array.isArray(result) ? (result as OCRResult[])[0] : (result as OCRResult)
-        resultsArray.push({ ...r, pageNumber: p.pageNumber, totalPages: pages.length })
+          if (error) {
+            console.error('[OCR] Failed to download PDF from storage:', error)
+            throw new Error(`Failed to download PDF: ${error.message}`)
+          }
+
+          const arr = await data.arrayBuffer()
+          pdfData = arr
+          console.log('[OCR] PDF downloaded successfully, bytes:', arr.byteLength)
+        }
+
+        if (!pdfData) {
+          throw new Error('PDF file not found in storage')
+        }
+
+        // 2) Convert PDF pages to JPEG (server-side)
+        console.log('[OCR] Starting PDF to images conversion...')
+        const pages = await convertPdfToJpegs(pdfData)
+        console.log('[OCR] PDF converted to images successfully, pages:', pages.length)
+
+        if (pages.length === 0) {
+          throw new Error('PDF conversion resulted in no pages')
+        }
+
+        // 3) Upload page images to Storage and OCR each page
+        for (let i = 0; i < pages.length; i++) {
+          const p = pages[i]
+          console.log(`[OCR] Processing page ${p.pageNumber}/${pages.length}...`)
+
+          try {
+            const relPath = `${jobId}/Page_${p.pageNumber}_${jobId}.jpg`
+            const fullPath = normalizeStoragePath(userId, relPath)
+
+            // Verify the base64 image is not empty
+            if (!p.base64 || p.base64.length < 100) {
+              console.warn(`[OCR] Page ${p.pageNumber} has empty or very small base64 data (${p.base64?.length || 0} chars)`)
+              throw new Error(`Page ${p.pageNumber} generated empty image`)
+            }
+
+            console.log(`[OCR] Uploading page ${p.pageNumber} image to storage (${p.base64.length} chars)...`)
+
+            // Upload page image if not present
+            const uploadResult = await supabase.storage.from('ocr-documents').upload(fullPath, Buffer.from(p.base64, 'base64'), {
+              contentType: 'image/jpeg',
+              upsert: true,
+            })
+
+            if (uploadResult.error) {
+              console.error(`[OCR] Failed to upload page ${p.pageNumber} image:`, uploadResult.error)
+              throw new Error(`Failed to upload page ${p.pageNumber} image: ${uploadResult.error.message}`)
+            }
+
+            console.log(`[OCR] Page ${p.pageNumber} image uploaded successfully`)
+            console.log(`[OCR] Starting OCR for page ${p.pageNumber}...`)
+
+            const { result, metadata: md } = await executeOCR(p.base64, {}, { fileType: 'image/jpeg' })
+            metadata = md
+            const r = Array.isArray(result) ? (result as OCRResult[])[0] : (result as OCRResult)
+
+            // Log OCR result for debugging
+            console.log(`[OCR] Page ${p.pageNumber} OCR completed:`, {
+              textLength: r.text?.length || 0,
+              confidence: r.confidence,
+              language: r.language
+            })
+
+            resultsArray.push({ ...r, pageNumber: p.pageNumber, totalPages: pages.length })
+          } catch (pageError) {
+            console.error(`[OCR] Error processing page ${p.pageNumber}:`, pageError)
+            throw new Error(`Failed to process page ${p.pageNumber}: ${String(pageError)}`)
+          }
+        }
+
+        console.log('[OCR] All PDF pages processed successfully')
+      } catch (pdfError) {
+        console.error('[OCR] PDF processing failed:', pdfError)
+        throw new Error(`PDF processing failed: ${String(pdfError)}`)
       }
     } else {
       // Image flow – download the original storagePath and OCR it
