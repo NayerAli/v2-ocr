@@ -19,17 +19,14 @@ type AuthContextType = {
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  if (!supabase) {
-    throw new Error('Supabase client is not configured')
-  }
-
-  // `supabase` is guaranteed to be defined above
-  const supabaseClient = supabase!
   const [user, setUser] = useState<User | null>(null)
   const [session, setSession] = useState<Session | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const router = useRouter()
+  const supabaseClient = supabase
+
   useEffect(() => {
+    if (!supabaseClient) return
     // Get initial session
     const getInitialSession = async () => {
       setIsLoading(true)
@@ -110,7 +107,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       subscription.unsubscribe()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [supabaseClient])
+
+  // Gracefully handle missing Supabase credentials during build
+  if (!supabaseClient) {
+    const value: AuthContextType = {
+      user: null,
+      session: null,
+      isLoading: false,
+      signIn: async () => { throw new Error('Supabase client is not configured') },
+      signUp: async () => { throw new Error('Supabase client is not configured') },
+      signOut: async () => { throw new Error('Supabase client is not configured') },
+      resetPassword: async () => { throw new Error('Supabase client is not configured') }
+    }
+    return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+  }
 
   const signIn = async (email: string, password: string, redirectTo: string = '/documents') => {
     try {

@@ -29,24 +29,24 @@ jobs:
           echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
           echo "Deploying version ${VERSION}"
 
-      - name: Build Docker Image (fresh, cache-busted)
+      - name: Build Docker Image with Compose
         run: |
-          echo "Building image rehanalimahomed/inoor-ocr:${VERSION} (and :latest)"
-          docker build --pull \
-            --build-arg BUILD_ID="${{ github.sha }}" \
-            -t rehanalimahomed/inoor-ocr:${VERSION} \
-            -t rehanalimahomed/inoor-ocr:latest .
+          echo "Building image rehanalimahomed/amadiy-ocr:${VERSION} (and :latest)"
+          docker compose -f docker-compose.yml build --pull \
+            --build-arg BUILD_ID="${{ github.sha }}" app
+          docker tag v2-ocr-app:latest rehanalimahomed/amadiy-ocr:${VERSION}
+          docker tag v2-ocr-app:latest rehanalimahomed/amadiy-ocr:latest
 
       - name: Push Docker Image to Docker Hub
         run: |
-          docker push rehanalimahomed/inoor-ocr:${VERSION}
-          docker push rehanalimahomed/inoor-ocr:latest
+          docker push rehanalimahomed/amadiy-ocr:${VERSION}
+          docker push rehanalimahomed/amadiy-ocr:latest
 
       - name: Deploy New Container (by exact version)
         run: |
           set -e
-          CONTAINER_NAME="inoor-ocr"
-          IMAGE="rehanalimahomed/inoor-ocr:${VERSION}"
+          CONTAINER_NAME="amadiy-ocr"
+          IMAGE="rehanalimahomed/amadiy-ocr:${VERSION}"
           echo "Removing old container if it exists..."
           docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true
           echo "Starting ${CONTAINER_NAME} from ${IMAGE} on port 3000..."

@@ -16,7 +16,7 @@ if (typeof _PromiseAny.withResolvers !== 'function') {
   }
 }
 
-import { createCanvas, Image, Canvas } from '@napi-rs/canvas'
+import { createCanvas } from '@napi-rs/canvas'
 // Use legacy build for Node.js environments to avoid runtime warnings
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs'
 import path from 'path'
@@ -43,122 +43,7 @@ function initializeCanvas() {
   }
 }
 
-// Local polyfills that don't interfere with Next.js global scope
-function setupLocalPolyfills() {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const localGlobal = {} as any
-
-  // Create simple polyfills that work with PDF.js
-  localGlobal.HTMLImageElement = Image
-  localGlobal.HTMLCanvasElement = Canvas
-  localGlobal.Image = Image
-  localGlobal.Canvas = Canvas
-
-  // CanvasRenderingContext2D polyfill
-  const testCanvas = createCanvas(1, 1)
-  const testCtx = testCanvas.getContext('2d')
-  localGlobal.CanvasRenderingContext2D = testCtx?.constructor
-
-  // Document polyfill for PDF.js with enhanced createElement
-  localGlobal.document = {
-    createElement: (tagName: string) => {
-      if (tagName === 'canvas') {
-        return new Canvas(300, 150)
-      }
-      if (tagName === 'img') {
-        return new Image()
-      }
-      // Return a minimal element-like object for other tags
-      return {
-        tagName: tagName.toUpperCase(),
-        style: {},
-        setAttribute: () => {},
-        getAttribute: () => null,
-        addEventListener: () => {},
-        removeEventListener: () => {},
-        appendChild: () => {},
-        removeChild: () => {}
-      }
-    },
-    body: {
-      appendChild: () => {},
-      removeChild: () => {}
-    },
-    head: {
-      appendChild: () => {},
-      removeChild: () => {}
-    }
-  }
-
-  // Window polyfill for PDF.js with enhanced properties
-  localGlobal.window = {
-    document: localGlobal.document,
-    Image: localGlobal.HTMLImageElement,
-    HTMLImageElement: localGlobal.HTMLImageElement,
-    HTMLCanvasElement: localGlobal.HTMLCanvasElement,
-    Canvas: localGlobal.HTMLCanvasElement,
-    CanvasRenderingContext2D: localGlobal.CanvasRenderingContext2D,
-    devicePixelRatio: 1,
-    location: { href: 'http://localhost' },
-    navigator: { userAgent: 'Node.js' },
-    requestAnimationFrame: (callback: FrameRequestCallback) => {
-      return setTimeout(callback, 16) // ~60fps
-    },
-    cancelAnimationFrame: (id: number) => {
-      clearTimeout(id)
-    }
-  }
-
-  // Additional polyfills for PDF.js compatibility
-  localGlobal.btoa = (str: string) => Buffer.from(str, 'binary').toString('base64')
-  localGlobal.atob = (str: string) => Buffer.from(str, 'base64').toString('binary')
-
-  // URL polyfill for PDF.js
-  localGlobal.URL = {
-    createObjectURL: () => 'blob:mock-url',
-    revokeObjectURL: () => {}
-  }
-
-  // Blob polyfill for PDF.js
-  localGlobal.Blob = class MockBlob {
-    constructor(parts: (string | ArrayBuffer | ArrayBufferView)[], options?: { type?: string }) {
-      this.size = 0
-      this.type = options?.type || ''
-    }
-    size: number
-    type: string
-  }
-
-  return localGlobal
-}
-
-function applyPolyfills(polyfills: Record<string, unknown>) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const globalAny = globalThis as any
-  const originalValues: Record<string, unknown> = {}
-
-  // Store original values and apply polyfills
-  for (const [key, value] of Object.entries(polyfills)) {
-    originalValues[key] = globalAny[key]
-    globalAny[key] = value
-  }
-
-  return originalValues
-}
-
-function restoreGlobals(originalValues: Record<string, unknown>) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const globalAny = globalThis as any
-
-  // Restore original values
-  for (const [key, value] of Object.entries(originalValues)) {
-    if (value === undefined) {
-      delete globalAny[key]
-    } else {
-      globalAny[key] = value
-    }
-  }
-}
+// No polyfills approach - let PDF.js work with native Node.js environment
 
 function initializePdfJs() {
   if (pdfJsInitialized) return
@@ -212,9 +97,7 @@ export async function convertPdfToJpegs(
   initializeCanvas()
   initializePdfJs()
 
-  // Set up local polyfills for PDF.js without affecting Next.js global scope
-  const polyfills = setupLocalPolyfills()
-  const originalGlobals = applyPolyfills(polyfills)
+  // Try without polyfills first - PDF.js might work with just the canvas setup
 
   const scale = options?.scale ?? 1.5
   const quality = options?.quality ?? 0.8
@@ -264,8 +147,10 @@ export async function convertPdfToJpegs(
       disableRange: false,
       disableStream: false,
       disableAutoFetch: false,
-      // Ensure text rendering works properly
-      useSystemFonts: true,
+      // Disable problematic font features that cause canvas text rendering issues
+      useSystemFonts: false,
+      // Disable font face loading to avoid paintChar/showText errors
+      disableFontFace: true,
       // Enable CMap for better text extraction
       cMapUrl: path.join(process.cwd(), 'node_modules', 'pdfjs-dist', 'cmaps') + '/',
       cMapPacked: true
@@ -302,12 +187,12 @@ export async function convertPdfToJpegs(
 
         console.log(`[PDF-to-Images] Rendering page ${i}...`)
 
-        // Render to node-canvas - use unknown then cast to satisfy both type systems
+        // Render to node-canvas with compatibility options for text rendering
         await page.render({
           canvasContext: ctx as unknown as CanvasRenderingContext2D,
           viewport,
-          // Additional rendering options
-          intent: 'display'
+          // Use print intent to avoid complex text rendering that causes canvas issues
+          intent: 'print'
         }).promise
 
         console.log(`[PDF-to-Images] Page ${i} rendered successfully`)
@@ -335,8 +220,7 @@ export async function convertPdfToJpegs(
     console.error('[PDF-to-Images] PDF conversion failed:', error)
     throw new Error(`PDF conversion failed: ${String(error)}`)
   } finally {
-    // Always restore global state to avoid interfering with Next.js
-    restoreGlobals(originalGlobals)
-    console.log('[PDF-to-Images] Global polyfills cleaned up')
+    // No polyfills to clean up in this version
+    console.log('[PDF-to-Images] PDF processing cleanup completed')
   }
 }

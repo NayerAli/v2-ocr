@@ -3,6 +3,8 @@ import { userSettingsService } from '@/lib/user-settings-service'
 import { createServerSupabaseClient, getAuthenticatedUser } from '@/lib/server-auth'
 import { middlewareLog, prodError } from '@/lib/log'
 
+export const dynamic = 'force-dynamic'
+
 /**
  * GET /api/settings/user
  * Retrieves the user-specific settings

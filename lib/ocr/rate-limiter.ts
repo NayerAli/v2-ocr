@@ -3,7 +3,7 @@ export class AzureRateLimiter {
   private rateLimitEndTime: number = 0;
 
   constructor() {
-    console.log('[Azure] Service initialized');
+    // Initialization without logging to avoid noise during builds
   }
 
   async waitIfLimited(): Promise<void> {
@@ -32,7 +32,7 @@ export class MistralRateLimiter {
   private readonly defaultRetryDelay = 60; // Default 60 seconds if no Retry-After header
 
   constructor() {
-    console.log('[Mistral] Rate limiter initialized');
+    // Initialization without logging to avoid noise during builds
   }
 
   async waitIfLimited(): Promise<void> {

@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { settingsService } from '@/lib/settings-service'
 import { createServerSupabaseClient, getAuthenticatedUser } from '@/lib/server-auth'
 
+export const dynamic = 'force-dynamic'
+
 /**
  * GET /api/settings/processing
  * Retrieves the processing settings from the server

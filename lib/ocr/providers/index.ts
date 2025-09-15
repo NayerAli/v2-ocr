@@ -14,8 +14,14 @@ if (typeof window !== 'undefined') {
 
 export * from "./types";
 
-// Create a singleton instance of MistralRateLimiter to share across all Mistral providers
-const mistralRateLimiter = new MistralRateLimiter();
+// Lazily create Mistral rate limiter only when needed
+let mistralRateLimiter: MistralRateLimiter | null = null;
+function getMistralRateLimiter() {
+  if (!mistralRateLimiter) {
+    mistralRateLimiter = new MistralRateLimiter();
+  }
+  return mistralRateLimiter;
+}
 
 // Cache for provider instances to avoid recreating them unnecessarily
 const providerCache = new Map<string, { provider: OCRProvider, timestamp: number }>();
@@ -28,20 +34,22 @@ const PROVIDER_CACHE_TTL = 5000;
  * This function will always use the most up-to-date API key
  */
 export async function createOCRProviderWithLatestSettings(settings: OCRSettings, azureRateLimiter: AzureRateLimiter): Promise<OCRProvider> {
-  // Try to get the latest OCR settings from the user settings service
-  try {
-    // Clear the user settings cache to ensure we get the latest settings
-    userSettingsService.clearCache();
+  // Avoid hitting authenticated services during CI builds
+  if (!process.env.CI) {
+    try {
+      // Clear the user settings cache to ensure we get the latest settings
+      userSettingsService.clearCache();
 
-    // Get the latest OCR settings
-    const latestSettings = await userSettingsService.getOCRSettings();
+      // Get the latest OCR settings
+      const latestSettings = await userSettingsService.getOCRSettings();
 
-    // Merge with provided settings, prioritizing the latest settings
-    settings = { ...settings, ...latestSettings };
-    console.log('[DEBUG] Using latest OCR settings from user settings service');
-  } catch (error) {
-    console.log('[DEBUG] Failed to get latest OCR settings, using provided settings:', error);
-    // Continue with the provided settings if we can't get the latest
+      // Merge with provided settings, prioritizing the latest settings
+      settings = { ...settings, ...latestSettings };
+      console.log('[DEBUG] Using latest OCR settings from user settings service');
+    } catch (error) {
+      console.log('[DEBUG] Failed to get latest OCR settings, using provided settings:', error);
+      // Continue with the provided settings if we can't get the latest
+    }
   }
 
   // Create the provider with the latest settings
@@ -100,8 +108,8 @@ export async function createOCRProvider(settings: OCRSettings, azureRateLimiter:
       break;
     case "mistral":
       console.log('[DEBUG] Creating Mistral OCR provider');
-      // Use the shared mistralRateLimiter instance
-      provider = new MistralOCRProvider(updatedSettings, mistralRateLimiter);
+      // Lazily create and reuse the rate limiter
+      provider = new MistralOCRProvider(updatedSettings, getMistralRateLimiter());
       break;
     default:
       console.log('[DEBUG] Unsupported OCR provider:', settings.provider);

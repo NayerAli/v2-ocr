@@ -21,7 +21,6 @@ RUN --mount=type=cache,id=npm,target=/root/.npm \
 # --------- 2. Environnement de dev ---------
 FROM deps AS dev
 ENV NODE_ENV=development
-ENV NEXT_TELEMETRY_DISABLED=1
 COPY . .
 CMD ["npm","run","dev"]
 
@@ -30,7 +29,6 @@ FROM deps AS prod
 ARG BUILD_ID
 ENV BUILD_ID=$BUILD_ID
 ENV NODE_ENV=production
-ENV NEXT_TELEMETRY_DISABLED=1
 ENV NEXT_CACHE_DISABLED=1
 ENV NEXT_DISABLE_FONT_OPTIMIZATION=1
 COPY . .

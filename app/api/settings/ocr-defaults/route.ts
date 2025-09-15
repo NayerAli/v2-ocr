@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { systemSettingsService } from '@/lib/system-settings-service'
 
+export const dynamic = 'force-dynamic'
+
 export async function GET() {
   try {
     const defaults = await systemSettingsService.getOCRDefaults()
