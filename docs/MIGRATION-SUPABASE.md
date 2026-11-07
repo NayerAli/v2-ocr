@@ -20,15 +20,32 @@ Ce qui doit être copié :
 | Fichiers (bucket `ocr-documents`) | Storage | `migrer-fichiers.mjs` |
 | Clés API OCR | table `system_settings` / `user_settings` | incluses dans la base |
 
-## 0. Ce que tu demandes au client (le plus simple pour lui)
+## En résumé : 3 commandes pour toi, 1 double-clic pour le client
 
-Le plus simple : qu'il **t'invite dans son organisation Supabase**
-(Dashboard, Organization settings, Team, Invite, rôle *Developer* ou *Owner*).
-Tu fais ensuite tout toi-même.
+Comme vous avez les mêmes accès admin Supabase, **tu fais tout** ; le client n'a rien
+à préparer.
 
-Sinon, il t'envoie (de façon sécurisée, pas par e-mail en clair) :
-- Project Settings, API : **Project URL**, clé **anon / publishable**, clé **service_role / secret**.
-- Le **mot de passe de la base** (Project Settings, Database ; il peut le réinitialiser).
+```bash
+# 1. Migrer base + fichiers vers le projet du client (une seule fois)
+cp .env.migration.example .env.migration   # puis remplir
+./scripts/migration/tout-migrer.sh
+
+# 2. Mettre les clés du projet du client
+cp .env.client.example .env.client         # puis remplir
+
+# 3. Fabriquer le zip à envoyer
+./scripts/preparer-livraison.sh            # crée ocr-client.zip (~1 Mo)
+```
+
+Le client installe Docker Desktop, dézippe `ocr-client.zip`, double-clique sur
+`Demarrer-OCR`. C'est tout.
+
+Les clés se trouvent dans le dashboard du projet du client :
+- **Project Settings, API** : Project URL, clé `anon` / publishable, clé `service_role` / secret.
+- **Bouton Connect, Session pooler** : chaîne de connexion à la base (mot de passe dans
+  Project Settings, Database ; on peut le réinitialiser).
+
+Les sections ci-dessous détaillent chaque étape.
 
 ## 1. Migrer la base
 
@@ -81,29 +98,14 @@ avec **le même mot de passe**.
 
 ## 4. Préparer le paquet pour le client
 
-1. Crée `.env.local` avec les valeurs **du projet du client** :
-
-   ```
-   NEXT_PUBLIC_SUPABASE_URL=https://REF.supabase.co
-   NEXT_PUBLIC_SUPABASE_ANON_KEY=...
-   SUPABASE_SERVICE_ROLE_KEY=...
-   NEXT_PUBLIC_SITE_URL=http://localhost:3000
-   NODE_ENV=production
-   ```
-
-2. Teste chez toi : `docker compose --profile prod up -d --build`, puis http://localhost:3000.
-   Connecte-toi, ouvre un document existant, lance un OCR.
-
-3. Fabrique le zip (le code + ton `.env.local`) :
-
-   ```bash
-   git archive --format=zip --prefix=ocr-client/ -o ocr-client.zip HEAD
-   mkdir -p /tmp/z/ocr-client && cp .env.local /tmp/z/ocr-client/
-   (cd /tmp/z && zip -r "$OLDPWD/ocr-client.zip" ocr-client/.env.local)
-   ```
-
-4. Envoie `ocr-client.zip` + `INSTALLATION-CLIENT.md` (ou sa version PDF).
-   Le zip contient la clé `service_role` : envoie-le par un canal sûr.
+1. `cp .env.client.example .env.client` et remplis-le avec les clés **du projet du client**.
+2. Teste chez toi : `cp .env.client .env.local && docker compose --profile prod up -d --build`,
+   puis http://localhost:3000 (connexion, ouverture d'un document, un OCR).
+   Remets ensuite ton propre `.env.local`.
+3. `./scripts/preparer-livraison.sh` crée `ocr-client.zip` : le code commité (sans les
+   vidéos de démo) et un `.env.local` rempli.
+4. Envoie `ocr-client.zip` par un canal sûr (il contient la clé `service_role`) :
+   lien WeTransfer protégé, Google Drive partagé uniquement avec lui, clé USB…
 
 Les variables `NEXT_PUBLIC_*` sont intégrées au moment de la compilation : c'est pour
 ça que le client compile l'image chez lui (le script `Demarrer-OCR` le fait). Ton image
@@ -121,5 +123,6 @@ Docker Hub actuelle pointe vers ton serveur et ne peut pas être réutilisée te
 
 ## Mettre à jour l'app chez le client plus tard
 
-Envoie un nouveau zip du code (en gardant son `.env.local`) ; il remplace le dossier
-et relance `Demarrer-OCR`, qui recompile automatiquement.
+Relance `./scripts/preparer-livraison.sh` et envoie le nouveau zip. Le client
+double-clique sur `Arreter-OCR`, remplace l'ancien dossier par le nouveau, puis
+double-clique sur `Demarrer-OCR` : l'app est recompilée automatiquement.

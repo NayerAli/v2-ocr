@@ -85,3 +85,6 @@ storybook-static/
 
 # IMPORTANT: Don't ignore critical deployment files
 !.env.example
+!.env.client.example
+!.env.migration.example
+ocr-client.zip
