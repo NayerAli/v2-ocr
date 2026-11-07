@@ -1,82 +1,77 @@
 # Installer l'application OCR sur votre ordinateur (Windows)
 
 Tout s'installe sur votre ordinateur : l'application **et** la base de données
-(vos comptes, vos documents, vos fichiers). Vous n'avez rien à programmer.
+(vos comptes, vos documents, vos fichiers), récupérée depuis votre Supabase actuel.
+Vous n'avez rien à télécharger à la main ni à programmer.
 
 Comptez environ **45 minutes** la première fois, surtout du téléchargement.
+Il vous faut Windows 10 ou 11, **8 Go de mémoire** et **15 Go d'espace libre**.
 
-## Ce qu'il vous faut
+## Étape 1 : ouvrir PowerShell
 
-- Windows 10 ou 11, avec au moins **8 Go de mémoire** et **15 Go d'espace libre**.
-- Le fichier **ocr-client.zip** envoyé par votre prestataire.
-- L'accès au tableau de bord Supabase actuel (celui que vous utilisez déjà).
+Appuyez sur la touche **Windows**, tapez **PowerShell**, puis appuyez sur **Entrée**.
+Une fenêtre bleue (ou noire) s'ouvre.
 
-## Étape 1 : installer Docker Desktop (une seule fois)
+## Étape 2 : coller cette commande
 
-Docker Desktop est un logiciel gratuit qui fait tourner l'application.
+Copiez la ligne ci-dessous, collez-la dans PowerShell (**clic droit**), puis appuyez sur **Entrée** :
 
-1. Allez sur **https://www.docker.com/products/docker-desktop/** et cliquez sur
-   **Download for Windows**.
-2. Lancez le fichier téléchargé et acceptez les options proposées
-   (si on vous propose « WSL », acceptez).
-3. **Redémarrez l'ordinateur** si on vous le demande.
-4. Ouvrez Docker Desktop. Vous pouvez passer la création de compte (« Skip »).
-5. Dans Docker Desktop, cliquez sur la roue dentée (Settings) et cochez
-   **« Start Docker Desktop when you sign in to your computer »**,
-   puis **Apply**. Ainsi l'application redémarrera toute seule chaque jour.
+```powershell
+irm https://raw.githubusercontent.com/NayerAli/v2-ocr/claude/local-deployment-db-migration-eb3dut/install.ps1 | iex
+```
 
-## Étape 2 : préparer le dossier (une seule fois)
+**Si Docker Desktop n'était pas encore installé**, la commande l'installe
+(cliquez sur **Oui** si Windows demande une autorisation), puis vous demande de :
 
-1. Faites un clic droit sur **ocr-client.zip**, puis **« Extraire tout… »**.
-2. Choisissez le dossier **Documents**, puis **Extraire**.
+1. redémarrer l'ordinateur ;
+2. ouvrir **Docker Desktop** (menu Démarrer), cliquer sur **Accept**, puis **Skip** pour le compte ;
+3. rouvrir PowerShell et **coller à nouveau la même commande**.
 
-## Étape 3 : lancer l'installation (une seule fois)
+## Étape 3 : répondre aux 2 questions
 
-1. Vérifiez que Docker Desktop est ouvert (icône de baleine en bas à droite de l'écran).
-2. Dans le dossier, double-cliquez sur **`Installer-OCR.bat`**.
-   Si Windows affiche « Windows a protégé votre ordinateur » :
-   cliquez sur **Informations complémentaires**, puis **Exécuter quand même**.
-3. Une fenêtre noire s'ouvre. Laissez-la travailler (10 à 20 minutes).
-4. Elle vous posera **2 questions**, avec les explications à l'écran :
-   - **L'adresse de votre Supabase actuel** : celle que vous tapez dans le navigateur
-     pour ouvrir le tableau de bord Supabase. Copiez-la depuis la barre d'adresse.
-   - **La clé « service_role »** : dans le tableau de bord Supabase, roue dentée
-     en bas à gauche, **API Keys**, onglet **Legacy anon, service_role API keys**,
-     ligne **service_role**, boutons **Reveal** puis **Copy**.
-     Revenez dans la fenêtre noire, clic droit pour coller, Entrée.
+La fenêtre télécharge et prépare tout (10 à 20 minutes), puis vous pose 2 questions,
+avec les explications à l'écran :
 
-     ![Où trouver la clé service_role](docs/cle-service-role.png)
+1. **L'adresse de votre Supabase actuel** : celle que vous tapez dans le navigateur pour
+   ouvrir l'espace d'administration Supabase. Copiez-la depuis la barre d'adresse.
+2. **La clé « service_role »** : dans l'espace d'administration Supabase, roue dentée
+   en bas à gauche, **API Keys**, onglet **Legacy anon, service_role API keys**,
+   ligne **service_role**, boutons **Reveal** puis **Copy**. Revenez dans la fenêtre,
+   clic droit pour coller, Entrée.
 
-5. La fenêtre affiche ce qu'elle va copier. Tapez **OUI** puis Entrée.
-6. À la fin, votre navigateur s'ouvre sur l'application, ainsi qu'un fichier
-   **MES-ACCES.txt** : gardez-le précieusement.
+   ![Où trouver la clé service_role](docs/cle-service-role.png)
 
-Le serveur actuel est seulement **lu** : rien n'y est modifié ni supprimé.
+La fenêtre affiche ce qu'elle va copier : tapez **OUI** puis Entrée.
+À la fin, l'application s'ouvre dans votre navigateur, avec un fichier
+**MES-ACCES.txt** à conserver.
 
-## Utilisation au quotidien
+Votre Supabase actuel est seulement **lu** : rien n'y est modifié ni supprimé.
 
-- Application : **http://localhost:3000** (ajoutez-la à vos favoris).
+## Au quotidien
+
+- Double-cliquez sur le raccourci **Application OCR** du Bureau
+  (ou ouvrez **http://localhost:3000**).
 - Connectez-vous avec **votre e-mail et votre mot de passe habituels**.
-- Tant que Docker Desktop est ouvert, l'application fonctionne.
-- Pour la relancer si besoin : double-cliquez sur **`Demarrer-OCR.bat`**.
-- Pour l'arrêter : double-cliquez sur **`Arreter-OCR.bat`** (vos données restent).
-- Tableau de bord Supabase local : **http://localhost:8000**
+- Pour arrêter l'application : dossier **Documents\OCR**, fichier **Arreter-OCR.bat**.
+- L'espace d'administration Supabase de votre ordinateur : **http://localhost:8000**
   (identifiant et mot de passe dans **MES-ACCES.txt**).
+- Pour que l'application redémarre seule à chaque allumage : dans Docker Desktop,
+  roue dentée, cochez **Start Docker Desktop when you sign in**, puis **Apply**.
+
+**Mettre à jour l'application** : collez à nouveau la commande de l'étape 2.
+Vos données sont conservées et ne sont pas recopiées une seconde fois.
 
 ## Important
 
-- Vos données sont maintenant **sur cet ordinateur**. Ne désinstallez pas Docker Desktop
-  et ne supprimez pas le dossier.
-- Ne lancez pas `Installer-OCR.bat` sur un autre ordinateur sans en parler à votre
-  prestataire.
+Vos données sont maintenant **sur cet ordinateur**. Ne désinstallez pas Docker Desktop
+et ne supprimez pas le dossier **Documents\OCR**.
 
 ## En cas de problème
 
 | Ce que vous voyez | Que faire |
 |---|---|
-| « Docker Desktop n'est pas lancé » | Ouvrez Docker Desktop, attendez une minute, relancez le fichier. |
-| « Impossible de joindre cette adresse » | Recopiez l'adresse depuis la barre d'adresse du navigateur où le tableau de bord Supabase est ouvert. |
+| « Docker Desktop ne répond pas » | Ouvrez Docker Desktop, acceptez les conditions si elles s'affichent, attendez une minute, recollez la commande. |
+| « Impossible de joindre cette adresse » | Recopiez l'adresse depuis la barre d'adresse du navigateur où l'espace Supabase est ouvert. |
 | « C'est la clé anon » | Vous avez copié la mauvaise clé : prenez celle de la ligne **service_role**. |
-| « L'installation s'est arrêtée » | Relancez `Installer-OCR.bat` : il reprend là où il s'était arrêté. |
-| La page http://localhost:3000 ne s'affiche pas | Attendez 1 minute et rechargez. Sinon, lancez `Demarrer-OCR.bat`. |
-| Autre message d'erreur | Faites une capture d'écran de la fenêtre noire et envoyez-la à votre prestataire. |
+| « L'installation s'est arrêtée » | Recollez la commande : elle reprend là où elle s'était arrêtée. |
+| La page http://localhost:3000 ne s'affiche pas | Attendez 1 minute et rechargez, ou double-cliquez sur **Application OCR**. |

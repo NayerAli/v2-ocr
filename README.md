@@ -30,7 +30,7 @@ Pensé pour des cas d’usage tels que la numérisation d’archives, le traitem
 
 ### 🚀 Installation et prise en main
 
-> **Installation chez un client (Windows, tout en local, avec récupération des données du serveur) :** voir [INSTALLATION-CLIENT.md](./INSTALLATION-CLIENT.md). Le zip à lui envoyer se fabrique avec `./scripts/preparer-livraison.sh` ; l'installateur est dans `local/`.
+> **Installation chez un client (Windows, tout en local, avec récupération des données du serveur) :** voir [INSTALLATION-CLIENT.md](./INSTALLATION-CLIENT.md). Le client colle une seule commande dans PowerShell (voir le guide) ; l’installateur est dans `local/` et `install.ps1`.
 
 #### Prérequis
 
