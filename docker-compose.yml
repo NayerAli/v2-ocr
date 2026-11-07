@@ -7,6 +7,7 @@ services:
       target: prod
     env_file: .env.local  # tes clés arrivent ici
     ports: ["3000:3000"]
+    restart: unless-stopped  # redémarre tout seul avec Docker Desktop
 
   # ---- Développement ----
   dev:

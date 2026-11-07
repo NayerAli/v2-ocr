@@ -30,6 +30,9 @@ Pensé pour des cas d’usage tels que la numérisation d’archives, le traitem
 
 ### 🚀 Installation et prise en main
 
+> **Installation chez un client non développeur :** voir [INSTALLATION-CLIENT.md](./INSTALLATION-CLIENT.md).
+> **Migration de la base Supabase vers le projet du client :** voir [docs/MIGRATION-SUPABASE.md](./docs/MIGRATION-SUPABASE.md).
+
 #### Prérequis
 
 * **Node.js v20+**
