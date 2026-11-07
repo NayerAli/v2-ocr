@@ -1,7 +1,6 @@
 @echo off
-chcp 65001 >nul
 cd /d "%~dp0"
 echo  Arret de l'application OCR...
-docker compose --profile prod down
-echo  Application arretee.
+docker compose -f local\docker-compose.yml stop
+echo  Application arretee. Vos donnees sont conservees.
 pause

@@ -88,3 +88,10 @@ storybook-static/
 !.env.client.example
 !.env.migration.example
 ocr-client.zip
+
+# Installation locale chez le client (générés par Installer-OCR)
+local/.env
+local/.migration-ok
+local/.migration-etape1-ok
+MES-ACCES.txt
+rapport-migration.txt

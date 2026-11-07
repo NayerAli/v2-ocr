@@ -50,3 +50,7 @@ LICENSE
 .cache
 .eslintcache
 .stylelintcache 
+# Installation locale (inutile pour construire l app)
+local
+MES-ACCES.txt
+rapport-migration.txt

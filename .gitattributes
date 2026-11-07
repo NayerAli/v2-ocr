@@ -1,7 +1,6 @@
 *.bat text eol=crlf
-*.command text eol=lf
 *.sh text eol=lf
-# Exclus du zip client (scripts/preparer-livraison.sh) : inutiles pour faire tourner l'app
+# Exclus du zip client : inutiles pour faire tourner l app
 public/demo_ocr_app.mp4 export-ignore
 public/demo_ocr_app.gif export-ignore
 public/demo_ocr_v2.gif export-ignore

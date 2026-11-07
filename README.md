@@ -30,8 +30,7 @@ Pensé pour des cas d’usage tels que la numérisation d’archives, le traitem
 
 ### 🚀 Installation et prise en main
 
-> **Installation chez un client non développeur :** voir [INSTALLATION-CLIENT.md](./INSTALLATION-CLIENT.md).
-> **Migration de la base Supabase vers le projet du client :** voir [docs/MIGRATION-SUPABASE.md](./docs/MIGRATION-SUPABASE.md).
+> **Installation chez un client (Windows, tout en local, avec récupération des données du serveur) :** voir [INSTALLATION-CLIENT.md](./INSTALLATION-CLIENT.md). Le zip à lui envoyer se fabrique avec `./scripts/preparer-livraison.sh` ; l'installateur est dans `local/`.
 
 #### Prérequis
 
