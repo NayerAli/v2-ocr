@@ -20,8 +20,16 @@ Copiez la ligne ci-dessous, collez-la dans PowerShell (**clic droit**), puis app
 irm https://raw.githubusercontent.com/NayerAli/v2-ocr/claude/local-deployment-db-migration-eb3dut/install.ps1 | iex
 ```
 
-**Si Docker Desktop n'était pas encore installé**, la commande l'installe
-(cliquez sur **Oui** si Windows demande une autorisation), puis vous demande de :
+La fenêtre vous guide et vous demande votre accord à chaque étape :
+
+- **Docker Desktop** (logiciel gratuit nécessaire) : s'il n'est pas installé, elle vous
+  propose de l'installer. Tapez **O** pour accepter (cliquez ensuite sur **Oui** si
+  Windows demande une autorisation) ou **N** pour refuser.
+- **Le dossier d'installation** : elle propose `Documents\OCR`. Appuyez sur **Entrée**
+  pour l'accepter, ou tapez un autre chemin (par exemple `D:\Applications\OCR`).
+- **Les raccourcis sur le Bureau** : tapez **O** si vous les voulez, **N** sinon.
+
+Si Docker Desktop vient d'être installé, il faut ensuite :
 
 1. redémarrer l'ordinateur ;
 2. ouvrir **Docker Desktop** (menu Démarrer), cliquer sur **Accept**, puis **Skip** pour le compte ;
@@ -49,22 +57,24 @@ Votre Supabase actuel est seulement **lu** : rien n'y est modifié ni supprimé.
 
 ## Au quotidien
 
-- Double-cliquez sur le raccourci **Application OCR** du Bureau
-  (ou ouvrez **http://localhost:3000**).
+- Double-cliquez sur le raccourci **Application OCR** du Bureau (si vous l'avez créé),
+  ou sur **Demarrer-OCR.bat** dans le dossier d'installation,
+  ou ouvrez **http://localhost:3000**.
 - Connectez-vous avec **votre e-mail et votre mot de passe habituels**.
-- Pour arrêter l'application : dossier **Documents\OCR**, fichier **Arreter-OCR.bat**.
+- Pour arrêter l'application : fichier **Arreter-OCR.bat** dans le dossier d'installation.
 - L'espace d'administration Supabase de votre ordinateur : **http://localhost:8000**
   (identifiant et mot de passe dans **MES-ACCES.txt**).
 - Pour que l'application redémarre seule à chaque allumage : dans Docker Desktop,
   roue dentée, cochez **Start Docker Desktop when you sign in**, puis **Apply**.
 
-**Mettre à jour l'application** : collez à nouveau la commande de l'étape 2.
+**Mettre à jour l'application** : collez à nouveau la commande de l'étape 2 et
+appuyez sur **Entrée** quand elle propose le dossier (elle se souvient de celui choisi).
 Vos données sont conservées et ne sont pas recopiées une seconde fois.
 
 ## Important
 
 Vos données sont maintenant **sur cet ordinateur**. Ne désinstallez pas Docker Desktop
-et ne supprimez pas le dossier **Documents\OCR**.
+et ne supprimez pas le dossier d'installation.
 
 ## En cas de problème
 
