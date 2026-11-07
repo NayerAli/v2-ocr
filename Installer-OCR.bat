@@ -53,14 +53,14 @@ exit /b 0
 :pas_docker
 echo  [!] Docker Desktop n'est pas lance.
 echo      Ouvrez Docker Desktop, attendez que la baleine soit immobile,
-echo      puis relancez Installer-OCR.
+echo      puis recollez la commande d'installation.
 pause
 exit /b 1
 
 :erreur
 echo.
 echo  [!] L'installation s'est arretee a cause d'une erreur.
-echo      Vous pouvez relancer Installer-OCR : il reprendra la ou il s'est arrete.
+echo      Recollez la commande d'installation : elle reprendra la ou elle s'est arretee.
 echo      Si l'erreur revient, faites une capture de cette fenetre
 echo      et envoyez-la a votre prestataire.
 pause

@@ -1,5 +1,5 @@
 # Application OCR + Supabase complet, en local sur le PC du client.
-# Ne pas lancer à la main : utiliser Installer-OCR.bat / Demarrer-OCR.bat.
+# Installé par Installer-OCR.bat. Arrêt / relance : groupe « ocr » dans Docker Desktop.
 name: ocr
 
 services:

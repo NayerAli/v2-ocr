@@ -178,8 +178,11 @@ async function demander(rl, question) {
 
 async function questions(rl) {
   dire(c.titre('Question 1 sur 2 : l\'adresse de votre Supabase actuel'))
-  dire('C\'est l\'adresse que vous tapez dans votre navigateur pour ouvrir')
-  dire('le tableau de bord Supabase sur le serveur actuel.')
+  dire('  1. Ouvrez l\'espace d\'administration Supabase dans votre navigateur.')
+  dire('  2. Sur la page d\'accueil, sous le nom du projet, cliquez sur « Copy »,')
+  dire('     puis sur « Project URL ».')
+  dire('  3. Revenez ici, clic droit (ou Ctrl+V) pour coller, puis Entrée.')
+  dire('  (Vous pouvez aussi copier l\'adresse de la barre d\'adresse du navigateur.)')
   dire('Exemples : http://51.68.12.34:8000   ou   https://supabase.mon-site.fr')
   dire()
 
@@ -188,6 +191,12 @@ async function questions(rl) {
     const saisie = await demander(rl, 'Adresse : ')
     try {
       url = nettoyerUrl(saisie)
+      if (/^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:|$)/i.test(url)) {
+        dire(c.err('  Cette adresse (localhost) ne désigne pas le serveur, mais l\'ordinateur lui-même.'))
+        dire('  Copiez plutôt l\'adresse affichée dans la barre d\'adresse du navigateur')
+        dire('  quand l\'espace d\'administration Supabase est ouvert.')
+        continue
+      }
       const rep = await fetch(`${url}/auth/v1/health`).catch((e) => { throw new Error(e.cause?.message || e.message) })
       if (rep.status >= 500) throw new Error(`le serveur répond avec une erreur ${rep.status}`)
       dire(c.ok(`  Serveur trouvé : ${url}`))
@@ -200,14 +209,14 @@ async function questions(rl) {
 
   dire()
   dire(c.titre('Question 2 sur 2 : la clé « service_role »'))
-  dire('  1. Ouvrez le tableau de bord Supabase à l\'adresse ci-dessus.')
-  dire('  2. En bas à gauche, cliquez sur la roue dentée (« Project Settings »).')
-  dire('  3. Dans le menu, cliquez sur « API Keys » (ou « API » selon la version).')
-  dire('  4. S\'il y a des onglets, choisissez « Legacy anon, service_role API keys ».')
-  dire('  5. Sur la ligne « service_role » (étiquette rouge « secret »), cliquez sur')
-  dire('     « Reveal », puis sur « Copy ».')
-  dire('  6. Revenez dans cette fenêtre, faites un clic droit (ou Ctrl+V) pour coller,')
-  dire('     puis appuyez sur Entrée.')
+  dire('  1. Dans l\'espace d\'administration Supabase, cliquez en bas à gauche')
+  dire('     sur la roue dentée (« Project Settings »).')
+  dire('  2. Dans le menu, cliquez sur « API Keys » (ou « API » selon la version).')
+  dire('  3. Cliquez sur l\'onglet « Legacy anon, service_role API keys ».')
+  dire('  4. Sur la ligne « service_role » (étiquette rouge « secret »), cliquez sur « Reveal »,')
+  dire('  5. puis sur « Copy » (attention : pas la clé « anon » juste au-dessus).')
+  dire('  6. Revenez ici, clic droit (ou Ctrl+V) pour coller, puis Entrée.')
+  dire('  Le guide d\'installation montre chaque étape en image.')
   dire()
 
   const ancien = new AncienSupabase(url, '')
@@ -559,7 +568,7 @@ async function migrer() {
   const ok = await demander(rl, 'Tapez OUI puis Entrée pour lancer la copie : ')
   rl.close()
   if (ok.toLowerCase() !== 'oui') {
-    dire('Copie annulée. Relancez Installer-OCR quand vous voudrez.')
+    dire('Copie annulée. Recollez la commande d\'installation quand vous voudrez.')
     process.exit(1)
   }
 
@@ -695,6 +704,6 @@ try {
   dire(c.err(e.message))
   dire()
   dire('Rien n\'a été abîmé. Faites une capture de cette fenêtre et envoyez-la')
-  dire('à votre prestataire, ou relancez Installer-OCR pour réessayer.')
+  dire('à votre prestataire, ou recollez la commande d\'installation pour réessayer.')
   process.exit(1)
 }

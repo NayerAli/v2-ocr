@@ -167,13 +167,13 @@ Ok "Application telechargee dans $Dossier"
 
 # --- 4. Raccourcis sur le Bureau ---------------------------------------------
 Titre 'Etape 4 : raccourcis'
-if (OuiNon 'Voulez-vous des raccourcis "Application OCR" et "Dossier OCR" sur le Bureau ?') {
+if (OuiNon 'Voulez-vous un raccourci "Application OCR" (et "Dossier OCR") sur le Bureau ?') {
   try {
     $bureau = [Environment]::GetFolderPath('Desktop')
     $shell = New-Object -ComObject WScript.Shell
-    $r = $shell.CreateShortcut((Join-Path $bureau 'Application OCR.lnk'))
-    $r.TargetPath = Join-Path $Dossier 'Demarrer-OCR.bat'
-    $r.WorkingDirectory = $Dossier
+    # Lien vers l'application dans le navigateur
+    $r = $shell.CreateShortcut((Join-Path $bureau 'Application OCR.url'))
+    $r.TargetPath = 'http://localhost:3000'
     $r.Save()
     $r = $shell.CreateShortcut((Join-Path $bureau 'Dossier OCR.lnk'))
     $r.TargetPath = $Dossier

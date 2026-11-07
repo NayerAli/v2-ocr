@@ -27,7 +27,7 @@ La fenêtre vous guide et vous demande votre accord à chaque étape :
   Windows demande une autorisation) ou **N** pour refuser.
 - **Le dossier d'installation** : elle propose `Documents\OCR`. Appuyez sur **Entrée**
   pour l'accepter, ou tapez un autre chemin (par exemple `D:\Applications\OCR`).
-- **Les raccourcis sur le Bureau** : tapez **O** si vous les voulez, **N** sinon.
+- **Le raccourci sur le Bureau** : tapez **O** si vous le voulez, **N** sinon.
 
 Si Docker Desktop vient d'être installé, il faut ensuite :
 
@@ -37,17 +37,57 @@ Si Docker Desktop vient d'être installé, il faut ensuite :
 
 ## Étape 3 : répondre aux 2 questions
 
-La fenêtre télécharge et prépare tout (10 à 20 minutes), puis vous pose 2 questions,
-avec les explications à l'écran :
+La fenêtre télécharge et prépare tout (10 à 20 minutes), puis vous pose 2 questions.
+Gardez l'espace d'administration Supabase ouvert dans votre navigateur : vous allez
+y copier deux informations.
 
-1. **L'adresse de votre Supabase actuel** : celle que vous tapez dans le navigateur pour
-   ouvrir l'espace d'administration Supabase. Copiez-la depuis la barre d'adresse.
-2. **La clé « service_role »** : dans l'espace d'administration Supabase, roue dentée
-   en bas à gauche, **API Keys**, onglet **Legacy anon, service_role API keys**,
-   ligne **service_role**, boutons **Reveal** puis **Copy**. Revenez dans la fenêtre,
-   clic droit pour coller, Entrée.
+### Question 1 : l'adresse de votre Supabase
 
-   ![Où trouver la clé service_role](docs/cle-service-role.png)
+Sur la page d'accueil de l'espace d'administration Supabase :
+
+**1.** Sous le nom du projet, cliquez sur **Copy**.
+
+![Cliquer sur Copy sous le nom du projet](docs/captures/adresse-1.png)
+
+**2.** Cliquez sur **Project URL** : l'adresse est copiée.
+
+![Cliquer sur Project URL](docs/captures/adresse-2.png)
+
+Revenez dans la fenêtre PowerShell, **clic droit** pour coller, puis **Entrée**.
+
+> Si l'adresse copiée commence par `http://localhost`, la fenêtre vous le signalera :
+> copiez alors plutôt l'adresse affichée dans la **barre d'adresse** de votre navigateur.
+
+### Question 2 : la clé « service_role »
+
+**1.** En bas à gauche, cliquez sur la **roue dentée** (Project Settings).
+
+![Cliquer sur la roue dentée](docs/captures/cles-1.png)
+
+**2.** Dans le menu, cliquez sur **API Keys**.
+
+![Cliquer sur API Keys](docs/captures/cles-2.png)
+
+**3.** Cliquez sur l'onglet **Legacy anon, service_role API keys**.
+
+![Cliquer sur l'onglet Legacy](docs/captures/cles-3.png)
+
+**4.** Deux clés s'affichent :
+
+- en haut, la clé **anon** (publique). Son bouton **Copy** la copie, mais **l'assistant n'en a pas besoin** ;
+- en bas, la clé **service_role** (étiquette rouge « secret ») : c'est **celle-ci**.
+  Cliquez sur **Reveal** pour l'afficher.
+
+![La clé anon et le bouton Reveal de la clé service_role](docs/captures/cles-4.png)
+
+**5.** Cliquez sur **Copy** sur la ligne **service_role**.
+
+![Copier la clé service_role](docs/captures/cles-5.png)
+
+Revenez dans la fenêtre PowerShell, **clic droit** pour coller, puis **Entrée**.
+Si vous collez la clé anon par erreur, la fenêtre vous le dira.
+
+### Fin de l'installation
 
 La fenêtre affiche ce qu'elle va copier : tapez **OUI** puis Entrée.
 À la fin, l'application s'ouvre dans votre navigateur, avec un fichier
@@ -57,15 +97,34 @@ Votre Supabase actuel est seulement **lu** : rien n'y est modifié ni supprimé.
 
 ## Au quotidien
 
-- Double-cliquez sur le raccourci **Application OCR** du Bureau (si vous l'avez créé),
-  ou sur **Demarrer-OCR.bat** dans le dossier d'installation,
-  ou ouvrez **http://localhost:3000**.
+- Ouvrez **http://localhost:3000** (ou le raccourci **Application OCR** du Bureau).
 - Connectez-vous avec **votre e-mail et votre mot de passe habituels**.
-- Pour arrêter l'application : fichier **Arreter-OCR.bat** dans le dossier d'installation.
+- Tant que Docker Desktop est ouvert, l'application fonctionne.
+- Pour que l'application démarre seule à chaque allumage : dans Docker Desktop,
+  roue dentée, cochez **Start Docker Desktop when you sign in**, puis **Apply**.
 - L'espace d'administration Supabase de votre ordinateur : **http://localhost:8000**
   (identifiant et mot de passe dans **MES-ACCES.txt**).
-- Pour que l'application redémarre seule à chaque allumage : dans Docker Desktop,
-  roue dentée, cochez **Start Docker Desktop when you sign in**, puis **Apply**.
+
+### Arrêter ou relancer l'application (dans Docker Desktop)
+
+Ouvrez **Docker Desktop**, puis cliquez sur **Containers** dans le menu de gauche.
+L'application apparaît sous la forme d'un groupe nommé **ocr**.
+
+**Arrêter** : sur la ligne **ocr**, cliquez sur le **carré** dans la colonne *Actions*.
+
+![Arrêter le groupe ocr](docs/captures/docker-arreter.png)
+
+**Relancer** : cochez la case de la ligne **ocr**, puis cliquez sur le **triangle ▶**
+en haut à droite (ou sur le triangle ▶ qui remplace le carré dans la colonne *Actions*).
+
+![Relancer le groupe ocr](docs/captures/docker-relancer.png)
+
+Vos données sont conservées quand vous arrêtez l'application.
+N'utilisez **jamais** la corbeille rouge (Delete) sur la ligne **ocr**.
+
+*Captures Docker Desktop : documentation officielle de Docker (docs.docker.com,
+licence Apache 2.0), annotées. Les noms affichés y sont des exemples : chez vous,
+le groupe s'appelle **ocr**.*
 
 **Mettre à jour l'application** : collez à nouveau la commande de l'étape 2 et
 appuyez sur **Entrée** quand elle propose le dossier (elle se souvient de celui choisi).
@@ -81,7 +140,8 @@ et ne supprimez pas le dossier d'installation.
 | Ce que vous voyez | Que faire |
 |---|---|
 | « Docker Desktop ne répond pas » | Ouvrez Docker Desktop, acceptez les conditions si elles s'affichent, attendez une minute, recollez la commande. |
-| « Impossible de joindre cette adresse » | Recopiez l'adresse depuis la barre d'adresse du navigateur où l'espace Supabase est ouvert. |
-| « C'est la clé anon » | Vous avez copié la mauvaise clé : prenez celle de la ligne **service_role**. |
+| « Cette adresse (localhost) ne désigne pas le serveur » | Copiez l'adresse de la barre d'adresse du navigateur où l'espace Supabase est ouvert. |
+| « Impossible de joindre cette adresse » | Vérifiez l'adresse, puis recollez-la. |
+| « C'est la clé anon » | Vous avez copié la clé du haut : prenez celle de la ligne **service_role** (étapes 4 et 5). |
 | « L'installation s'est arrêtée » | Recollez la commande : elle reprend là où elle s'était arrêtée. |
-| La page http://localhost:3000 ne s'affiche pas | Attendez 1 minute et rechargez, ou double-cliquez sur **Application OCR**. |
+| La page http://localhost:3000 ne s'affiche pas | Dans Docker Desktop, relancez le groupe **ocr** (voir plus haut), attendez 1 minute et rechargez. |
