@@ -107,7 +107,20 @@ class AncienSupabase {
   }
 
   // Exécute une requête SQL en lecture seule et renvoie les lignes.
+  // En cas de coupure réseau passagère, réessaie jusqu'à 4 fois.
   async sql(requete) {
+    for (let essai = 1; ; essai++) {
+      try {
+        return await this.sqlUneFois(requete)
+      } catch (e) {
+        const passager = e.type === 'reseau' || e.passager
+        if (!passager || essai >= 4) throw e
+        await new Promise((r) => setTimeout(r, 3000 * essai))
+      }
+    }
+  }
+
+  async sqlUneFois(requete) {
     const texte = `set local transaction read only; set local search_path = pg_catalog; ${requete}`
     const [adresse, entetes] = this.basic
       ? [`${this.url}/api/platform/pg-meta/default/query`, { Authorization: `Basic ${this.basic}` }]
@@ -120,7 +133,7 @@ class AncienSupabase {
         body: JSON.stringify({ query: texte }),
       })
     } catch (e) {
-      throw new ErreurAcces('reseau', e.cause?.message || e.message)
+      throw new ErreurAcces('reseau', messageReseau(e))
     }
     const corps = await rep.text()
     if (!rep.ok) {
@@ -128,7 +141,9 @@ class AncienSupabase {
       try { detail = JSON.parse(corps).error || JSON.parse(corps).message || corps } catch {}
       if (rep.status === 401 || rep.status === 403) throw new ErreurAcces('refus', detail)
       if (rep.status === 404) throw new ErreurAcces('absent', detail)
-      throw new Error(`Erreur SQL sur l'ancien serveur (${rep.status}) : ${detail}`)
+      const erreur = new Error(`Erreur SQL sur l'ancien serveur (${rep.status}) : ${detail}`)
+      erreur.passager = rep.status >= 502
+      throw erreur
     }
     const json = JSON.parse(corps)
     return Array.isArray(json) ? json : json.result ?? json
@@ -143,18 +158,40 @@ class AncienSupabase {
       if (rep.status === 401 || rep.status === 403 || /jwt|signature|unauthori/i.test(texte)) return 'refus'
       return `erreur ${rep.status} : ${texte.slice(0, 150)}`
     } catch (e) {
-      return e.cause?.message || e.message
+      return messageReseau(e)
     }
   }
 
   async telecharger(bucket, nom) {
     const chemin = nom.split('/').map(encodeURIComponent).join('/')
-    const rep = await fetch(`${this.url}/storage/v1/object/${encodeURIComponent(bucket)}/${chemin}`, {
-      headers: this.entetesCle(),
-    })
-    if (!rep.ok) throw new Error(`téléchargement refusé (${rep.status}) : ${(await rep.text()).slice(0, 200)}`)
-    return Buffer.from(await rep.arrayBuffer())
+    for (let essai = 1; ; essai++) {
+      try {
+        const rep = await fetch(`${this.url}/storage/v1/object/${encodeURIComponent(bucket)}/${chemin}`, {
+          headers: this.entetesCle(),
+        })
+        if (rep.ok) return Buffer.from(await rep.arrayBuffer())
+        const erreur = new Error(`téléchargement refusé (${rep.status}) : ${(await rep.text()).slice(0, 200)}`)
+        erreur.definitif = rep.status < 500
+        throw erreur
+      } catch (e) {
+        if (e.definitif || essai >= 4) throw new Error(e.definitif ? e.message : messageReseau(e))
+        await new Promise((r) => setTimeout(r, 3000 * essai))
+      }
+    }
   }
+}
+
+// Traduit une erreur réseau technique en phrase compréhensible.
+function messageReseau(e) {
+  const code = e?.cause?.code || e?.code || ''
+  const texte = `${e?.cause?.message || ''} ${e?.message || ''}`
+  if (['ENOTFOUND', 'EAI_AGAIN'].includes(code)) return 'adresse introuvable : vérifiez l\'orthographe et votre connexion Internet'
+  if (code === 'ECONNREFUSED') return 'le serveur ne répond pas à cette adresse : vérifiez le numéro après « : » (par exemple :8000)'
+  if (['ETIMEDOUT', 'UND_ERR_CONNECT_TIMEOUT', 'ECONNRESET'].includes(code)) return 'le serveur ne répond pas (délai dépassé) : vérifiez votre connexion Internet'
+  if (/ssl|tls|certificate|CERT_|wrong version number/i.test(`${code} ${texte}`)) {
+    return 'connexion sécurisée impossible : essayez avec http:// au lieu de https:// (ou l\'inverse)'
+  }
+  return texte.trim() || 'erreur inconnue'
 }
 
 class ErreurAcces extends Error {
@@ -210,7 +247,8 @@ async function questions(rl) {
         dire('  quand l\'espace d\'administration Supabase est ouvert.')
         continue
       }
-      const rep = await fetch(`${url}/auth/v1/health`).catch((e) => { throw new Error(e.cause?.message || e.message) })
+      const rep = await fetch(`${url}/auth/v1/health`, { signal: AbortSignal.timeout(20000) })
+        .catch((e) => { throw new Error(e.name === 'TimeoutError' ? 'le serveur ne répond pas (délai dépassé)' : messageReseau(e)) })
       if (rep.status >= 500) throw new Error(`le serveur répond avec une erreur ${rep.status}`)
       dire(c.ok(`  Serveur trouvé : ${url}`))
       break
