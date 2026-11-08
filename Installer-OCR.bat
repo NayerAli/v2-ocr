@@ -33,7 +33,7 @@ if not exist "local\.migration-ok" (
 echo.
 echo  Etape 3/3 : construction de l'application (5 a 10 minutes la premiere fois).
 echo.
-docker compose -f local\docker-compose.yml up -d --build app relais
+docker compose -f local\docker-compose.yml up -d --build --remove-orphans app
 if errorlevel 1 goto erreur
 
 echo.

@@ -134,6 +134,19 @@ class AncienSupabase {
     return Array.isArray(json) ? json : json.result ?? json
   }
 
+  // 'ok', 'refus' ou un message d'erreur
+  async verifierStockage() {
+    try {
+      const rep = await fetch(`${this.url}/storage/v1/bucket`, { headers: this.entetesCle() })
+      if (rep.ok) return 'ok'
+      const texte = await rep.text()
+      if (rep.status === 401 || rep.status === 403 || /jwt|signature|unauthori/i.test(texte)) return 'refus'
+      return `erreur ${rep.status} : ${texte.slice(0, 150)}`
+    } catch (e) {
+      return e.cause?.message || e.message
+    }
+  }
+
   async telecharger(bucket, nom) {
     const chemin = nom.split('/').map(encodeURIComponent).join('/')
     const rep = await fetch(`${this.url}/storage/v1/object/${encodeURIComponent(bucket)}/${chemin}`, {
@@ -220,6 +233,7 @@ async function questions(rl) {
   dire()
 
   const ancien = new AncienSupabase(url, '')
+  let refus = 0
   for (;;) {
     const cle = (await demander(rl, 'Clé service_role : ')).replace(/\s+/g, '')
     const role = roleDeLaCle(cle)
@@ -232,17 +246,24 @@ async function questions(rl) {
       continue
     }
     ancien.cle = cle
+    // La clé doit d'abord ouvrir le stockage des fichiers (sinon la copie échouerait plus tard).
+    const stockage = await ancien.verifierStockage()
+    if (stockage === 'refus') {
+      dire(c.err('  Le serveur refuse cette clé. Vérifiez que vous avez copié la clé « service_role » de CE serveur.'))
+      continue
+    }
+    if (stockage !== 'ok') throw new Error(`Le stockage des fichiers du serveur ne répond pas (${stockage}).`)
     try {
       await ancien.sql('select 1 as ok')
       dire(c.ok('  Clé acceptée.'))
       return ancien
     } catch (e) {
-      if (e.type === 'refus') {
+      if (e.type === 'refus' && ++refus < 2) {
         dire(c.err('  Le serveur refuse cette clé. Vérifiez que vous avez copié la clé « service_role » de CE serveur.'))
         continue
       }
-      if (e.type === 'absent') {
-        // Le serveur n'expose pas l'accès SQL direct : on passe par le tableau de bord.
+      if (e.type === 'refus' || e.type === 'absent') {
+        // Accès SQL direct indisponible : on passe par le tableau de bord.
         return planB(rl, ancien)
       }
       throw e
@@ -386,8 +407,25 @@ async function lireStructure(src) {
         and exists (select 1 from pg_class c where c.relnamespace = n.oid)`),
   ])
 
+  // Domaines (types avec règles) et types composés définis dans public
+  const domaines = await src.sql(`
+    select 'public.' || quote_ident(t.typname) as q, format_type(t.typbasetype, t.typtypmod) as base,
+           t.typnotnull as non_nul, t.typdefault as defaut,
+           array(select 'constraint ' || quote_ident(k.conname) || ' ' || pg_get_constraintdef(k.oid)
+                   from pg_constraint k where k.contypid = t.oid) as regles
+    from pg_type t join pg_namespace n on n.oid = t.typnamespace
+    where n.nspname = 'public' and t.typtype = 'd' and ${PAS_EXTENSION('t.oid')}`)
+  const composes = await src.sql(`
+    select 'public.' || quote_ident(t.typname) as q,
+           array(select quote_ident(a.attname) || ' ' || format_type(a.atttypid, a.atttypmod)
+                   from pg_attribute a where a.attrelid = t.typrelid and a.attnum > 0 and not a.attisdropped
+                  order by a.attnum) as champs
+    from pg_type t join pg_namespace n on n.oid = t.typnamespace
+    join pg_class c on c.oid = t.typrelid
+    where n.nspname = 'public' and t.typtype = 'c' and c.relkind = 'c' and ${PAS_EXTENSION('t.oid')}`)
+
   for (const t of tables) t.colonnes = colonnes.filter((col) => col.oid === t.oid)
-  return { tables, contraintes, index, sequences, fonctions, types, vues, politiques,
+  return { tables, contraintes, index, sequences, fonctions, types, domaines, composes, vues, politiques,
     declencheurs, extensions, droits, autresSchemas: autres.map((r) => r.schema) }
 }
 
@@ -416,6 +454,14 @@ function scriptStructure(s) {
     pousser(`do $$ begin if not exists (select 1 from pg_roles where rolname = ${lit(r)}) then create role ${qid(r)} nologin; end if; end $$;`)
   }
   for (const t of s.types) pousser(`create type ${t.q} as enum (${t.valeurs.join(', ')});`)
+  for (const d of s.domaines) {
+    let x = `create domain ${d.q} as ${d.base}`
+    if (d.defaut) x += ` default ${d.defaut}`
+    if (d.non_nul) x += ' not null'
+    if (d.regles.length) x += ` ${d.regles.join(' ')}`
+    pousser(`${x};`)
+  }
+  for (const t of s.composes) pousser(`create type ${t.q} as (${t.champs.join(', ')});`)
   for (const q of s.sequences) {
     pousser(`create sequence ${q.q} as ${q.type} increment ${q.pas} minvalue ${q.min} maxvalue ${q.max} start ${q.debut} cache ${q.cache}${q.cycle ? ' cycle' : ''};`)
   }
@@ -496,32 +542,50 @@ async function colonnesCible(db, q) {
   return rows.map((l) => l.nom)
 }
 
-async function copierTable(src, db, q, colonnesSrc) {
+// Copie une table par paquets. La taille des paquets s'adapte au poids des lignes
+// (documents volumineux) pour ne jamais demander trop d'un coup au serveur.
+async function copierTable(src, db, q, colonnesSrc, adapter = (cols, r) => (r === null ? cols : r)) {
   const cible = await colonnesCible(db, q)
-  const cols = cible.filter((col) => colonnesSrc.includes(col)).map(qid).join(', ')
+  const colsNoms = adapter(cible.filter((col) => colonnesSrc.includes(col)), null)
+  const cols = colsNoms.map(qid).join(', ')
+  const CIBLE_OCTETS = 8 * 1024 * 1024
   let curseur = '(0,0)'
   let total = 0
-  let taille = 100
+  let taille = 50
   for (;;) {
     let lignes
+    let octets
     try {
       lignes = await src.sql(`
         select t.ctid::text as _ctid, to_jsonb(t) as r from ${q} t
         where t.ctid > ${lit(curseur)}::tid order by t.ctid limit ${taille}`)
+      octets = JSON.stringify(lignes).length
     } catch (e) {
       if (taille > 1) { taille = Math.max(1, Math.floor(taille / 4)); continue }
-      throw e
+      throw new Error(`Lecture de ${q} impossible : ${e.message}`)
     }
     if (!lignes.length) break
     await db.query(
       `insert into ${q} (${cols}) overriding system value select ${cols} from jsonb_populate_recordset(null::${q}, $1::jsonb)`,
-      [JSON.stringify(lignes.map((l) => l.r))])
+      [JSON.stringify(lignes.map((l) => adapter(colsNoms, l.r)))])
     total += lignes.length
     curseur = lignes[lignes.length - 1]._ctid
+    // Ajuste le prochain paquet pour viser environ 8 Mo
+    const parLigne = Math.max(1, octets / lignes.length)
+    taille = Math.max(1, Math.min(500, Math.floor(CIBLE_OCTETS / parLigne)))
     process.stdout.write(`\r    ${q} : ${total} ligne(s)`)
   }
   process.stdout.write(`\r    ${q} : ${total} ligne(s)\n`)
   return total
+}
+
+// Anciennes versions de Supabase : auth.identities sans colonne provider_id.
+function adapterIdentites(colonnesSrc) {
+  if (colonnesSrc.includes('provider_id')) return undefined
+  return (cols, r) => {
+    if (r === null) return [...cols.filter((c) => c !== 'id'), 'provider_id']
+    return { ...r, provider_id: r.identity_data?.sub ?? r.id, id: undefined }
+  }
 }
 
 async function compter(src, q) {
@@ -594,17 +658,34 @@ async function migrer() {
         await db.query('rollback to savepoint ext')
       }
     }
-    for (const instruction of scriptStructure(structure)) {
-      try {
-        await db.query(instruction)
-      } catch (e) {
-        throw new Error(`${e.message}\n--- instruction ---\n${instruction}`)
+    // Les objets dépendent parfois les uns des autres dans un ordre imprévisible :
+    // on rejoue les instructions en échec tant qu'il y a du progrès.
+    let restantes = scriptStructure(structure)
+    let derniereErreur = new Map()
+    while (restantes.length) {
+      const echecs = []
+      for (const instruction of restantes) {
+        await db.query('savepoint instr')
+        try {
+          await db.query(instruction)
+          await db.query('release savepoint instr')
+        } catch (e) {
+          await db.query('rollback to savepoint instr')
+          echecs.push(instruction)
+          derniereErreur.set(instruction, e.message)
+        }
       }
+      if (echecs.length === restantes.length) {
+        const detail = echecs.slice(0, 3).map((i) => `${derniereErreur.get(i)}\n   -> ${i.slice(0, 300)}`).join('\n')
+        throw new Error(`${echecs.length} élément(s) de structure n'ont pas pu être recréés :\n${detail}`)
+      }
+      restantes = echecs
     }
 
     // Comptes utilisateurs (mots de passe chiffrés inclus), puis buckets, puis données de l'app.
     for (const q of ['auth.users', 'auth.identities', 'storage.buckets']) {
-      await copierTable(src, db, q, await colonnesSource(src, q))
+      const colsSrc = await colonnesSource(src, q)
+      await copierTable(src, db, q, colsSrc, q === 'auth.identities' ? adapterIdentites(colsSrc) : undefined)
     }
     for (const t of structure.tables) {
       await copierTable(src, db, t.q, t.colonnes.map((col) => col.nom))

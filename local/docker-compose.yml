@@ -93,7 +93,7 @@ services:
       DATABASE_URL: postgres://supabase_storage_admin:${POSTGRES_PASSWORD}@db:5432/postgres
       STORAGE_PUBLIC_URL: http://localhost:8000
       REQUEST_ALLOW_X_FORWARDED_PATH: "true"
-      FILE_SIZE_LIMIT: 52428800
+      FILE_SIZE_LIMIT: 524288000
       STORAGE_BACKEND: file
       GLOBAL_S3_BUCKET: stub
       FILE_STORAGE_BACKEND_PATH: /var/lib/storage
@@ -174,16 +174,11 @@ services:
       - "127.0.0.1:3000:3000"
     depends_on:
       - kong
-
-  # Dans le conteneur de l'app, "localhost:8000" renvoie vers Supabase :
-  # la même adresse fonctionne ainsi côté navigateur et côté serveur.
-  relais:
-    image: alpine/socat:1.8.0.3
-    restart: unless-stopped
-    network_mode: "service:app"
-    depends_on:
-      - app
-    command: TCP-LISTEN:8000,fork,reuseaddr TCP:kong:8000
+    # relais-supabase.cjs : "localhost:8000" dans le conteneur mène à Supabase,
+    # puis démarre l'application.
+    volumes:
+      - ./relais-supabase.cjs:/opt/relais-supabase.cjs:ro
+    command: ["node", "/opt/relais-supabase.cjs"]
 
   # Assistant de migration (lancé par Installer-OCR.bat)
   assistant:
