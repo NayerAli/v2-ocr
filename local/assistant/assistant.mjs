@@ -139,6 +139,7 @@ class AncienSupabase {
     if (!rep.ok) {
       let detail = corps
       try { detail = JSON.parse(corps).error || JSON.parse(corps).message || corps } catch {}
+      if (bloqueParCloudflare(rep, corps)) throw new ErreurAcces('cloudflare', 'bloqué par Cloudflare')
       if (rep.status === 401 || rep.status === 403) throw new ErreurAcces('refus', detail)
       if (rep.status === 404) throw new ErreurAcces('absent', detail)
       const erreur = new Error(`Erreur SQL sur l'ancien serveur (${rep.status}) : ${detail}`)
@@ -155,6 +156,7 @@ class AncienSupabase {
       const rep = await fetch(`${this.url}/storage/v1/bucket`, { headers: this.entetesCle() })
       if (rep.ok) return 'ok'
       const texte = await rep.text()
+      if (bloqueParCloudflare(rep, texte)) return 'cloudflare'
       if (rep.status === 401 || rep.status === 403 || /jwt|signature|unauthori/i.test(texte)) return 'refus'
       return `erreur ${rep.status} : ${texte.slice(0, 150)}`
     } catch (e) {
@@ -192,6 +194,55 @@ function messageReseau(e) {
     return 'connexion sécurisée impossible : essayez avec http:// au lieu de https:// (ou l\'inverse)'
   }
   return texte.trim() || 'erreur inconnue'
+}
+
+// Cloudflare (protection anti-robot) devant le serveur : il répond par une page
+// « Just a moment... » au lieu de laisser passer la copie automatique.
+function bloqueParCloudflare(rep, texte = '') {
+  return Boolean(rep.headers.get('cf-mitigated')) ||
+    (rep.status === 403 && /cloudflare|just a moment|cf-chl|challenge-platform/i.test(texte))
+}
+
+async function ipPublique(url) {
+  for (const adresse of [`${url}/cdn-cgi/trace`, 'https://www.cloudflare.com/cdn-cgi/trace']) {
+    try {
+      const texte = await (await fetch(adresse, { signal: AbortSignal.timeout(10000) })).text()
+      const ip = texte.match(/^ip=(.+)$/m)?.[1]
+      if (ip) return ip.trim()
+    } catch {}
+  }
+  return null
+}
+
+// Explique comment autoriser cet ordinateur dans Cloudflare, puis attend que ce soit fait.
+async function attendreCloudflare(rl, url) {
+  const hote = new URL(url).hostname
+  const domaine = hote.split('.').slice(-2).join('.')
+  const ip = await ipPublique(url)
+  dire()
+  dire(c.err('  Votre serveur Supabase est protégé par Cloudflare, qui bloque la copie'))
+  dire(c.err('  automatique (il la prend pour un robot). Ce n\'est PAS un problème de clé.'))
+  dire()
+  dire('  Il faut autoriser cet ordinateur dans Cloudflare le temps de la copie.')
+  dire('  La personne qui gère Cloudflare pour ' + c.gras(domaine) + ' doit :')
+  dire('    1. Ouvrir https://dash.cloudflare.com et choisir le site ' + c.gras(domaine) + '.')
+  dire('    2. Aller dans  Security  >  WAF  >  Tools  (« IP Access Rules »).')
+  dire('    3. Ajouter :  Value = ' + c.gras(ip || '(adresse IP de cet ordinateur)') + '   Action = Allow   puis « Add ».')
+  dire('    Si le blocage continue : désactiver temporairement le mode « I\'m Under Attack »')
+  dire('    ou la règle WAF qui affiche le « challenge », puis les réactiver après la copie.')
+  if (ip) dire('  (Adresse IP de cet ordinateur : ' + c.gras(ip) + ')')
+  dire()
+  for (;;) {
+    await demander(rl, 'Quand c\'est fait, appuyez sur Entrée pour réessayer : ')
+    try {
+      const rep = await fetch(`${url}/auth/v1/health`, { signal: AbortSignal.timeout(20000) })
+      if (!bloqueParCloudflare(rep, await rep.text())) {
+        dire(c.ok('  Cloudflare laisse passer la copie, on continue.'))
+        return
+      }
+    } catch {}
+    dire(c.err('  Cloudflare bloque encore. Vérifiez la règle (quelques secondes peuvent être nécessaires).'))
+  }
 }
 
 class ErreurAcces extends Error {
@@ -249,6 +300,12 @@ async function questions(rl) {
       }
       const rep = await fetch(`${url}/auth/v1/health`, { signal: AbortSignal.timeout(20000) })
         .catch((e) => { throw new Error(e.name === 'TimeoutError' ? 'le serveur ne répond pas (délai dépassé)' : messageReseau(e)) })
+      const corps = await rep.text()
+      if (bloqueParCloudflare(rep, corps)) {
+        dire(c.ok(`  Serveur trouvé : ${url}`))
+        await attendreCloudflare(rl, url)
+        break
+      }
       if (rep.status >= 500) throw new Error(`le serveur répond avec une erreur ${rep.status}`)
       dire(c.ok(`  Serveur trouvé : ${url}`))
       break
@@ -285,14 +342,26 @@ async function questions(rl) {
     }
     ancien.cle = cle
     // La clé doit d'abord ouvrir le stockage des fichiers (sinon la copie échouerait plus tard).
-    const stockage = await ancien.verifierStockage()
+    let stockage = await ancien.verifierStockage()
+    while (stockage === 'cloudflare') {
+      await attendreCloudflare(rl, url)
+      stockage = await ancien.verifierStockage()
+    }
     if (stockage === 'refus') {
       dire(c.err('  Le serveur refuse cette clé. Vérifiez que vous avez copié la clé « service_role » de CE serveur.'))
       continue
     }
     if (stockage !== 'ok') throw new Error(`Le stockage des fichiers du serveur ne répond pas (${stockage}).`)
     try {
-      await ancien.sql('select 1 as ok')
+      for (;;) {
+        try {
+          await ancien.sql('select 1 as ok')
+          break
+        } catch (e) {
+          if (e.type !== 'cloudflare') throw e
+          await attendreCloudflare(rl, url)
+        }
+      }
       dire(c.ok('  Clé acceptée.'))
       return ancien
     } catch (e) {
