@@ -214,7 +214,10 @@ async function ipPublique(url) {
   return null
 }
 
-// Explique comment autoriser cet ordinateur dans Cloudflare, puis attend que ce soit fait.
+// Cloudflare bloque la copie (souvent à cause d'un VPN). Propose deux solutions :
+// A. l'adresse directe du serveur (sans Cloudflare), joignable par le VPN ;
+// B. autoriser cet ordinateur dans Cloudflare.
+// Renvoie l'adresse à utiliser (la même si Cloudflare laisse désormais passer).
 async function attendreCloudflare(rl, url) {
   const hote = new URL(url).hostname
   const domaine = hote.split('.').slice(-2).join('.')
@@ -222,26 +225,37 @@ async function attendreCloudflare(rl, url) {
   dire()
   dire(c.err('  Votre serveur Supabase est protégé par Cloudflare, qui bloque la copie'))
   dire(c.err('  automatique (il la prend pour un robot). Ce n\'est PAS un problème de clé.'))
+  dire('  Cela arrive surtout avec un VPN ou un réseau d\'entreprise.')
   dire()
-  dire('  Il faut autoriser cet ordinateur dans Cloudflare le temps de la copie.')
-  dire('  La personne qui gère Cloudflare pour ' + c.gras(domaine) + ' doit :')
-  dire('    1. Ouvrir https://dash.cloudflare.com et choisir le site ' + c.gras(domaine) + '.')
-  dire('    2. Aller dans  Security  >  WAF  >  Tools  (« IP Access Rules »).')
-  dire('    3. Ajouter :  Value = ' + c.gras(ip || '(adresse IP de cet ordinateur)') + '   Action = Allow   puis « Add ».')
-  dire('    Si le blocage continue : désactiver temporairement le mode « I\'m Under Attack »')
-  dire('    ou la règle WAF qui affiche le « challenge », puis les réactiver après la copie.')
-  if (ip) dire('  (Adresse IP de cet ordinateur : ' + c.gras(ip) + ')')
+  dire(c.gras('  Solution A (recommandée avec un VPN) : l\'adresse directe du serveur'))
+  dire('  Votre prestataire peut vous donner l\'adresse du serveur sans Cloudflare,')
+  dire('  joignable grâce à votre VPN (exemple : http://10.8.0.1:8000).')
+  dire('  Tapez-la ci-dessous : la copie passera directement, sans Cloudflare.')
+  dire()
+  dire(c.gras('  Solution B : autoriser cet ordinateur dans Cloudflare (le temps de la copie)'))
+  dire('  La personne qui gère Cloudflare pour ' + c.gras(domaine) + ' doit, sur https://dash.cloudflare.com :')
+  dire('    - soit désactiver « Bot Fight Mode » (Security > Bots), puis le réactiver après ;')
+  dire('    - soit ajouter l\'adresse ' + c.gras(ip || '(IP de cet ordinateur)') + ' en « Allow » (Security > WAF > Tools).')
+  dire('  Puis appuyez simplement sur Entrée ci-dessous.')
   dire()
   for (;;) {
-    await demander(rl, 'Quand c\'est fait, appuyez sur Entrée pour réessayer : ')
+    const saisie = (await demander(rl, 'Adresse directe du serveur (ou Entrée pour réessayer) : ')).trim()
+    if (saisie) {
+      try {
+        return nettoyerUrl(saisie)
+      } catch {
+        dire(c.err('  Cette adresse n\'est pas valide (exemple attendu : http://10.8.0.1:8000).'))
+        continue
+      }
+    }
     try {
       const rep = await fetch(`${url}/auth/v1/health`, { signal: AbortSignal.timeout(20000) })
       if (!bloqueParCloudflare(rep, await rep.text())) {
         dire(c.ok('  Cloudflare laisse passer la copie, on continue.'))
-        return
+        return url
       }
     } catch {}
-    dire(c.err('  Cloudflare bloque encore. Vérifiez la règle (quelques secondes peuvent être nécessaires).'))
+    dire(c.err('  Cloudflare bloque encore (le changement peut prendre quelques secondes).'))
   }
 }
 
@@ -288,8 +302,10 @@ async function questions(rl) {
   dire()
 
   let url
+  let saisieSuivante = null
   for (;;) {
-    const saisie = await demander(rl, 'Adresse : ')
+    const saisie = saisieSuivante ?? await demander(rl, 'Adresse : ')
+    saisieSuivante = null
     try {
       url = nettoyerUrl(saisie)
       if (/^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:|$)/i.test(url)) {
@@ -303,8 +319,10 @@ async function questions(rl) {
       const corps = await rep.text()
       if (bloqueParCloudflare(rep, corps)) {
         dire(c.ok(`  Serveur trouvé : ${url}`))
-        await attendreCloudflare(rl, url)
-        break
+        const autre = await attendreCloudflare(rl, url)
+        if (autre === url) break
+        saisieSuivante = autre // on vérifie l'adresse directe au prochain tour
+        continue
       }
       if (rep.status >= 500) throw new Error(`le serveur répond avec une erreur ${rep.status}`)
       dire(c.ok(`  Serveur trouvé : ${url}`))
@@ -344,7 +362,7 @@ async function questions(rl) {
     // La clé doit d'abord ouvrir le stockage des fichiers (sinon la copie échouerait plus tard).
     let stockage = await ancien.verifierStockage()
     while (stockage === 'cloudflare') {
-      await attendreCloudflare(rl, url)
+      ancien.url = url = await attendreCloudflare(rl, url)
       stockage = await ancien.verifierStockage()
     }
     if (stockage === 'refus') {
@@ -359,7 +377,7 @@ async function questions(rl) {
           break
         } catch (e) {
           if (e.type !== 'cloudflare') throw e
-          await attendreCloudflare(rl, url)
+          ancien.url = url = await attendreCloudflare(rl, url)
         }
       }
       dire(c.ok('  Clé acceptée.'))

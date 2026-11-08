@@ -93,5 +93,6 @@ ocr-client.zip
 local/.env
 local/.migration-ok
 local/.migration-etape1-ok
+local/.version
 MES-ACCES.txt
 rapport-migration.txt

@@ -3,10 +3,11 @@
 #   irm https://raw.githubusercontent.com/NayerAli/v2-ocr/claude/local-deployment-db-migration-eb3dut/install.ps1 | iex
 #
 # 1. Verifie Docker Desktop (propose de l'installer si besoin, avec accord)
-# 2. Demande dans quel dossier installer l'application, puis la telecharge
-#    (les donnees deja presentes sont gardees)
-# 3. Propose de creer des raccourcis sur le Bureau
-# 4. Lance l'assistant d'installation (Installer-OCR.bat)
+# 2. Si l'application est deja installee : la demarre simplement (et propose
+#    une mise a jour seulement si une nouvelle version existe).
+#    Si une installation a ete commencee : la reprend.
+# 3. Sinon : demande le dossier, telecharge, propose des raccourcis
+#    et lance l'assistant d'installation (Installer-OCR.bat).
 
 $ErrorActionPreference = 'Stop'
 $Branche = 'claude/local-deployment-db-migration-eb3dut'
@@ -94,17 +95,107 @@ if ($LASTEXITCODE -ne 0) {
 }
 Ok 'Docker Desktop fonctionne.'
 
-# --- 2. Choix du dossier -----------------------------------------------------
-Titre 'Etape 2 : dossier d''installation'
-$propose = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'OCR'
-if (Test-Path $Memoire) {
-  $precedent = (Get-Content $Memoire -Raw).Trim()
-  if ($precedent -and (Test-Path (Join-Path $precedent 'Installer-OCR.bat'))) {
-    $propose = $precedent
-    Write-Host "  L'application est deja installee dans : $precedent"
-    Write-Host '  (pour la mettre a jour, gardez ce dossier : vos donnees y sont)'
-  }
+# --- Outils ----------------------------------------------------------------------
+# Derniere version publiee (identifiant du commit), ou $null si GitHub ne repond pas.
+function DerniereVersion {
+  try {
+    $r = Invoke-RestMethod -UseBasicParsing -TimeoutSec 15 -Headers @{ 'User-Agent' = 'ocr-installation' } `
+      -Uri "https://api.github.com/repos/$Depot/commits/$Branche"
+    return $r.sha
+  } catch { return $null }
 }
+
+function VersionInstallee {
+  $f = Join-Path $Dossier 'local\.version'
+  if (Test-Path $f) { return (Get-Content $f -Raw).Trim() }
+  return $null
+}
+
+# Telecharge l'application dans $Dossier. Les fichiers generes sur ce PC
+# (mots de passe, donnees) ne sont pas dans le telechargement : ils sont conserves.
+function Telecharger {
+  Titre "Telechargement de l'application"
+  $tmp = Join-Path $env:TEMP ('ocr-' + [guid]::NewGuid())
+  New-Item -ItemType Directory -Path $tmp | Out-Null
+  try {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    $zip = Join-Path $tmp 'ocr.zip'
+    $ref = if ($Derniere) { $Derniere } else { "refs/heads/$Branche" }
+    Invoke-WebRequest -UseBasicParsing -Uri "https://codeload.github.com/$Depot/zip/$ref" -OutFile $zip
+    Expand-Archive -Path $zip -DestinationPath $tmp -Force
+    $source = Get-ChildItem -Path $tmp -Directory | Select-Object -First 1
+    Copy-Item -Path (Join-Path $source.FullName '*') -Destination $Dossier -Recurse -Force
+    if ($Derniere) { Set-Content -Path (Join-Path $Dossier 'local\.version') -Value $Derniere }
+  } catch {
+    Erreur "Le telechargement a echoue : $($_.Exception.Message)"
+    Write-Host '  Verifiez votre connexion Internet puis collez a nouveau la commande.'
+    Fin 1
+  } finally {
+    Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
+  }
+  Ok "Application telechargee dans $Dossier"
+}
+
+function LancerInstallation {
+  Titre 'Installation et recuperation de vos donnees'
+  Set-Location $Dossier
+  & cmd.exe /c "`"$Dossier\Installer-OCR.bat`""
+}
+
+# Demarre une application deja installee et l'ouvre dans le navigateur.
+function DemarrerApplication {
+  Titre "Demarrage de l'application"
+  docker compose -f (Join-Path $Dossier 'local\docker-compose.yml') up -d
+  if ($LASTEXITCODE -ne 0) {
+    Erreur 'Le demarrage a echoue. Faites une capture de cette fenetre et envoyez-la a votre prestataire.'
+    Fin 1
+  }
+  Write-Host '  Ouverture de l''application (jusqu''a 1 minute)...'
+  $limite = (Get-Date).AddSeconds(90)
+  while ((Get-Date) -lt $limite) {
+    try { Invoke-WebRequest -UseBasicParsing -TimeoutSec 3 -Uri 'http://localhost:3000' | Out-Null; break } catch { Start-Sleep -Seconds 3 }
+  }
+  Start-Process 'http://localhost:3000'
+  Ok 'L''application est ouverte dans votre navigateur : http://localhost:3000'
+}
+
+# --- 2. Installation deja presente ? ------------------------------------------------
+$Dossier = $null
+if (Test-Path $Memoire) {
+  $p = (Get-Content $Memoire -Raw).Trim()
+  if ($p -and (Test-Path (Join-Path $p 'Installer-OCR.bat'))) { $Dossier = $p }
+}
+if (-not $Dossier) {
+  $p = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'OCR'
+  if (Test-Path (Join-Path $p 'Installer-OCR.bat')) { $Dossier = $p }
+}
+$Derniere = DerniereVersion
+
+if ($Dossier) {
+  $installee = VersionInstallee
+  $nouvelle = $Derniere -and ($Derniere -ne $installee)
+  if (Test-Path (Join-Path $Dossier 'local\.migration-ok')) {
+    Titre 'L''application est deja installee'
+    Write-Host "  Dossier : $Dossier"
+    if ($nouvelle -and (OuiNon 'Une nouvelle version est disponible. L''installer maintenant ?')) {
+      Telecharger
+      LancerInstallation
+    } else {
+      DemarrerApplication
+      Fin 0
+    }
+  } else {
+    Titre 'Reprise de l''installation'
+    Write-Host "  Une installation commencee a ete trouvee dans $Dossier : elle reprend la ou elle s'etait arretee."
+    if ($nouvelle -or -not $installee) { Telecharger }
+    LancerInstallation
+  }
+  return
+}
+
+# --- 3. Premiere installation : choix du dossier ------------------------------------
+Titre 'Dossier d''installation'
+$propose = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'OCR'
 Write-Host '  Dans quel dossier voulez-vous installer l''application ?'
 Write-Host "  Appuyez simplement sur Entree pour choisir : $propose"
 Write-Host '  Ou tapez (ou collez) un autre chemin, par exemple D:\Applications\OCR'
@@ -143,30 +234,10 @@ while ($true) {
 New-Item -ItemType Directory -Force -Path (Split-Path $Memoire) | Out-Null
 Set-Content -Path $Memoire -Value $Dossier
 
-# --- 3. Telechargement de l'application --------------------------------------
-Titre "Etape 3 : telechargement de l'application"
-$tmp = Join-Path $env:TEMP ('ocr-' + [guid]::NewGuid())
-New-Item -ItemType Directory -Path $tmp | Out-Null
-try {
-  [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-  $zip = Join-Path $tmp 'ocr.zip'
-  Invoke-WebRequest -UseBasicParsing -Uri "https://codeload.github.com/$Depot/zip/refs/heads/$Branche" -OutFile $zip
-  Expand-Archive -Path $zip -DestinationPath $tmp -Force
-  $source = Get-ChildItem -Path $tmp -Directory | Select-Object -First 1
-  # Les fichiers generes sur ce PC (mots de passe, donnees) ne sont pas dans le
-  # telechargement : ils sont conserves.
-  Copy-Item -Path (Join-Path $source.FullName '*') -Destination $Dossier -Recurse -Force
-} catch {
-  Erreur "Le telechargement a echoue : $($_.Exception.Message)"
-  Write-Host '  Verifiez votre connexion Internet puis collez a nouveau la commande.'
-  Fin 1
-} finally {
-  Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
-}
-Ok "Application telechargee dans $Dossier"
+Telecharger
 
 # --- 4. Raccourcis sur le Bureau ---------------------------------------------
-Titre 'Etape 4 : raccourcis'
+Titre 'Raccourcis'
 if (OuiNon 'Voulez-vous un raccourci "Application OCR" (et "Dossier OCR") sur le Bureau ?') {
   try {
     $bureau = [Environment]::GetFolderPath('Desktop')
@@ -186,7 +257,4 @@ if (OuiNon 'Voulez-vous un raccourci "Application OCR" (et "Dossier OCR") sur le
   Write-Host "  Pas de raccourci. L'application sera dans : $Dossier"
 }
 
-# --- 5. Assistant -------------------------------------------------------------
-Titre 'Etape 5 : installation et recuperation de vos donnees'
-Set-Location $Dossier
-& cmd.exe /c "`"$Dossier\Installer-OCR.bat`""
+LancerInstallation
