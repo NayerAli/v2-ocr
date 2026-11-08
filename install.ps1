@@ -96,6 +96,13 @@ if ($LASTEXITCODE -ne 0) {
 Ok 'Docker Desktop fonctionne.'
 
 # --- Outils ----------------------------------------------------------------------
+# Dossier Documents de l'utilisateur (avec solutions de secours).
+function DossierDocuments {
+  $d = [Environment]::GetFolderPath('MyDocuments')
+  if (-not $d) { $d = if ($env:USERPROFILE) { Join-Path $env:USERPROFILE 'Documents' } else { $HOME } }
+  return $d
+}
+
 # Derniere version publiee (identifiant du commit), ou $null si GitHub ne repond pas.
 function DerniereVersion {
   try {
@@ -166,7 +173,7 @@ if (Test-Path $Memoire) {
   if ($p -and (Test-Path (Join-Path $p 'Installer-OCR.bat'))) { $Dossier = $p }
 }
 if (-not $Dossier) {
-  $p = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'OCR'
+  $p = Join-Path (DossierDocuments) 'OCR'
   if (Test-Path (Join-Path $p 'Installer-OCR.bat')) { $Dossier = $p }
 }
 $Derniere = DerniereVersion
@@ -195,7 +202,7 @@ if ($Dossier) {
 
 # --- 3. Premiere installation : choix du dossier ------------------------------------
 Titre 'Dossier d''installation'
-$propose = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'OCR'
+$propose = Join-Path (DossierDocuments) 'OCR'
 Write-Host '  Dans quel dossier voulez-vous installer l''application ?'
 Write-Host "  Appuyez simplement sur Entree pour choisir : $propose"
 Write-Host '  Ou tapez (ou collez) un autre chemin, par exemple D:\Applications\OCR'
