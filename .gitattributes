@@ -4,4 +4,4 @@
 public/demo_ocr_app.mp4 export-ignore
 public/demo_ocr_app.gif export-ignore
 public/demo_ocr_v2.gif export-ignore
-dist/ export-ignore
+/dist/ export-ignore
