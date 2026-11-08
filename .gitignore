@@ -97,3 +97,5 @@ local/.version
 MES-ACCES.txt
 rapport-migration.txt
 diagnostic-supabase.txt
+local/infos-pc.txt
+local/.adresse-serveur

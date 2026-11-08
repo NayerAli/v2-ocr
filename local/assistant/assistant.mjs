@@ -297,6 +297,14 @@ async function sonder(methode, adresse, entetes = {}, corps) {
   }
 }
 
+function lireInfosPC() {
+  try {
+    return fs.readFileSync(path.join(LOCAL, 'infos-pc.txt'), 'utf8').replace(/^\uFEFF/, '').replace(/\r/g, '').trim()
+  } catch {
+    return '(non disponible : relancez la commande d\'installation pour les collecter)'
+  }
+}
+
 async function diagnostic(url, cle, contexte) {
   const k = cle ? { apikey: cle, Authorization: `Bearer ${cle}` } : {}
   let version = '?'
@@ -321,6 +329,9 @@ async function diagnostic(url, cle, contexte) {
     await sonder('GET', `${url}/storage/v1/bucket`, k),
     await sonder('POST', `${url}/pg/query`, { ...k, 'Content-Type': 'application/json' }, JSON.stringify({ query: 'select 1 as ok' })),
     await sonder('GET', `${url}/rest/v1/`, k),
+    '',
+    '-------------------- CE PC (vu depuis Windows) --------------------',
+    lireInfosPC(),
     '==============================================================',
   ]
   const texte = lignes.join('\n')
@@ -388,6 +399,7 @@ async function questions(rl) {
       const corps = await rep.text()
       if (bloqueParCloudflare(rep, corps)) {
         dire(c.ok(`  Serveur trouvé : ${url}`))
+        try { fs.writeFileSync(path.join(LOCAL, '.adresse-serveur'), url) } catch {}
         const autre = await attendreCloudflare(rl, url)
         if (autre === url) break
         saisieSuivante = autre // on vérifie l'adresse directe au prochain tour
@@ -395,6 +407,7 @@ async function questions(rl) {
       }
       if (rep.status >= 500) throw new Error(`le serveur répond avec une erreur ${rep.status}`)
       dire(c.ok(`  Serveur trouvé : ${url}`))
+      try { fs.writeFileSync(path.join(LOCAL, '.adresse-serveur'), url) } catch {}
       break
     } catch (e) {
       dire(c.err(`  Impossible de joindre cette adresse (${e.message}).`))

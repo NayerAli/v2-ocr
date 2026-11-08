@@ -149,8 +149,48 @@ function Telecharger {
   Ok "Application telechargee dans $Dossier"
 }
 
+# Informations sur ce PC (reseau, VPN, IP...) pour le diagnostic en cas de probleme.
+# Ecrites dans local\infos-pc.txt ; l'assistant les ajoute a son diagnostic.
+function InfosPC {
+  $l = New-Object System.Collections.Generic.List[string]
+  function Ajouter($titre, $bloc) { try { $v = & $bloc | Out-String } catch { $v = "(indisponible : $($_.Exception.Message))" }; $l.Add("--- $titre"); $l.Add($v.Trim()) }
+  $l.Add("Date (UTC)   : $((Get-Date).ToUniversalTime().ToString('s'))")
+  $l.Add("PC           : $env:COMPUTERNAME   utilisateur : $env:USERNAME")
+  Ajouter 'Windows' { (Get-CimInstance Win32_OperatingSystem | Select-Object Caption, Version, OSArchitecture | Format-List | Out-String).Trim() }
+  Ajouter 'IP publique vue par Cloudflare (depuis Windows)' {
+    foreach ($u in @($script:AdresseServeur, 'https://www.cloudflare.com') | Where-Object { $_ }) {
+      "[$u] " + (((Invoke-WebRequest -UseBasicParsing -TimeoutSec 10 -Uri "$u/cdn-cgi/trace").Content -split "`n" | Where-Object { $_ -match '^(ip|colo|loc|warp|gateway|http)=' }) -join ' ; ')
+    }
+  }
+  Ajouter 'Cartes reseau actives (un VPN apparait ici)' { Get-NetAdapter | Where-Object Status -eq 'Up' | Select-Object Name, InterfaceDescription, LinkSpeed | Format-Table -AutoSize | Out-String -Width 200 }
+  Ajouter 'Adresses IP locales' { Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' } | Select-Object InterfaceAlias, IPAddress, PrefixLength | Format-Table -AutoSize | Out-String -Width 200 }
+  Ajouter 'Route par defaut' { Get-NetRoute -DestinationPrefix '0.0.0.0/0' | Select-Object InterfaceAlias, NextHop, RouteMetric | Format-Table -AutoSize | Out-String -Width 200 }
+  Ajouter 'Serveurs DNS' { Get-DnsClientServerAddress -AddressFamily IPv4 | Where-Object { $_.ServerAddresses } | Select-Object InterfaceAlias, ServerAddresses | Format-Table -AutoSize | Out-String -Width 200 }
+  Ajouter 'Proxy Windows' { netsh winhttp show proxy }
+  if ($script:AdresseServeur) {
+    $h = ([uri]$script:AdresseServeur).Host
+    Ajouter "Resolution DNS de $h" { Resolve-DnsName $h -Type A | Select-Object Name, IPAddress | Format-Table -AutoSize | Out-String }
+    Ajouter "Test du serveur depuis Windows ($h)" {
+      try { $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 15 -Uri "$($script:AdresseServeur)/auth/v1/health"; "HTTP $($r.StatusCode)" }
+      catch {
+        $rep = $_.Exception.Response
+        if (-not $rep) { return "ECHEC : $($_.Exception.Message)" }
+        # Windows PowerShell 5 et PowerShell 7 n'exposent pas les en-tetes de la meme facon
+        $lire = { param($n) $v = $null; try { $v = $rep.Headers[$n] } catch { }; if (-not $v) { try { $v = ($rep.Headers.GetValues($n)) -join ',' } catch { } }; "$v" }
+        "HTTP $([int]$rep.StatusCode) ; cf-ray=$(& $lire 'cf-ray') ; cf-mitigated=$(& $lire 'cf-mitigated') ; server=$(& $lire 'Server')"
+      }
+    }
+  }
+  Ajouter 'Docker' { docker version --format 'client {{.Client.Version}} / serveur {{.Server.Version}} ({{.Server.Os}})' }
+  try { Set-Content -Path (Join-Path $Dossier 'local\infos-pc.txt') -Value ($l -join "`r`n") -Encoding UTF8 } catch { }
+}
+
 function LancerInstallation {
   Titre 'Installation et recuperation de vos donnees'
+  $f = Join-Path $Dossier 'local\.adresse-serveur'
+  $script:AdresseServeur = if (Test-Path $f) { (Get-Content $f -Raw).Trim() } else { $null }
+  Write-Host '  Collecte des informations reseau de ce PC (pour le diagnostic)...'
+  InfosPC
   Set-Location $Dossier
   & cmd.exe /c "`"$Dossier\Installer-OCR.bat`""
 }
