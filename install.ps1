@@ -39,6 +39,12 @@ Write-Host '  ==========================================================' -Foreg
 
 # --- 1. Docker Desktop -------------------------------------------------------
 Titre 'Etape 1 : Docker Desktop'
+# Docker deja installe mais absent du PATH de cette fenetre : on le retrouve.
+if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
+  foreach ($bin in @("$env:ProgramFiles\Docker\Docker\resources\bin", "$env:LOCALAPPDATA\Programs\Docker\Docker\resources\bin")) {
+    if ($bin -and (Test-Path (Join-Path $bin 'docker.exe'))) { $env:Path = "$bin;$env:Path"; break }
+  }
+}
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
   Write-Host '  L''application a besoin de Docker Desktop (logiciel gratuit),'
   Write-Host '  qui n''est pas installe sur cet ordinateur.'

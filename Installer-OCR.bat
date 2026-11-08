@@ -16,12 +16,20 @@ if not exist "local\.env" (
 )
 
 echo.
+rem Base deja demarree (installation reprise) : on ne refait rien.
+docker compose -f local\docker-compose.yml ps --services --status running 2>nul | findstr /x "kong" >nul
+if not errorlevel 1 (
+  echo  Etape 1/3 : la base de donnees tourne deja, rien a refaire.
+  goto etape2
+)
 echo  Etape 1/3 : demarrage de la base de donnees.
 echo  La premiere fois, le telechargement peut prendre 10 a 20 minutes.
 echo  Ne fermez pas cette fenetre.
 echo.
 docker compose -f local\docker-compose.yml up -d --wait db auth rest storage meta studio kong
 if errorlevel 1 goto erreur
+
+:etape2
 
 if not exist "local\.migration-ok" (
   echo.

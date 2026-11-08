@@ -222,7 +222,7 @@ async function attendreCloudflare(rl, url) {
   const hote = new URL(url).hostname
   const domaine = hote.split('.').slice(-2).join('.')
   const ip = await ipPublique(url)
-  dire()
+  await diagnostic(url, cleCourante, 'bloqué par Cloudflare')
   dire(c.err('  Votre serveur Supabase est protégé par Cloudflare, qui bloque la copie'))
   dire(c.err('  automatique (il la prend pour un robot). Ce n\'est PAS un problème de clé.'))
   dire('  Cela arrive surtout avec un VPN ou un réseau d\'entreprise.')
@@ -264,6 +264,75 @@ class ErreurAcces extends Error {
     super(detail)
     this.type = type
   }
+}
+
+
+// ---------------------------------------------------------------------------
+// Diagnostic détaillé (à envoyer au prestataire en cas de problème de connexion)
+// ---------------------------------------------------------------------------
+
+function resumeCle(cle) {
+  if (!cle) return '(aucune)'
+  let charge = ''
+  try {
+    const p = JSON.parse(Buffer.from(cle.split('.')[1], 'base64url').toString())
+    const date = (t) => (t ? new Date(t * 1000).toISOString() : '?')
+    charge = ` | role=${p.role} iss=${p.iss ?? '?'} iat=${date(p.iat)} exp=${date(p.exp)}`
+  } catch {
+    charge = ' | (pas un JWT lisible)'
+  }
+  return `${cle.length} caractères, ${cle.slice(0, 10)}...${cle.slice(-6)}${charge}`
+}
+
+async function sonder(methode, adresse, entetes = {}, corps) {
+  const debut = Date.now()
+  try {
+    const rep = await fetch(adresse, { method: methode, headers: entetes, body: corps, signal: AbortSignal.timeout(20000) })
+    const texte = (await rep.text()).replace(/\s+/g, ' ').slice(0, 300)
+    const garder = ['server', 'cf-ray', 'cf-mitigated', 'cf-cache-status', 'content-type', 'www-authenticate', 'via', 'x-kong-response-latency', 'x-envoy-upstream-service-time']
+    const h = garder.filter((k) => rep.headers.get(k)).map((k) => `${k}=${rep.headers.get(k)}`).join(' ; ')
+    return `${methode} ${adresse}\n    -> HTTP ${rep.status} en ${Date.now() - debut} ms\n    -> en-têtes : ${h || '(aucun utile)'}\n    -> réponse : ${texte || '(vide)'}`
+  } catch (e) {
+    return `${methode} ${adresse}\n    -> ÉCHEC réseau : ${messageReseau(e)} [${e?.cause?.code || e?.name || ''}]`
+  }
+}
+
+async function diagnostic(url, cle, contexte) {
+  const k = cle ? { apikey: cle, Authorization: `Bearer ${cle}` } : {}
+  let version = '?'
+  try { version = fs.readFileSync(path.join(LOCAL, '.version'), 'utf8').trim().slice(0, 7) } catch {}
+  let trace = '(indisponible)'
+  try {
+    trace = (await (await fetch(`${url}/cdn-cgi/trace`, { signal: AbortSignal.timeout(10000) })).text())
+      .split('\n').filter((l) => /^(ip|colo|loc|http|tls|warp|gateway|uag|ts)=/.test(l)).join(' ; ') || '(vide)'
+  } catch (e) { trace = `(échec : ${messageReseau(e)})` }
+
+  const lignes = [
+    '==================== DIAGNOSTIC A ENVOYER ====================',
+    `Contexte     : ${contexte}`,
+    `Date (UTC)   : ${new Date().toISOString()}`,
+    `Version      : ${version}`,
+    `Adresse      : ${url}`,
+    `Clé          : ${resumeCle(cle)}`,
+    `Cloudflare   : ${trace}`,
+    '',
+    await sonder('GET', `${url}/auth/v1/health`),
+    await sonder('GET', `${url}/auth/v1/health`, k),
+    await sonder('GET', `${url}/storage/v1/bucket`, k),
+    await sonder('POST', `${url}/pg/query`, { ...k, 'Content-Type': 'application/json' }, JSON.stringify({ query: 'select 1 as ok' })),
+    await sonder('GET', `${url}/rest/v1/`, k),
+    '==============================================================',
+  ]
+  const texte = lignes.join('\n')
+  dire()
+  dire(texte)
+  try {
+    fs.writeFileSync(path.join(PROJET, 'diagnostic-supabase.txt'), texte.replace(/\n/g, '\r\n'))
+    dire(c.gras('  Ces informations sont aussi enregistrées dans le fichier « diagnostic-supabase.txt »'))
+    dire(c.gras('  du dossier de l\'application : envoyez ce fichier (ou une capture) à votre prestataire.'))
+  } catch {}
+  dire('  (La clé n\'y figure pas en entier : seuls son début et sa fin sont affichés.)')
+  dire()
 }
 
 // ---------------------------------------------------------------------------
@@ -359,6 +428,7 @@ async function questions(rl) {
       continue
     }
     ancien.cle = cle
+    cleCourante = cle
     // La clé doit d'abord ouvrir le stockage des fichiers (sinon la copie échouerait plus tard).
     let stockage = await ancien.verifierStockage()
     while (stockage === 'cloudflare') {
@@ -367,9 +437,13 @@ async function questions(rl) {
     }
     if (stockage === 'refus') {
       dire(c.err('  Le serveur refuse cette clé. Vérifiez que vous avez copié la clé « service_role » de CE serveur.'))
+      await diagnostic(url, cle, 'clé refusée par le stockage des fichiers')
       continue
     }
-    if (stockage !== 'ok') throw new Error(`Le stockage des fichiers du serveur ne répond pas (${stockage}).`)
+    if (stockage !== 'ok') {
+      await diagnostic(url, cle, `stockage des fichiers injoignable (${stockage})`)
+      throw new Error(`Le stockage des fichiers du serveur ne répond pas (${stockage}).`)
+    }
     try {
       for (;;) {
         try {
@@ -383,6 +457,7 @@ async function questions(rl) {
       dire(c.ok('  Clé acceptée.'))
       return ancien
     } catch (e) {
+      await diagnostic(url, cle, `accès à la base refusé (${e.type || 'erreur'} : ${e.message})`)
       if (e.type === 'refus' && ++refus < 2) {
         dire(c.err('  Le serveur refuse cette clé. Vérifiez que vous avez copié la clé « service_role » de CE serveur.'))
         continue
@@ -567,6 +642,7 @@ function rolesCites(s) {
   return [...roles]
 }
 
+let cleCourante = ''
 const qid = (s) => `"${String(s).replace(/"/g, '""')}"`
 const lit = (s) => `'${String(s).replace(/'/g, "''")}'`
 
