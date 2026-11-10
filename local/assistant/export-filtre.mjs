@@ -13,9 +13,24 @@ import crypto from 'node:crypto'
 import readline from 'node:readline/promises'
 import { fileURLToPath } from 'node:url'
 import { questions, lireStructure, colonnesSource, copierTable, compter, demarrerSuivi, arreterSuivi, suivi } from './assistant.mjs'
-import { ArchiveSource } from './archive.mjs'
-
 const digest = (valeur) => crypto.createHash('sha256').update(valeur).digest('hex')
+
+// Empreinte SHA-256 d'un fichier, lue par morceaux : asynchrone (le suivi continue de s'afficher)
+// et sans charger le fichier entier en mémoire.
+async function empreinteFichier(fichier) {
+  const h = crypto.createHash('sha256')
+  let taille = 0
+  for await (const morceau of fs.createReadStream(fichier)) { h.update(morceau); taille += morceau.length }
+  return { hash: h.digest('hex'), taille }
+}
+
+// Vérifie chaque fichier du manifeste contre son empreinte, un fichier à la fois.
+async function verifierArchive(payload, manifest) {
+  for (const [nom, attendu] of Object.entries(manifest.files)) {
+    const { hash } = await empreinteFichier(path.join(payload, nom))
+    if (hash !== attendu) throw new Error(`Archive incomplète ou endommagée : ${nom}`)
+  }
+}
 const cleRequete = (texte) => digest(texte.trim().replace(/\r\n/g, '\n'))
 const lit = (s) => `'${String(s).replace(/'/g, "''")}'`
 const qid = (s) => `"${String(s).replace(/"/g, '""')}"`
@@ -381,14 +396,18 @@ async function exporterArchive({ remote, dossier, choisis, nonChoisis, totalLign
     const taille = (i) => (Number.isFinite(tailles[i]) && tailles[i] >= 0 ? tailles[i] : moyenne)
     const total = objets.reduce((a, _, i) => a + taille(i), 0)
     // Fichiers déjà reçus (reprise) : inscrits au manifeste et comptés dans l'avancement, sans retéléchargement.
+    // Asynchrone (flux) : pendant ce parcours, le suivi et les lignes d'état continuent de s'afficher.
     const aFaire = []
     let dejaRecu = 0
-    objets.forEach((objet, i) => {
+    for (const [i, objet] of objets.entries()) {
       const nom = digest(JSON.stringify([objet.bucket_id, objet.name])) + '.bin'
-      const existant = relire(nom)
-      if (existant) { manifest.files[nom] = digest(existant); dejaRecu += existant.length }
-      else aFaire.push({ objet, nom })
-    })
+      if (fs.existsSync(chemin(nom))) {
+        suivi.detail = `vérification des fichiers déjà reçus : ${i + 1}/${objets.length}`
+        const { hash, taille: octets } = await empreinteFichier(chemin(nom))
+        manifest.files[nom] = hash
+        dejaRecu += octets
+      } else aFaire.push({ objet, nom })
+    }
     suivi.unite = 'Mo'
     suivi.facteur = 1048576
     suivi.paquet = 0
@@ -410,8 +429,9 @@ async function exporterArchive({ remote, dossier, choisis, nonChoisis, totalLign
     suivi.unite = undefined
     suivi.facteur = undefined
     fs.writeFileSync(path.join(dossier, 'fichiers.tsv'), objets.map((o) => `${o.bucket_id}\t${o.name}\t${o.metadata?.size ?? ''}`).join('\n') + (objets.length ? '\n' : ''))
-  } finally {
+  } catch (e) {
     arreterSuivi()
+    throw e
   }
   // Fichiers restés d'un essai précédent qui ne font plus partie de cet export : retirés avant le contrôle.
   for (const nom of fs.readdirSync(payload)) {
@@ -419,7 +439,8 @@ async function exporterArchive({ remote, dossier, choisis, nonChoisis, totalLign
   }
 
   // Contrôle : rien d'un compte non choisi dans l'archive ; les clés des comptes choisis y sont.
-  const contenus = fs.readdirSync(payload).filter((f) => /\.(json|bin)$/.test(f)).map((f) => fs.readFileSync(chemin(f)))
+  // Fichier par fichier, en asynchrone : pas de chargement de toute l'archive en mémoire.
+  suivi.etape = 'Contrôle des comptes'
   const interdits = new Map()
   for (const cpt of nonChoisis) {
     interdits.set(cpt.id, `identifiant d'un compte non choisi`)
@@ -428,15 +449,25 @@ async function exporterArchive({ remote, dossier, choisis, nonChoisis, totalLign
   for (const v of await valeursCles(remote, (q) => { const sel = predicat(q, 't', SEL_LISTE); return sel ? `NOT COALESCE(${sel}, false)` : 'true' })) {
     interdits.set(`"${v}"`, 'clé d\'un compte non choisi')
   }
-  let fuites = 0
-  for (const [motif, libelle] of interdits) {
-    if (contenus.some((buf) => buf.includes(Buffer.from(motif)))) { fuites++; dire(`  ECHEC : ${libelle} présent dans l'archive`) }
-  }
-  let absentes = 0
+  const attendus = new Map()
   for (const v of await valeursCles(remote, (q) => { const sel = predicat(q, 't', SEL_LISTE); return sel ? `COALESCE(${sel}, false)` : 'false' })) {
-    if (!contenus.some((buf) => buf.includes(Buffer.from(`"${v}"`)))) absentes++
+    attendus.set(`"${v}"`, 'clé d\'un compte choisi')
   }
-  for (const cpt of choisis) if (!contenus.some((buf) => buf.includes(Buffer.from(cpt.id)))) absentes++
+  for (const cpt of choisis) attendus.set(cpt.id, 'identifiant d\'un compte choisi')
+  const trouvesInterdits = new Set()
+  const trouvesAttendus = new Set()
+  const fichiersArchive = fs.readdirSync(payload).filter((f) => /\.(json|bin)$/.test(f))
+  for (const [i, nom] of fichiersArchive.entries()) {
+    suivi.detail = `${i + 1}/${fichiersArchive.length} : ${nom}`
+    const buf = await fs.promises.readFile(chemin(nom))
+    for (const motif of interdits.keys()) if (buf.includes(Buffer.from(motif))) trouvesInterdits.add(motif)
+    for (const motif of attendus.keys()) if (buf.includes(Buffer.from(motif))) trouvesAttendus.add(motif)
+  }
+  suivi.detail = ''
+  let fuites = 0
+  for (const motif of trouvesInterdits) { fuites++; dire(`  ECHEC : ${interdits.get(motif)} présent dans l'archive`) }
+  const absentes = [...attendus.keys()].filter((m) => !trouvesAttendus.has(m)).length
+  arreterSuivi()
   if (fuites || absentes) {
     // Les réponses SQL en cache ne doivent pas figer une donnée fautive : la relance relit la base.
     // Les fichiers déjà téléchargés sont gardés et réutilisés.
@@ -446,7 +477,7 @@ async function exporterArchive({ remote, dossier, choisis, nonChoisis, totalLign
 
   // Seul un export qui a passé le contrôle reçoit son manifeste : c'est lui qui marque l'export comme terminé.
   fs.writeFileSync(path.join(payload, 'manifest.json'), JSON.stringify(manifest, null, 2))
-  new ArchiveSource(payload)
+  await verifierArchive(payload, manifest)
   dire('Archive écrite et vérifiée (empreintes des fichiers et contrôle des comptes).')
 
   // Rapport (hors archive : il contient des adresses e-mail)
