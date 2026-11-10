@@ -51,8 +51,32 @@ if (Test-Path -LiteralPath $manifest) {
   Write-Host 'Choix des comptes a transmettre : seuls les comptes choisis, leurs donnees, documents et cles OCR sont exportes.'
   Write-Host 'Le serveur est seulement lu. Une ligne d etat s affiche toutes les 15 secondes.'
   Write-Host 'Si la copie s interrompt, relancez cette meme commande : elle reprend au meme endroit.'
-  # Dossier de l assistant monte en lecture seule : aucune adresse de serveur n est ecrite dans le kit.
-  DockerOk run --rm -it -v "$kit\local\assistant:/projet/local/assistant:ro" -v "${exportDir}:/sortie" -w /sortie node:20-alpine node /projet/local/assistant/export-filtre.mjs /sortie
+  # Identifiants du serveur : memorises chiffres pour ce compte Windows (Export-Clixml, DPAPI), hors du kit.
+  $identifiants = Join-Path $work 'identifiants.clixml'
+  $adresse = $null
+  $cle = $null
+  if (Test-Path -LiteralPath $identifiants) {
+    $memorises = Import-Clixml -LiteralPath $identifiants
+    Write-Host "Identifiants memorises pour le serveur : $($memorises.adresse)"
+    $rep = Read-Host 'Les reutiliser ? (O/n)'
+    if ($rep -notmatch '^(n|non)$') { $adresse = $memorises.adresse; $cle = $memorises.cle }
+  }
+  if (-not $adresse) {
+    $adresse = (Read-Host 'Adresse du Supabase actuel (ex. http://51.68.12.34:8000)').Trim()
+    $cle = Read-Host 'Cle service_role (saisie masquee)' -AsSecureString
+    $rep = Read-Host 'Memoriser ces identifiants pour les prochaines relances sur ce PC ? (O/n)'
+    if ($rep -notmatch '^(n|non)$') { @{ adresse = $adresse; cle = $cle } | Export-Clixml -LiteralPath $identifiants }
+  }
+  # Passes au conteneur par variables d'environnement (pas sur la ligne de commande) ; effaces ensuite.
+  $env:OCR_ADRESSE = $adresse
+  $env:OCR_CLE = [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($cle))
+  try {
+    # Dossier de l assistant monte en lecture seule : aucune adresse de serveur n est ecrite dans le kit.
+    DockerOk run --rm -it -e OCR_ADRESSE -e OCR_CLE -v "$kit\local\assistant:/projet/local/assistant:ro" -v "${exportDir}:/sortie" -w /sortie node:20-alpine node /projet/local/assistant/export-filtre.mjs /sortie
+  } finally {
+    Remove-Item Env:OCR_CLE -ErrorAction SilentlyContinue
+    Remove-Item Env:OCR_ADRESSE -ErrorAction SilentlyContinue
+  }
   if (-not (Test-Path -LiteralPath (Join-Path $exportDir 'payload\manifest.json'))) { throw 'Aucune archive produite : export annule ou interrompu.' }
   Move-Item -LiteralPath (Join-Path $exportDir 'payload') -Destination $payload
   Write-Host "Rapport de filtrage (adresses e-mail : ne pas transmettre) : $(Join-Path $exportDir 'rapport-filtrage.txt')" -ForegroundColor Yellow
@@ -82,5 +106,11 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 if (Test-Path -LiteralPath $output) { Move-Item -LiteralPath $output -Destination ($output + '.' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.bak') }
 Move-Item -LiteralPath $partial -Destination $output
 Write-Host "TERMINE : $output" -ForegroundColor Green
+# Le ZIP est fait : la cle service_role n'a plus besoin de rester sur ce PC.
+$identifiants = Join-Path $work 'identifiants.clixml'
+if (Test-Path -LiteralPath $identifiants) {
+  $rep = Read-Host 'Supprimer les identifiants memorises sur ce PC ? (O/n)'
+  if ($rep -notmatch '^(n|non)$') { Remove-Item -LiteralPath $identifiants -Force; Write-Host 'Identifiants supprimes.' }
+}
 Write-Host 'Envoyez ce ZIP au destinataire. Il contient uniquement les comptes choisis, leurs donnees et documents : partagez-le uniquement avec lui.'
 Write-Host "Dossier de travail conserve : $work (supprimez-le pour recommencer l export a zero)"

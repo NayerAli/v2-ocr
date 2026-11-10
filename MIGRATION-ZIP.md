@@ -14,7 +14,11 @@ L'assistant demande l'adresse Supabase et la cle service_role. Il liste ensuite 
 comptes du serveur : on tape leurs numeros (ex. `1,3`), et seuls ces comptes partent
 dans le ZIP, avec leurs lignes liees, leurs fichiers Storage et leurs cles OCR. Les
 comptes non choisis, les cles systeme et les lignes sans compte ne sont pas exportes
-(sauf confirmation explicite). Le serveur n'est lu que par l'API (port 8000). Eviter toute utilisation
+(sauf confirmation explicite). Le serveur n'est lu que par l'API (port 8000).
+
+L'adresse et la cle `service_role` peuvent etre memorisees sur ce PC pour les relances
+(fichier `%LOCALAPPDATA%\OCR-export\identifiants.clixml`, chiffre pour votre compte Windows,
+jamais inclus dans le ZIP). Elles sont supprimees a la fin du ZIP, sauf refus explicite. Eviter toute utilisation
 de l'application source pendant l'export : les lectures via l'API ne constituent
 pas un instantane transactionnel global. Les changements de nombre de lignes ou
 de liste de fichiers detectes interrompent l'export.

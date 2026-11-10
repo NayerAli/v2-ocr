@@ -427,6 +427,13 @@ async function demander(rl, question) {
 }
 
 async function questions(rl) {
+  // Identifiants déjà connus du lanceur (mémorisés sur ce PC) : utilisés une seule fois, sans question.
+  // Si un identifiant est refusé, la question revient normalement.
+  const reprises = { adresse: process.env.OCR_ADRESSE || '', cle: process.env.OCR_CLE || '' }
+  const saisir = async (nom, question) => {
+    if (reprises[nom]) { const valeur = reprises[nom]; reprises[nom] = ''; return valeur }
+    return demander(rl, question)
+  }
   dire(c.titre('Question 1 sur 2 : l\'adresse de votre Supabase actuel'))
   dire('  1. Ouvrez l\'espace d\'administration Supabase dans votre navigateur.')
   dire('  2. Sur la page d\'accueil, sous le nom du projet, cliquez sur « Copy »,')
@@ -438,7 +445,7 @@ async function questions(rl) {
 
   let url
   for (;;) {
-    const saisie = await demander(rl, 'Adresse : ')
+    const saisie = await saisir('adresse', 'Adresse : ')
     try {
       url = nettoyerUrl(saisie)
       if (/^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:|$)/i.test(url)) {
@@ -474,7 +481,7 @@ async function questions(rl) {
   const ancien = new AncienSupabase(url, '')
   let refus = 0
   for (;;) {
-    const cle = (await demander(rl, 'Clé service_role : ')).replace(/\s+/g, '')
+    const cle = (await saisir('cle', 'Clé service_role : ')).replace(/\s+/g, '')
     const role = roleDeLaCle(cle)
     if (role === 'anon') {
       dire(c.err('  C\'est la clé « anon » (publique). Il faut celle juste en dessous : « service_role ».'))
