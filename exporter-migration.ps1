@@ -81,23 +81,24 @@ if (Test-Path -LiteralPath $manifest) {
   Move-Item -LiteralPath (Join-Path $exportDir 'payload') -Destination $payload
   Write-Host "Rapport de filtrage (adresses e-mail : ne pas transmettre) : $(Join-Path $exportDir 'rapport-filtrage.txt')" -ForegroundColor Yellow
 }
-Write-Host 'Preparation de l application (plusieurs minutes)...'
-$appTag = "ocr-offline-app:$($head.sha)"
-DockerOk build --target prod -t $appTag $source
-$images = @('node:20-alpine', $appTag)
+Write-Host 'Preparation des images des services (plusieurs minutes)...'
+# L'application n'est pas construite ici : elle se construit sur le PC du client, avec son propre .env.local.
+$images = @('node:20-alpine')
 foreach ($line in Get-Content "$source\local\docker-compose.yml") {
   if ($line -match '^\s+image:\s*(\S+)\s*$') { $images += $Matches[1] }
 }
 $images = @($images | Select-Object -Unique)
-foreach ($image in $images) { if ($image -ne $appTag) { DockerOk pull $image } }
+foreach ($image in $images) { DockerOk pull $image }
 DockerOk save -o "$kit\images.tar" @images
 Remove-Item -LiteralPath "$kit\local\.adresse-serveur" -Force -ErrorAction SilentlyContinue
+# Garde-fou : aucune configuration secrete (.env, .env.local...) ne doit partir chez le client.
+if (Get-ChildItem -LiteralPath $kit -Recurse -File | Where-Object { $_.Name -match '^\.env(\..+)?$' }) { throw 'Fichier .env detecte dans le kit : export annule.' }
 $files = @{}
 foreach ($file in Get-ChildItem $kit -Recurse -File) {
   $relative = $file.FullName.Substring($kit.Length + 1).Replace('\','/')
   $files[$relative] = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
 }
-@{format='ocr-kit-1'; commit=$head.sha; appImage=$appTag; files=$files} | ConvertTo-Json -Depth 5 | Set-Content "$kit\kit.json" -Encoding UTF8
+@{format='ocr-kit-1'; commit=$head.sha; files=$files} | ConvertTo-Json -Depth 5 | Set-Content "$kit\kit.json" -Encoding UTF8
 $desktop = [Environment]::GetFolderPath('Desktop')
 $output = Join-Path $desktop 'supabase_migration.zip'
 $partial = Join-Path $desktop ('supabase_migration-' + [guid]::NewGuid() + '.zip')

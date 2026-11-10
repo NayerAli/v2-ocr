@@ -7,9 +7,15 @@ $memo = Join-Path $env:LOCALAPPDATA 'OCR-installation\dossier.txt'
 $project = if (Test-Path $memo) { (Get-Content $memo -Raw).Trim() } else { Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'OCR' }
 $compose = Join-Path $project 'local\docker-compose.yml'
 if (-not (Test-Path $compose) -or -not (Test-Path "$project\local\.env")) { throw 'Installation OCR introuvable. Executez d abord l installation initiale sur ce PC.' }
+# L'application se construit sur ce PC : il faut son code (Dockerfile) et sa configuration propre a ce PC (.env.local).
+if (-not (Test-Path "$project\Dockerfile") -or -not (Test-Path "$project\.env.local")) { throw 'Code ou configuration de l application introuvable (Dockerfile ou .env.local). Relancez l installation OCR sur ce PC avant l import.' }
 Write-Host 'Verification complete du ZIP...'
 $manifest = Get-Content "$kit\kit.json" -Raw | ConvertFrom-Json
-if ($manifest.format -ne 'ocr-kit-1' -or $manifest.appImage -notmatch '^ocr-offline-app:[a-f0-9]{40}$') { throw 'Format du kit invalide' }
+if ($manifest.format -ne 'ocr-kit-1') { throw 'Format du kit invalide' }
+$versionInstallee = Join-Path $project 'local\.version'
+if ((Test-Path $versionInstallee) -and ((Get-Content $versionInstallee -Raw).Trim() -ne $manifest.commit)) {
+  Write-Host "Attention : le code installe sur ce PC n est pas celui du kit ($($manifest.commit)). L application sera construite a partir du code installe." -ForegroundColor Yellow
+}
 foreach ($p in $manifest.files.PSObject.Properties) {
   $target = [IO.Path]::GetFullPath((Join-Path $kit $p.Name))
   if (-not $target.StartsWith($kit.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) { throw 'Chemin interdit dans le ZIP' }
@@ -38,6 +44,7 @@ $volumes = @($volumes | Select-Object -Unique)
 if ($volumes.Count -ne 3) { throw 'Volumes Docker inattendus : aucune donnee modifiee.' }
 $backup = Join-Path $project ('sauvegardes\avant-import-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [guid]::NewGuid().ToString('N').Substring(0,8))
 New-Item -ItemType Directory $backup -Force | Out-Null
+# Image de l'app avant reconstruction (compose la nomme ocr-app:latest : projet "ocr", service "app").
 $oldImage = $null
 try { $oldImage = DockerOk image inspect ocr-app:latest --format '{{.Id}}' } catch { $oldImage = $null }
 foreach ($name in @('.migration-ok','.migration-etape1-ok')) { if (Test-Path "$project\local\$name") { Copy-Item "$project\local\$name" "$backup\$name" } }
@@ -45,6 +52,9 @@ foreach ($name in @('.migration-ok','.migration-etape1-ok')) { if (Test-Path "$p
 $saved = $false
 $changed = $false
 try {
+  # Construction avant tout arret : si elle echoue, aucune donnee n'est touchee et les services restent demarres.
+  Write-Host 'Construction de l application sur ce PC (plusieurs minutes, Internet requis)...'
+  DockerOk compose -f $compose build app
   Write-Host 'Sauvegarde de la base et des fichiers locaux...'
   DockerOk compose -f $compose stop
   foreach ($volume in $volumes) {
@@ -53,12 +63,12 @@ try {
   }
   $saved = $true
   $changed = $true
-  DockerOk tag $manifest.appImage ocr-app:latest
   # Storage API creates the physical objects again from the archive.
   # Database/schema replacement is transactional; volume backups cover API writes too.
   DockerOk compose -f $compose up -d --no-build --pull never --wait @services
   Write-Host 'Import hors ligne des donnees et documents...'
   DockerOk compose -f $compose run --rm --no-deps --pull never -T -v "${kit}:/kit:ro" -v "${kit}/local/assistant:/projet/local/assistant:ro" assistant node /projet/local/assistant/archive.mjs import /kit/payload
+  # Image construite plus haut : --no-build evite toute reconstruction ici.
   DockerOk compose -f $compose up -d --no-build --pull never --wait app
   $ready = $false
   $deadline = (Get-Date).AddMinutes(2)

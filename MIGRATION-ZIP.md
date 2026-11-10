@@ -23,9 +23,12 @@ de l'application source pendant l'export : les lectures via l'API ne constituent
 pas un instantane transactionnel global. Les changements de nombre de lignes ou
 de liste de fichiers detectes interrompent l'export.
 
-Le script prepare aussi les images Docker pour le destinataire, puis depose
-`supabase_migration.zip` sur le Bureau. La premiere preparation peut etre longue
-et le ZIP peut peser plusieurs Go. Prevoir de l'espace pour le kit, les images et
+Le script prepare aussi les images Docker des services (base, authentification,
+stockage, Kong...) pour le destinataire, puis depose `supabase_migration.zip` sur le
+Bureau. L'application elle-meme n'est pas dans le ZIP : elle est construite sur le PC
+destinataire, avec son propre fichier `.env.local` (cles de cette installation), qui
+n'est jamais transmis. La premiere preparation peut etre longue et le ZIP peut peser
+plusieurs Go. Prevoir de l'espace pour le kit, les images et
 le ZIP. Envoyer le ZIP complet par un canal prive (par exemple WeTransfer).
 Il contient les donnees personnelles et les empreintes des mots de passe des comptes.
 Les identifiants de connexion au serveur source ne sont pas inclus.
@@ -41,8 +44,11 @@ $z=Join-Path $env:USERPROFILE 'Downloads\supabase_migration.zip'; $d=Join-Path $
 
 Cette commande ne telecharge rien. Elle utilise Docker Desktop deja installe,
 retrouve le dossier OCR memorise par l'installation et verifie chaque fichier.
-Les configurations Docker source et cible doivent correspondre. Les images sont
-chargees depuis le ZIP ; aucun acces au serveur Supabase ni a GitHub n'est requis.
+Les configurations Docker source et cible doivent correspondre. Les images des
+services sont chargees depuis le ZIP. L'application est construite sur ce PC, avec le
+`.env.local` de cette installation : cette construction telecharge ses dependances
+depuis Internet et prend plusieurs minutes. Aucun acces au serveur Supabase source
+ni a GitHub n'est requis.
 
 L'import remplace les donnees locales : comptes utilisateurs et identites,
 structure et donnees du schema public, buckets et documents Storage. Les secrets
@@ -50,8 +56,10 @@ de l'installation locale sont conserves. Les schemas supplementaires, tables
 partitionnees et tables etrangeres font echouer l'export explicitement ; ce kit
 n'est pas un export complet de toutes les bases PostgreSQL du serveur.
 
-Avant modification, les services locaux sont arretes et les trois volumes Docker
-(base, configuration PostgreSQL, fichiers) sont sauvegardes dans
+L'application est construite avant tout arret des services : si la construction
+echoue, aucune donnee n'est modifiee. Avant modification, les services locaux sont
+arretes et les trois volumes Docker (base, configuration PostgreSQL, fichiers) sont
+sauvegardes dans
 `OCR\sauvegardes\avant-import-...`. En cas d'echec, ces volumes et les marqueurs de
 migration sont restaures automatiquement. Si la restauration elle-meme echoue
 (Docker arrete, disque plein), conserver ce dossier et son fichier
