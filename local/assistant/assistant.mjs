@@ -711,6 +711,13 @@ async function compter(src, q) {
   return r.n
 }
 
+// En-tête Cache-Control à rejouer pour un fichier, d'après ses métadonnées d'origine.
+function cacheControlDe(valeur) {
+  if (!valeur) return 'max-age=3600'
+  const texte = String(valeur).trim()
+  return /^\d+$/.test(texte) ? `max-age=${texte}` : texte
+}
+
 async function migrer(sourceHorsLigne = null) {
   if (!sourceHorsLigne && fs.existsSync(MARQUEUR)) {
     dire(c.ok('La migration a déjà été faite sur cet ordinateur. Rien à refaire.'))
@@ -771,6 +778,12 @@ async function migrer(sourceHorsLigne = null) {
     if (sourceHorsLigne) {
       await db.query('drop schema public cascade; create schema public; grant usage on schema public to public; grant all on schema public to postgres, service_role')
       await db.query('truncate auth.users, auth.identities, storage.objects, storage.buckets cascade')
+      // Politiques RLS du schéma storage : recréées depuis la source à chaque import.
+      // Sans cela, une relance échoue avec « policy ... already exists ».
+      await db.query(`do $$ declare r record; begin
+        for r in select policyname, schemaname, tablename from pg_policies where schemaname = 'storage' loop
+          execute format('drop policy %I on %I.%I', r.policyname, r.schemaname, r.tablename);
+        end loop; end $$`)
     }
     for (const e of structure.extensions) {
       await db.query('savepoint ext')
@@ -845,7 +858,8 @@ async function migrer(sourceHorsLigne = null) {
           Authorization: `Bearer ${service}`,
           'x-upsert': 'true',
           'Content-Type': f.metadata?.mimetype || 'application/octet-stream',
-          'Cache-Control': f.metadata?.cacheControl ? `max-age=${f.metadata.cacheControl}` : 'max-age=3600',
+          // Le stockage garde parfois « 3600 », parfois « max-age=3600 » : on ne préfixe que les nombres.
+          'Cache-Control': cacheControlDe(f.metadata?.cacheControl),
         },
         body: contenu,
       })
