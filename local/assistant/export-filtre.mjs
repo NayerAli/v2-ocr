@@ -372,12 +372,41 @@ async function exporterArchive({ remote, dossier, choisis, nonChoisis, totalLign
     }
     suivi.etape = 'Fichiers Storage'
     const objets = await src.sql('select * from storage.objects order by bucket_id, name')
-    for (const [i, objet] of objets.entries()) {
+    // Avancement en octets : taille annoncée par le stockage (metadata.size), moyenne pour les tailles inconnues.
+    const tailles = objets.map((o) => Number(o.metadata?.size))
+    const connues = tailles.filter((t) => Number.isFinite(t) && t >= 0)
+    const moyenne = connues.length ? connues.reduce((a, b) => a + b, 0) / connues.length : 1
+    const taille = (i) => (Number.isFinite(tailles[i]) && tailles[i] >= 0 ? tailles[i] : moyenne)
+    const total = objets.reduce((a, _, i) => a + taille(i), 0)
+    // Fichiers déjà reçus (reprise) : inscrits au manifeste et comptés dans l'avancement, sans retéléchargement.
+    const aFaire = []
+    let dejaRecu = 0
+    objets.forEach((objet, i) => {
       const nom = digest(JSON.stringify([objet.bucket_id, objet.name])) + '.bin'
-      suivi.detail = `${i + 1}/${objets.length} fichier(s) : ${objet.bucket_id}/${objet.name}`
-      if (!relire(nom)) sauver(nom, await remote.telecharger(objet.bucket_id, objet.name))
+      const existant = relire(nom)
+      if (existant) { manifest.files[nom] = digest(existant); dejaRecu += existant.length }
+      else aFaire.push({ objet, nom })
+    })
+    suivi.unite = 'Mo'
+    suivi.facteur = 1048576
+    suivi.paquet = 0
+    suivi.lignesTotales = total
+    suivi.lignes = dejaRecu
+    // Téléchargements en parallèle (12 à la fois par défaut ; OCR_PARALLELE pour changer).
+    const PARALLELE = Math.max(1, Number(process.env.OCR_PARALLELE) || 12)
+    let suivant = 0
+    const ouvrier = async () => {
+      while (suivant < aFaire.length) {
+        const { objet, nom } = aFaire[suivant++]
+        const contenu = await remote.telecharger(objet.bucket_id, objet.name)
+        sauver(nom, contenu)
+        suivi.lignes += contenu.length
+      }
     }
+    await Promise.all(Array.from({ length: Math.min(PARALLELE, aFaire.length) }, ouvrier))
     suivi.detail = ''
+    suivi.unite = undefined
+    suivi.facteur = undefined
     fs.writeFileSync(path.join(dossier, 'fichiers.tsv'), objets.map((o) => `${o.bucket_id}\t${o.name}\t${o.metadata?.size ?? ''}`).join('\n') + (objets.length ? '\n' : ''))
     fs.writeFileSync(path.join(payload, 'manifest.json'), JSON.stringify(manifest, null, 2))
     new ArchiveSource(payload)

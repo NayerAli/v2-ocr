@@ -76,17 +76,21 @@ export function demarrerSuivi() {
     // Ligne 1 : état du serveur et mesures.
     const ligne1 = `\n  ${horloge} SERVEUR : ${etatServeur(maintenant)}`
     // Ligne 2 : avancement, total à atteindre et temps restant estimé (débit des 5 dernières minutes).
-    echantillons.push({ t: maintenant, n: suivi.lignes })
+    // Les échantillons ne valent que pour une même unité (lignes, puis octets Storage) : on repart à zéro au changement.
+    const unite = suivi.unite ?? 'lignes'
+    if (echantillons.length && echantillons[echantillons.length - 1].unite !== unite) echantillons = []
+    echantillons.push({ t: maintenant, n: suivi.lignes, unite })
     echantillons = echantillons.filter((e) => maintenant - e.t <= FENETRE_ESTIMATION_MS)
     let avancement = ''
     if (suivi.lignesTotales) {
-      const pct = Math.floor((100 * suivi.lignes) / suivi.lignesTotales)
+      const fmt = (x) => (suivi.facteur ? virgule(x / suivi.facteur) : String(x))
+      const pct = Math.min(100, Math.floor((100 * suivi.lignes) / suivi.lignesTotales))
       const premier = echantillons[0]
       const dernier = echantillons[echantillons.length - 1]
       const debit = premier && dernier.t - premier.t >= 10_000 ? (dernier.n - premier.n) / ((dernier.t - premier.t) / 1000) : 0
-      const reste = suivi.lignesTotales - suivi.lignes
+      const reste = Math.max(0, suivi.lignesTotales - suivi.lignes)
       const temps = debit > 0 ? `reste ~${duree(reste / debit)} (estimation)` : 'temps restant : calcul en cours'
-      avancement = ` | lignes ${suivi.lignes} / ${suivi.lignesTotales} (${pct} %) | ${temps}`
+      avancement = ` | ${unite} ${fmt(suivi.lignes)} / ${fmt(suivi.lignesTotales)} (${pct} %) | ${temps}`
     }
     const detail = suivi.detail ? ` : ${suivi.detail}` : ''
     const paquet = suivi.paquet ? ` | paquet ${suivi.paquet} ligne(s)` : ''
