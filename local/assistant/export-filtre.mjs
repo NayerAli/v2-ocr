@@ -373,6 +373,7 @@ async function exporterArchive({ remote, dossier, choisis, nonChoisis, totalLign
       if (!relire(nom)) sauver(nom, await remote.telecharger(objet.bucket_id, objet.name))
     }
     suivi.detail = ''
+    fs.writeFileSync(path.join(dossier, 'fichiers.tsv'), objets.map((o) => `${o.bucket_id}\t${o.name}\t${o.metadata?.size ?? ''}`).join('\n') + (objets.length ? '\n' : ''))
     fs.writeFileSync(path.join(payload, 'manifest.json'), JSON.stringify(manifest, null, 2))
     new ArchiveSource(payload)
   } finally {

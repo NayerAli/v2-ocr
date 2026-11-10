@@ -122,13 +122,24 @@ export async function exporter(folder, remote = null) {
   console.log('Export verifie : comptes, schema public, donnees et fichiers Storage.')
 }
 
+// Garde-fou : l'import ne modifie jamais la configuration locale de l'installation (local/.env avec les
+// clés JWT/ANON/SERVICE, et .env.local à la racine). Si l'un de ces fichiers change pendant l'import, erreur.
+const DOSSIER_ARCHIVE = path.dirname(fileURLToPath(import.meta.url))
+const CONFIG_LOCALE = [path.resolve(DOSSIER_ARCHIVE, '..', '.env'), path.resolve(DOSSIER_ARCHIVE, '..', '..', '.env.local')]
+const empreinteConfig = () => CONFIG_LOCALE.map((f) => (fs.existsSync(f) ? digest(fs.readFileSync(f)) : 'absent')).join('|')
+async function importerProtege(folder) {
+  const avant = empreinteConfig()
+  await migrer(new ArchiveSource(folder))
+  if (empreinteConfig() !== avant) throw new Error('La configuration locale (.env) a change pendant l\'import : arret. Verifiez l\'installation avant de relancer.')
+}
+
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     const [action, folder] = process.argv.slice(2)
     if (!folder) throw new Error('Dossier archive requis')
     if (action === 'export') await exporter(folder)
     else if (action === 'verify') { new ArchiveSource(folder); console.log('Archive verifiee') }
-    else if (action === 'import') await migrer(new ArchiveSource(folder))
+    else if (action === 'import') await importerProtege(folder)
     else throw new Error('Action attendue : export, verify ou import')
   } catch (e) { console.error(e.message); process.exit(1) }
 }

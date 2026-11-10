@@ -55,6 +55,17 @@ demarree et sa page ouverte. Les anciennes sauvegardes restent disponibles.
 Le script peut etre relance avec le meme ZIP ; il remplace a nouveau les donnees
 et cree une nouvelle sauvegarde.
 
+## Export filtre par compte (optionnel)
+
+Pour ne transferer que certains comptes, lancer `exporter-filtre.ps1` (PowerShell, Docker Desktop).
+Le conteneur est jetable (`--rm`) et ne parle qu'a l'API du serveur (port 8000) ; le port
+PostgreSQL n'est pas utilise. Le script liste les comptes, demande les numeros a exporter, calcule
+les lignes liees (cles etrangeres) et les fichiers Storage, puis ecrit une archive `ocr-offline-1`.
+Les lignes sans compte ni fichier ne sont exportees qu'apres confirmation, et les cles OCR hors compte
+demandent une confirmation explicite. Un controle refuse l'archive si une donnee d'un compte non choisi
+s'y trouve. A la fin, le script propose de supprimer le dossier temporaire et l'image Docker.
+Le rapport (`rapport-filtrage.txt`) contient des adresses e-mail : ne pas le diffuser.
+
 ## Verification du code
 
 `node --test local/assistant/archive.test.mjs` teste la relecture hors ligne,
