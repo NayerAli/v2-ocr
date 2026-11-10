@@ -10,8 +10,11 @@ Docker Desktop doit etre installe. Ouvrir PowerShell et coller :
 irm https://raw.githubusercontent.com/NayerAli/v2-ocr/claude/local-deployment-db-migration-eb3dut/exporter-migration.ps1 | iex
 ```
 
-L'assistant demande l'adresse Supabase et la cle service_role (et les acces Studio
-si l'API SQL les exige). Il lit le serveur sans le modifier. Eviter toute utilisation
+L'assistant demande l'adresse Supabase et la cle service_role. Il liste ensuite les
+comptes du serveur : on tape leurs numeros (ex. `1,3`), et seuls ces comptes partent
+dans le ZIP, avec leurs lignes liees, leurs fichiers Storage et leurs cles OCR. Les
+comptes non choisis, les cles systeme et les lignes sans compte ne sont pas exportes
+(sauf confirmation explicite). Le serveur n'est lu que par l'API (port 8000). Eviter toute utilisation
 de l'application source pendant l'export : les lectures via l'API ne constituent
 pas un instantane transactionnel global. Les changements de nombre de lignes ou
 de liste de fichiers detectes interrompent l'export.
@@ -55,16 +58,19 @@ demarree et sa page ouverte. Les anciennes sauvegardes restent disponibles.
 Le script peut etre relance avec le meme ZIP ; il remplace a nouveau les donnees
 et cree une nouvelle sauvegarde.
 
-## Export filtre par compte (optionnel)
+## Export filtre par compte
 
-Pour ne transferer que certains comptes, lancer `exporter-filtre.ps1` (PowerShell, Docker Desktop).
-Le conteneur est jetable (`--rm`) et ne parle qu'a l'API du serveur (port 8000) ; le port
-PostgreSQL n'est pas utilise. Le script liste les comptes, demande les numeros a exporter, calcule
-les lignes liees (cles etrangeres) et les fichiers Storage, puis ecrit une archive `ocr-offline-1`.
-Les lignes sans compte ni fichier ne sont exportees qu'apres confirmation, et les cles OCR hors compte
-demandent une confirmation explicite. Un controle refuse l'archive si une donnee d'un compte non choisi
-s'y trouve. A la fin, le script propose de supprimer le dossier temporaire et l'image Docker.
-Le rapport (`rapport-filtrage.txt`) contient des adresses e-mail : ne pas le diffuser.
+Le conteneur de l'export est jetable (`--rm`) et ne parle qu'a l'API du serveur (port 8000) ; le port
+PostgreSQL n'est pas utilise. L'export calcule les lignes liees (cles etrangeres) et les fichiers
+Storage de chaque compte choisi, puis ecrit une archive `ocr-offline-1`. Les buckets Storage sont
+toujours inclus. Les lignes sans compte ni fichier ne sont exportees qu'apres confirmation, et les
+cles OCR hors compte demandent une confirmation explicite. Un controle refuse l'archive si une donnee
+d'un compte non choisi s'y trouve.
+
+Le rapport (`rapport-filtrage.txt`, dans `%LOCALAPPDATA%\OCR-export\export-filtre`) contient des
+adresses e-mail : il n'est pas inclus dans le ZIP, ne pas le diffuser.
+
+Un export sans filtre fait par une ancienne version est mis de cote et n'est jamais transmis.
 
 ## Verification du code
 

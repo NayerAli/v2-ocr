@@ -1,6 +1,6 @@
 // Export filtré par compte, uniquement par l'API Supabase (/pg/query et /storage/v1).
 // Aucune connexion au port PostgreSQL. Prévu pour un conteneur Docker jetable lancé
-// depuis Windows (exporter-filtre.ps1). Le serveur source est seulement lu.
+// depuis Windows (exporter-migration.ps1). Le serveur source est seulement lu.
 //
 //   node export-filtre.mjs <dossier de sortie> [--config selection.json] [--ecrire-config selection.json] [--oui]
 //
@@ -250,11 +250,16 @@ async function principal() {
     for (const [q, x] of sansCompte) {
       if (!x.n) continue
       rienASignaler = false
-      const defaut = q === 'storage.buckets'
+      // Les buckets Storage sont la structure du stockage : toujours inclus, sans question.
+      if (q === 'storage.buckets') {
+        DECISIONS.globales[q] = true
+        dire(`  - ${q} : ${x.n} bucket(s), toujours inclus (structure du Storage)`)
+        continue
+      }
       dire(`  - ${q} : ${x.n} ligne(s)${CLE_TROUVEE.has(q) ? '  [ATTENTION : clé détectée]' : ''}`)
       const inclure = config
-        ? (config.globales?.[q] ?? config.orphelins?.[q] ?? defaut)
-        : await ouiNon(rl, '    Inclure ces lignes dans l\'export ?', defaut)
+        ? (config.globales?.[q] ?? config.orphelins?.[q] ?? false)
+        : await ouiNon(rl, '    Inclure ces lignes dans l\'export ?', false)
       const globale = !predicat(q, 't', LISTE_TOUS)
       if (globale) DECISIONS.globales[q] = inclure === true
       else DECISIONS.orphelins[q] = inclure === true
