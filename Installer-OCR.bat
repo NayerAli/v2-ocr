@@ -31,12 +31,26 @@ if errorlevel 1 goto erreur
 
 :etape2
 
-if not exist "local\.migration-ok" (
-  echo.
-  echo  Etape 2/3 : recuperation de vos donnees depuis le serveur actuel.
-  docker compose -f local\docker-compose.yml run --rm assistant
-  if errorlevel 1 goto erreur
-)
+if exist "local\.migration-ok" goto etape3
+rem Export de migration (ZIP) accepte dans install.ps1 : import a la place de la question sur l'ancien serveur.
+if defined OCR_IMPORT_DIR if exist "%OCR_IMPORT_DIR%\importer-migration.ps1" goto import_zip
+
+echo.
+echo  Etape 2/3 : recuperation de vos donnees depuis le serveur actuel.
+docker compose -f local\docker-compose.yml run --rm assistant
+if errorlevel 1 goto erreur
+goto etape3
+
+:import_zip
+echo.
+echo  Etape 2/3 : import de l'export de migration (fichier ZIP).
+echo  Ne fermez pas cette fenetre.
+powershell -NoProfile -ExecutionPolicy Bypass -File "%OCR_IMPORT_DIR%\importer-migration.ps1"
+if errorlevel 1 goto erreur
+rem Import reussi : le dossier temporaire extrait n'est plus utile.
+rd /s /q "%OCR_IMPORT_DIR%" >nul 2>&1
+
+:etape3
 
 echo.
 echo  Etape 3/3 : construction de l'application (5 a 10 minutes la premiere fois).

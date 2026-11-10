@@ -180,8 +180,43 @@ function InfosPC {
   try { Set-Content -Path (Join-Path $Dossier 'local\infos-pc.txt') -Value ($l -join "`r`n") -Encoding UTF8 } catch { }
 }
 
+# Export de migration (supabase_migration.zip, cree par exporter-migration.ps1) : s'il est sur le Bureau
+# ou dans Telechargements, on propose de l'importer au lieu de demander l'ancien serveur.
+# Le ZIP est extrait ici ; Installer-OCR.bat lance l'import une fois la base demarree.
+function ProposerImportZip {
+  Remove-Item Env:OCR_IMPORT_DIR -ErrorAction SilentlyContinue
+  if (Test-Path (Join-Path $Dossier 'local\.migration-ok')) { return }
+  $bureau = [Environment]::GetFolderPath('Desktop')
+  $candidats = @(
+    (Join-Path $bureau 'supabase_migration.zip'),
+    (Join-Path $env:USERPROFILE 'Downloads\supabase_migration.zip')
+  )
+  $zip = $candidats | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+  if (-not $zip) { return }
+  Write-Host "  Fichier trouve : $zip"
+  $rep = (Read-Host "  Un export de migration a ete trouve. L'importer maintenant ? (O/n)").Trim().ToLower()
+  if ($rep -in @('n', 'non', 'no')) {
+    Write-Host '  D''accord : l''adresse et la cle de l''ancien serveur vous seront demandees.'
+    return
+  }
+  $dossierImport = Join-Path $env:TEMP ('ocr-import-' + [guid]::NewGuid())
+  try {
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    [IO.Compression.ZipFile]::ExtractToDirectory($zip, $dossierImport)
+    if (-not (Test-Path (Join-Path $dossierImport 'importer-migration.ps1'))) { throw 'importer-migration.ps1 absent du ZIP' }
+  } catch {
+    Erreur "Le ZIP ne peut pas etre lu : $($_.Exception.Message)"
+    Write-Host '  L''adresse et la cle de l''ancien serveur vous seront demandees a la place.'
+    Remove-Item -Recurse -Force $dossierImport -ErrorAction SilentlyContinue
+    return
+  }
+  $env:OCR_IMPORT_DIR = $dossierImport
+  Ok 'Le ZIP sera importe a la place de la recuperation depuis l''ancien serveur.'
+}
+
 function LancerInstallation {
   Titre 'Installation et recuperation de vos donnees'
+  ProposerImportZip
   $f = Join-Path $Dossier 'local\.adresse-serveur'
   $script:AdresseServeur = if (Test-Path $f) { (Get-Content $f -Raw).Trim() } else { $null }
   Write-Host '  Collecte des informations reseau de ce PC (pour le diagnostic)...'

@@ -42,6 +42,8 @@ recree `supabase_migration.zip` sur le Bureau. Commande, a coller dans PowerShel
 ## Sur le PC destinataire
 
 Enregistrer le ZIP sous le nom exact `supabase_migration.zip` dans Telechargements.
+L'installeur (`install.ps1`) detecte aussi ce ZIP sur le Bureau ou dans Telechargements et propose de l'importer, sans poser les questions sur l'ancien serveur.
+
 Ouvrir PowerShell et coller cette unique ligne :
 
 ```powershell

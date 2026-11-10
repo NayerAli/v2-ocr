@@ -38,6 +38,7 @@ Si Docker Desktop vient d'être installé, il faut ensuite :
 ## Étape 3 : répondre aux 2 questions
 
 La fenêtre télécharge et prépare tout (10 à 20 minutes), puis vous pose 2 questions.
+Si vous avez reçu un fichier **supabase_migration.zip**, placez-le sur le Bureau ou dans Téléchargements : l'installeur le détecte et propose de l'importer, sans poser ces 2 questions.
 Gardez l'espace d'administration Supabase ouvert dans votre navigateur : vous allez
 y copier deux informations.
 
