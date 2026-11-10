@@ -30,15 +30,17 @@ const dire = (s = '') => console.log(s)
 const DELAI_REQUETE_MS = 60_000
 // Une ligne d'état au moins toutes les 30 s pendant une copie (sinon on croit à un blocage).
 const INTERVALLE_SUIVI_MS = 30_000
-export const suivi = { etape: '', detail: '', attente: null, recu: 0 }
+export const suivi = { etape: '', detail: '', attente: null, dernierOctet: null, recu: 0 }
 let minuterieSuivi = null
 export function demarrerSuivi() {
   const debut = Date.now()
   minuterieSuivi = setInterval(() => {
     const s = Math.floor((Date.now() - debut) / 1000)
-    const attente = suivi.attente ? ` | requête sans réponse depuis ${Math.round((Date.now() - suivi.attente) / 1000)} s` : ''
+    // Temps depuis le dernier octet reçu (ou depuis l'envoi de la requête si rien n'est encore arrivé).
+    const repere = Math.max(suivi.attente ?? 0, suivi.dernierOctet ?? 0)
+    const attente = suivi.attente ? ` | pas de données depuis ${Math.round((Date.now() - repere) / 1000)} s` : ''
     const detail = suivi.detail ? ` : ${suivi.detail}` : ''
-    const recu = suivi.recu ? ` | ${(suivi.recu / 1048576).toFixed(1)} Mo reçus` : ''
+    const recu = suivi.recu ? ` | ${(suivi.recu / 1048576).toFixed(1)} Mo reçus, ${(suivi.recu / 1024 / Math.max(s, 1)).toFixed(0)} Ko/s en moyenne` : ''
     process.stdout.write(`\n  [${Math.floor(s / 60)} min ${String(s % 60).padStart(2, '0')} s] ${suivi.etape}${detail}${attente}${recu}\n`)
   }, INTERVALLE_SUIVI_MS)
   minuterieSuivi.unref()
@@ -136,6 +138,7 @@ async function reponseAvecDelai(adresse, init) {
         relancer()
         morceaux.push(Buffer.from(morceau))
         suivi.recu += morceau.length
+        suivi.dernierOctet = Date.now()
       }
     }
     return { rep, corps: Buffer.concat(morceaux) }
