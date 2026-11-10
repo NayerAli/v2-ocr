@@ -157,11 +157,6 @@ function InfosPC {
   $l.Add("Date (UTC)   : $((Get-Date).ToUniversalTime().ToString('s'))")
   $l.Add("PC           : $env:COMPUTERNAME   utilisateur : $env:USERNAME")
   Ajouter 'Windows' { (Get-CimInstance Win32_OperatingSystem | Select-Object Caption, Version, OSArchitecture | Format-List | Out-String).Trim() }
-  Ajouter 'IP publique vue par Cloudflare (depuis Windows)' {
-    foreach ($u in @($script:AdresseServeur, 'https://www.cloudflare.com') | Where-Object { $_ }) {
-      "[$u] " + (((Invoke-WebRequest -UseBasicParsing -TimeoutSec 10 -Uri "$u/cdn-cgi/trace").Content -split "`n" | Where-Object { $_ -match '^(ip|colo|loc|warp|gateway|http)=' }) -join ' ; ')
-    }
-  }
   Ajouter 'Cartes reseau actives (un VPN apparait ici)' { Get-NetAdapter | Where-Object Status -eq 'Up' | Select-Object Name, InterfaceDescription, LinkSpeed | Format-Table -AutoSize | Out-String -Width 200 }
   Ajouter 'Adresses IP locales' { Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' } | Select-Object InterfaceAlias, IPAddress, PrefixLength | Format-Table -AutoSize | Out-String -Width 200 }
   Ajouter 'Route par defaut' { Get-NetRoute -DestinationPrefix '0.0.0.0/0' | Select-Object InterfaceAlias, NextHop, RouteMetric | Format-Table -AutoSize | Out-String -Width 200 }
@@ -177,7 +172,7 @@ function InfosPC {
         if (-not $rep) { return "ECHEC : $($_.Exception.Message)" }
         # Windows PowerShell 5 et PowerShell 7 n'exposent pas les en-tetes de la meme facon
         $lire = { param($n) $v = $null; try { $v = $rep.Headers[$n] } catch { }; if (-not $v) { try { $v = ($rep.Headers.GetValues($n)) -join ',' } catch { } }; "$v" }
-        "HTTP $([int]$rep.StatusCode) ; cf-ray=$(& $lire 'cf-ray') ; cf-mitigated=$(& $lire 'cf-mitigated') ; server=$(& $lire 'Server')"
+        "HTTP $([int]$rep.StatusCode) ; server=$(& $lire 'Server')"
       }
     }
   }

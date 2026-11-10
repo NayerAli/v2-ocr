@@ -139,7 +139,6 @@ class AncienSupabase {
     if (!rep.ok) {
       let detail = corps
       try { detail = JSON.parse(corps).error || JSON.parse(corps).message || corps } catch {}
-      if (bloqueParCloudflare(rep, corps)) throw new ErreurAcces('cloudflare', 'bloqué par Cloudflare')
       if (rep.status === 401 || rep.status === 403) throw new ErreurAcces('refus', detail)
       if (rep.status === 404) throw new ErreurAcces('absent', detail)
       const erreur = new Error(`Erreur SQL sur l'ancien serveur (${rep.status}) : ${detail}`)
@@ -156,7 +155,6 @@ class AncienSupabase {
       const rep = await fetch(`${this.url}/storage/v1/bucket`, { headers: this.entetesCle() })
       if (rep.ok) return 'ok'
       const texte = await rep.text()
-      if (bloqueParCloudflare(rep, texte)) return 'cloudflare'
       if (rep.status === 401 || rep.status === 403 || /jwt|signature|unauthori/i.test(texte)) return 'refus'
       return `erreur ${rep.status} : ${texte.slice(0, 150)}`
     } catch (e) {
@@ -196,69 +194,6 @@ function messageReseau(e) {
   return texte.trim() || 'erreur inconnue'
 }
 
-// Cloudflare (protection anti-robot) devant le serveur : il répond par une page
-// « Just a moment... » au lieu de laisser passer la copie automatique.
-function bloqueParCloudflare(rep, texte = '') {
-  return Boolean(rep.headers.get('cf-mitigated')) ||
-    (rep.status === 403 && /cloudflare|just a moment|cf-chl|challenge-platform/i.test(texte))
-}
-
-async function ipPublique(url) {
-  for (const adresse of [`${url}/cdn-cgi/trace`, 'https://www.cloudflare.com/cdn-cgi/trace']) {
-    try {
-      const texte = await (await fetch(adresse, { signal: AbortSignal.timeout(10000) })).text()
-      const ip = texte.match(/^ip=(.+)$/m)?.[1]
-      if (ip) return ip.trim()
-    } catch {}
-  }
-  return null
-}
-
-// Cloudflare bloque la copie (souvent à cause d'un VPN). Propose deux solutions :
-// A. l'adresse directe du serveur (sans Cloudflare), joignable par le VPN ;
-// B. autoriser cet ordinateur dans Cloudflare.
-// Renvoie l'adresse à utiliser (la même si Cloudflare laisse désormais passer).
-async function attendreCloudflare(rl, url) {
-  const hote = new URL(url).hostname
-  const domaine = hote.split('.').slice(-2).join('.')
-  const ip = await ipPublique(url)
-  await diagnostic(url, cleCourante, 'bloqué par Cloudflare')
-  dire(c.err('  Votre serveur Supabase est protégé par Cloudflare, qui bloque la copie'))
-  dire(c.err('  automatique (il la prend pour un robot). Ce n\'est PAS un problème de clé.'))
-  dire('  Cela arrive surtout avec un VPN ou un réseau d\'entreprise.')
-  dire()
-  dire(c.gras('  Solution A (recommandée avec un VPN) : l\'adresse directe du serveur'))
-  dire('  Votre prestataire peut vous donner l\'adresse du serveur sans Cloudflare,')
-  dire('  joignable grâce à votre VPN (exemple : http://10.8.0.1:8000).')
-  dire('  Tapez-la ci-dessous : la copie passera directement, sans Cloudflare.')
-  dire()
-  dire(c.gras('  Solution B : autoriser cet ordinateur dans Cloudflare (le temps de la copie)'))
-  dire('  La personne qui gère Cloudflare pour ' + c.gras(domaine) + ' doit, sur https://dash.cloudflare.com :')
-  dire('    - soit désactiver « Bot Fight Mode » (Security > Bots), puis le réactiver après ;')
-  dire('    - soit ajouter l\'adresse ' + c.gras(ip || '(IP de cet ordinateur)') + ' en « Allow » (Security > WAF > Tools).')
-  dire('  Puis appuyez simplement sur Entrée ci-dessous.')
-  dire()
-  for (;;) {
-    const saisie = (await demander(rl, 'Adresse directe du serveur (ou Entrée pour réessayer) : ')).trim()
-    if (saisie) {
-      try {
-        return nettoyerUrl(saisie)
-      } catch {
-        dire(c.err('  Cette adresse n\'est pas valide (exemple attendu : http://10.8.0.1:8000).'))
-        continue
-      }
-    }
-    try {
-      const rep = await fetch(`${url}/auth/v1/health`, { signal: AbortSignal.timeout(20000) })
-      if (!bloqueParCloudflare(rep, await rep.text())) {
-        dire(c.ok('  Cloudflare laisse passer la copie, on continue.'))
-        return url
-      }
-    } catch {}
-    dire(c.err('  Cloudflare bloque encore (le changement peut prendre quelques secondes).'))
-  }
-}
-
 class ErreurAcces extends Error {
   constructor(type, detail) {
     super(detail)
@@ -289,7 +224,7 @@ async function sonder(methode, adresse, entetes = {}, corps) {
   try {
     const rep = await fetch(adresse, { method: methode, headers: entetes, body: corps, signal: AbortSignal.timeout(20000) })
     const texte = (await rep.text()).replace(/\s+/g, ' ').slice(0, 300)
-    const garder = ['server', 'cf-ray', 'cf-mitigated', 'cf-cache-status', 'content-type', 'www-authenticate', 'via', 'x-kong-response-latency', 'x-envoy-upstream-service-time']
+    const garder = ['server', 'content-type', 'www-authenticate', 'via', 'x-kong-response-latency', 'x-envoy-upstream-service-time']
     const h = garder.filter((k) => rep.headers.get(k)).map((k) => `${k}=${rep.headers.get(k)}`).join(' ; ')
     return `${methode} ${adresse}\n    -> HTTP ${rep.status} en ${Date.now() - debut} ms\n    -> en-têtes : ${h || '(aucun utile)'}\n    -> réponse : ${texte || '(vide)'}`
   } catch (e) {
@@ -309,11 +244,6 @@ async function diagnostic(url, cle, contexte) {
   const k = cle ? { apikey: cle, Authorization: `Bearer ${cle}` } : {}
   let version = '?'
   try { version = fs.readFileSync(path.join(LOCAL, '.version'), 'utf8').trim().slice(0, 7) } catch {}
-  let trace = '(indisponible)'
-  try {
-    trace = (await (await fetch(`${url}/cdn-cgi/trace`, { signal: AbortSignal.timeout(10000) })).text())
-      .split('\n').filter((l) => /^(ip|colo|loc|http|tls|warp|gateway|uag|ts)=/.test(l)).join(' ; ') || '(vide)'
-  } catch (e) { trace = `(échec : ${messageReseau(e)})` }
 
   const lignes = [
     '==================== DIAGNOSTIC A ENVOYER ====================',
@@ -322,7 +252,6 @@ async function diagnostic(url, cle, contexte) {
     `Version      : ${version}`,
     `Adresse      : ${url}`,
     `Clé          : ${resumeCle(cle)}`,
-    `Cloudflare   : ${trace}`,
     '',
     await sonder('GET', `${url}/auth/v1/health`),
     await sonder('GET', `${url}/auth/v1/health`, k),
@@ -339,8 +268,8 @@ async function diagnostic(url, cle, contexte) {
   dire(texte)
   try {
     fs.writeFileSync(path.join(PROJET, 'diagnostic-supabase.txt'), texte.replace(/\n/g, '\r\n'))
-    dire(c.gras('  Ces informations sont aussi enregistrées dans le fichier « diagnostic-supabase.txt »'))
-    dire(c.gras('  du dossier de l\'application : envoyez ce fichier (ou une capture) à votre prestataire.'))
+    dire(c.gras('  Diagnostic enregistré dans le fichier « diagnostic-supabase.txt »'))
+    dire(c.gras('  Envoyez ce fichier (ou une capture) à votre prestataire.'))
   } catch {}
   dire('  (La clé n\'y figure pas en entier : seuls son début et sa fin sont affichés.)')
   dire()
@@ -382,10 +311,8 @@ async function questions(rl) {
   dire()
 
   let url
-  let saisieSuivante = null
   for (;;) {
-    const saisie = saisieSuivante ?? await demander(rl, 'Adresse : ')
-    saisieSuivante = null
+    const saisie = await demander(rl, 'Adresse : ')
     try {
       url = nettoyerUrl(saisie)
       if (/^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:|$)/i.test(url)) {
@@ -396,15 +323,6 @@ async function questions(rl) {
       }
       const rep = await fetch(`${url}/auth/v1/health`, { signal: AbortSignal.timeout(20000) })
         .catch((e) => { throw new Error(e.name === 'TimeoutError' ? 'le serveur ne répond pas (délai dépassé)' : messageReseau(e)) })
-      const corps = await rep.text()
-      if (bloqueParCloudflare(rep, corps)) {
-        dire(c.ok(`  Serveur trouvé : ${url}`))
-        try { fs.writeFileSync(path.join(LOCAL, '.adresse-serveur'), url) } catch {}
-        const autre = await attendreCloudflare(rl, url)
-        if (autre === url) break
-        saisieSuivante = autre // on vérifie l'adresse directe au prochain tour
-        continue
-      }
       if (rep.status >= 500) throw new Error(`le serveur répond avec une erreur ${rep.status}`)
       dire(c.ok(`  Serveur trouvé : ${url}`))
       try { fs.writeFileSync(path.join(LOCAL, '.adresse-serveur'), url) } catch {}
@@ -441,13 +359,8 @@ async function questions(rl) {
       continue
     }
     ancien.cle = cle
-    cleCourante = cle
     // La clé doit d'abord ouvrir le stockage des fichiers (sinon la copie échouerait plus tard).
-    let stockage = await ancien.verifierStockage()
-    while (stockage === 'cloudflare') {
-      ancien.url = url = await attendreCloudflare(rl, url)
-      stockage = await ancien.verifierStockage()
-    }
+    const stockage = await ancien.verifierStockage()
     if (stockage === 'refus') {
       dire(c.err('  Le serveur refuse cette clé. Vérifiez que vous avez copié la clé « service_role » de CE serveur.'))
       await diagnostic(url, cle, 'clé refusée par le stockage des fichiers')
@@ -458,15 +371,7 @@ async function questions(rl) {
       throw new Error(`Le stockage des fichiers du serveur ne répond pas (${stockage}).`)
     }
     try {
-      for (;;) {
-        try {
-          await ancien.sql('select 1 as ok')
-          break
-        } catch (e) {
-          if (e.type !== 'cloudflare') throw e
-          ancien.url = url = await attendreCloudflare(rl, url)
-        }
-      }
+      await ancien.sql('select 1 as ok')
       dire(c.ok('  Clé acceptée.'))
       return ancien
     } catch (e) {
@@ -655,7 +560,6 @@ function rolesCites(s) {
   return [...roles]
 }
 
-let cleCourante = ''
 const qid = (s) => `"${String(s).replace(/"/g, '""')}"`
 const lit = (s) => `'${String(s).replace(/'/g, "''")}'`
 

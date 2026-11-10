@@ -28,7 +28,10 @@ Copy-Item "$source\importer-migration.ps1" "$kit\importer-migration.ps1"
 Write-Host 'Preparation des outils hors ligne...'
 DockerOk pull node:20-alpine
 Write-Host 'Export des donnees : les informations demandees restent sur ce PC.'
-DockerOk run --rm -it -v "${kit}:/projet" -w /projet/local/assistant node:20-alpine node archive.mjs export /projet/payload
+try { DockerOk run --rm -it -v "${kit}:/projet" -w /projet/local/assistant node:20-alpine node archive.mjs export /projet/payload } finally {
+  $diag = Join-Path $kit 'diagnostic-supabase.txt'
+  if (Test-Path -LiteralPath $diag) { Copy-Item -LiteralPath $diag -Destination (Join-Path ([Environment]::GetFolderPath('Desktop')) 'diagnostic-supabase.txt') -Force; Write-Host 'Diagnostic copie sur le Bureau : diagnostic-supabase.txt' -ForegroundColor Yellow }
+}
 Write-Host 'Preparation de l application (plusieurs minutes)...'
 $appTag = "ocr-offline-app:$($head.sha)"
 DockerOk build --target prod -t $appTag $source
