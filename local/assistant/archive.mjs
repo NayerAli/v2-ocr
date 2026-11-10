@@ -47,7 +47,7 @@ export async function exporter(folder, remote = null) {
     for (const nom of fs.readdirSync(folder)) fs.rmSync(path.join(folder, nom), { recursive: true, force: true })
   }
   fs.writeFileSync(marque, JSON.stringify({ source: identite }))
-  const dejaRecus = fs.readdirSync(folder).filter(nom => /\.(json|bin)$/.test(nom)).length
+  const dejaRecus = fs.readdirSync(folder).filter(nom => /\.(json|bin)$/.test(nom) && nom !== 'reprise.json').length
   if (dejaRecus) console.log(`Reprise : ${dejaRecus} élément(s) déjà reçu(s) lors d'un essai précédent, ils ne sont pas redemandés au serveur.`)
 
   const manifest = { format: 'ocr-offline-1', created: new Date().toISOString(), files: {}, counts: {} }
