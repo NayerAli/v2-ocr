@@ -26,11 +26,16 @@ const c = {
 }
 const dire = (s = '') => console.log(s)
 
-// Délai maximal d'une requête vers l'ancien serveur : au-delà, les paquets sont réduits.
+// Délai d'inactivité d'une requête vers l'ancien serveur : au-delà, les paquets sont réduits.
 const DELAI_REQUETE_MS = 60_000
-// Une ligne d'état au moins toutes les 30 s pendant une copie (sinon on croit à un blocage).
-const INTERVALLE_SUIVI_MS = 30_000
-export const suivi = { etape: '', detail: '', attente: null, dernierOctet: null, recu: 0, lignes: 0, lignesTotales: 0 }
+// Une ligne d'état toutes les 15 s : état du serveur, mesures, avancement.
+const INTERVALLE_SUIVI_MS = 15_000
+// Nombre d'essais supplémentaires pour une ligne qui ne répond pas, avec un délai croissant.
+const ESSAIS_LIGNE = 4
+// Délai courant : augmenté temporairement quand une seule ligne résiste.
+export const reglage = { delaiMs: DELAI_REQUETE_MS }
+// Dernières requêtes terminées (heure, latence, octets, durée du transfert) pour classer le serveur.
+export const suivi = { etape: '', detail: '', attente: null, dernierOctet: null, recu: 0, lignes: 0, lignesTotales: 0, paquet: 0, note: '', requetes: [] }
 let minuterieSuivi = null
 // Échantillons (heure, lignes copiées) pour estimer le débit récent et donc le temps restant.
 let echantillons = []
@@ -40,21 +45,40 @@ const duree = (secondes) => {
   if (secondes < 3600) return `${Math.round(secondes / 60)} min`
   return `${Math.floor(secondes / 3600)} h ${Math.round((secondes % 3600) / 60)} min`
 }
+const virgule = (x) => x.toFixed(1).replace('.', ',')
+// Classe le serveur d'après le débit mesuré sur les dernières minutes, et signale les silences.
+function etatServeur(maintenant) {
+  const recentes = suivi.requetes.filter((r) => maintenant - r.t <= FENETRE_ESTIMATION_MS)
+  const silence = suivi.attente ? maintenant - Math.max(suivi.attente, suivi.dernierOctet ?? 0) : 0
+  const dernier = suivi.dernierOctet ? `dernier octet il y a ${Math.round((maintenant - suivi.dernierOctet) / 1000)} s` : 'aucun octet reçu'
+  if (suivi.attente && silence >= 30_000) {
+    return `TRÈS LENT (aucune donnée depuis ${Math.round(silence / 1000)} s) | ${dernier}`
+  }
+  if (!recentes.length) return `mesure en cours | ${dernier}`
+  const octets = recentes.reduce((a, r) => a + r.octets, 0)
+  const temps = recentes.reduce((a, r) => a + Math.max(r.corps, 1), 0)
+  const debitKo = (octets / 1024) / (temps / 1000)
+  const latence = recentes.reduce((a, r) => a + r.ttfb, 0) / recentes.length / 1000
+  const etat = debitKo >= 2000 ? 'TRÈS RAPIDE'
+    : debitKo >= 500 ? 'RAPIDE'
+    : debitKo >= 150 ? 'NORMAL'
+    : debitKo >= 40 ? 'LENT'
+    : 'TRÈS LENT'
+  return `${etat} | débit ${debitKo.toFixed(0)} Ko/s (5 dernières min) | latence ${virgule(latence)} s | ${dernier}`
+}
 export function demarrerSuivi() {
   const debut = Date.now()
   echantillons = []
   minuterieSuivi = setInterval(() => {
     const maintenant = Date.now()
     const s = Math.floor((maintenant - debut) / 1000)
-    // Temps depuis le dernier octet reçu (ou depuis l'envoi de la requête si rien n'est encore arrivé).
-    const repere = Math.max(suivi.attente ?? 0, suivi.dernierOctet ?? 0)
-    const attente = suivi.attente ? ` | pas de données depuis ${Math.round((maintenant - repere) / 1000)} s` : ''
-    const detail = suivi.detail ? ` : ${suivi.detail}` : ''
-    const recu = suivi.recu ? ` | ${(suivi.recu / 1048576).toFixed(1)} Mo reçus, ${(suivi.recu / 1024 / Math.max(s, 1)).toFixed(0)} Ko/s en moyenne` : ''
-    // Lignes : total à atteindre, avancement et temps restant estimé (débit des 5 dernières minutes).
+    const horloge = `[${Math.floor(s / 60)} min ${String(s % 60).padStart(2, '0')} s]`
+    // Ligne 1 : état du serveur et mesures.
+    const ligne1 = `\n  ${horloge} SERVEUR : ${etatServeur(maintenant)}`
+    // Ligne 2 : avancement, total à atteindre et temps restant estimé (débit des 5 dernières minutes).
     echantillons.push({ t: maintenant, n: suivi.lignes })
     echantillons = echantillons.filter((e) => maintenant - e.t <= FENETRE_ESTIMATION_MS)
-    let lignes = ''
+    let avancement = ''
     if (suivi.lignesTotales) {
       const pct = Math.floor((100 * suivi.lignes) / suivi.lignesTotales)
       const premier = echantillons[0]
@@ -62,9 +86,13 @@ export function demarrerSuivi() {
       const debit = premier && dernier.t - premier.t >= 10_000 ? (dernier.n - premier.n) / ((dernier.t - premier.t) / 1000) : 0
       const reste = suivi.lignesTotales - suivi.lignes
       const temps = debit > 0 ? `reste ~${duree(reste / debit)} (estimation)` : 'temps restant : calcul en cours'
-      lignes = ` | lignes ${suivi.lignes} / ${suivi.lignesTotales} (${pct} %) | ${temps}`
+      avancement = ` | lignes ${suivi.lignes} / ${suivi.lignesTotales} (${pct} %) | ${temps}`
     }
-    process.stdout.write(`\n  [${Math.floor(s / 60)} min ${String(s % 60).padStart(2, '0')} s] ${suivi.etape}${detail}${attente}${recu}${lignes}\n`)
+    const detail = suivi.detail ? ` : ${suivi.detail}` : ''
+    const paquet = suivi.paquet ? ` | paquet ${suivi.paquet} ligne(s)` : ''
+    const recu = suivi.recu ? ` | ${(suivi.recu / 1048576).toFixed(1)} Mo reçus` : ''
+    const note = suivi.note ? `\n    ${suivi.note}` : ''
+    process.stdout.write(`${ligne1}\n    ${suivi.etape}${detail}${paquet}${recu}${avancement}${note}\n`)
   }, INTERVALLE_SUIVI_MS)
   minuterieSuivi.unref()
 }
@@ -145,17 +173,21 @@ function init() {
 // Requête HTTP avec délai d'inactivité : le délai court depuis le dernier octet reçu.
 // Une connexion lente mais active n'est jamais coupée ; seule une absence totale de données l'est.
 async function reponseAvecDelai(adresse, init) {
+  const delai = reglage.delaiMs
   const controleur = new AbortController()
   let minuterie = null
   const relancer = () => {
     clearTimeout(minuterie)
-    minuterie = setTimeout(() => controleur.abort(), DELAI_REQUETE_MS)
+    minuterie = setTimeout(() => controleur.abort(), delai)
   }
   const morceaux = []
   try {
+    const debut = Date.now()
     relancer()
     const rep = await fetch(adresse, { ...init, signal: controleur.signal })
+    const ttfb = Date.now() - debut
     relancer()
+    const debutCorps = Date.now()
     if (rep.body) {
       for await (const morceau of rep.body) {
         relancer()
@@ -164,10 +196,14 @@ async function reponseAvecDelai(adresse, init) {
         suivi.dernierOctet = Date.now()
       }
     }
-    return { rep, corps: Buffer.concat(morceaux) }
+    const corps = Buffer.concat(morceaux)
+    // Mesure pour classer le serveur (latence = délai avant la réponse, débit = octets / durée du transfert).
+    suivi.requetes.push({ t: Date.now(), ttfb, octets: corps.length, corps: Date.now() - debutCorps })
+    if (suivi.requetes.length > 200) suivi.requetes.splice(0, suivi.requetes.length - 200)
+    return { rep, corps }
   } catch (e) {
     if (controleur.signal.aborted) {
-      throw Object.assign(new Error(`aucune donnée reçue depuis ${DELAI_REQUETE_MS / 1000} s`), { lent: true })
+      throw Object.assign(new Error(`aucune donnée reçue depuis ${delai / 1000} s`), { lent: true })
     }
     throw e
   } finally {
@@ -763,14 +799,19 @@ async function copierTable(src, db, q, colonnesSrc, adapter = (cols, r) => (r ==
   let total = 0
   let taille = 50
   let plafond = 500 // taille maximale autorisée pour cette table (abaissée si le serveur a dû être ménagé)
+  let echecsLigne = 0 // essais successifs sur une seule ligne qui ne répond pas
   for (;;) {
     let lignes
     let octets
+    suivi.paquet = taille
     try {
       lignes = await src.sql(`
         select t.ctid::text as _ctid, to_jsonb(t) as r from ${q} t
         where t.ctid > ${lit(curseur)}::tid order by t.ctid limit ${taille}`)
       octets = JSON.stringify(lignes).length
+      echecsLigne = 0
+      reglage.delaiMs = DELAI_REQUETE_MS
+      suivi.note = ''
     } catch (e) {
       if (taille > 1) {
         // Ce paquet n'a pas été servi à temps : on ne remontera plus au-dessus pour cette table.
@@ -779,7 +820,20 @@ async function copierTable(src, db, q, colonnesSrc, adapter = (cols, r) => (r ==
         process.stdout.write(`\n  Serveur lent (${e.message}) : paquets réduits à ${taille} ligne(s)\n`)
         continue
       }
-      throw new Error(`Lecture de ${q} impossible : ${e.message}`)
+      if (!e.lent) throw new Error(`Lecture de ${q} impossible : ${e.message}`)
+      // Une seule ligne ne répond pas : on laisse au serveur plus de temps, quelques fois, avant d'abandonner.
+      echecsLigne += 1
+      if (echecsLigne > ESSAIS_LIGNE) {
+        throw new Error(
+          `Lecture de ${q} bloquée sur la ligne qui suit ${curseur} : le serveur ne répond pas pour cette ligne, ` +
+          `même après ${ESSAIS_LIGNE} essais (dernier délai : ${Math.round(reglage.delaiMs / 1000)} s). ` +
+          `Relancez l'export plus tard : il reprend à cet endroit. ` +
+          `Pour voir la ligne sur le serveur (lecture seule) : select ctid, pg_column_size(t.*) as octets from ${q} t where t.ctid > '${curseur}'::tid order by t.ctid limit 1;`)
+      }
+      reglage.delaiMs = Math.min(15 * 60_000, DELAI_REQUETE_MS * 2 ** echecsLigne)
+      suivi.note = `Ligne bloquée après ${curseur} : essai ${echecsLigne}/${ESSAIS_LIGNE}, délai porté à ${Math.round(reglage.delaiMs / 1000)} s`
+      process.stdout.write(`\n  ${suivi.note}\n`)
+      continue
     }
     if (!lignes.length) break
     await db.query(
