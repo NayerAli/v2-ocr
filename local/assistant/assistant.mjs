@@ -26,6 +26,28 @@ const c = {
 }
 const dire = (s = '') => console.log(s)
 
+// Délai maximal d'une requête vers l'ancien serveur : au-delà, les paquets sont réduits.
+const DELAI_REQUETE_MS = 60_000
+// Une ligne d'état au moins toutes les 30 s pendant une copie (sinon on croit à un blocage).
+const INTERVALLE_SUIVI_MS = 30_000
+export const suivi = { etape: '', detail: '', attente: null, recu: 0 }
+let minuterieSuivi = null
+export function demarrerSuivi() {
+  const debut = Date.now()
+  minuterieSuivi = setInterval(() => {
+    const s = Math.floor((Date.now() - debut) / 1000)
+    const attente = suivi.attente ? ` | requête sans réponse depuis ${Math.round((Date.now() - suivi.attente) / 1000)} s` : ''
+    const detail = suivi.detail ? ` : ${suivi.detail}` : ''
+    const recu = suivi.recu ? ` | ${(suivi.recu / 1048576).toFixed(1)} Mo reçus` : ''
+    process.stdout.write(`\n  [${Math.floor(s / 60)} min ${String(s % 60).padStart(2, '0')} s] ${suivi.etape}${detail}${attente}${recu}\n`)
+  }, INTERVALLE_SUIVI_MS)
+  minuterieSuivi.unref()
+}
+export function arreterSuivi() {
+  clearInterval(minuterieSuivi)
+  suivi.attente = null
+}
+
 // ---------------------------------------------------------------------------
 // init : secrets de la base locale
 // ---------------------------------------------------------------------------
@@ -95,6 +117,38 @@ function init() {
 // Accès à l'ancien Supabase (lecture seule, via HTTPS)
 // ---------------------------------------------------------------------------
 
+// Requête HTTP avec délai d'inactivité : le délai court depuis le dernier octet reçu.
+// Une connexion lente mais active n'est jamais coupée ; seule une absence totale de données l'est.
+async function reponseAvecDelai(adresse, init) {
+  const controleur = new AbortController()
+  let minuterie = null
+  const relancer = () => {
+    clearTimeout(minuterie)
+    minuterie = setTimeout(() => controleur.abort(), DELAI_REQUETE_MS)
+  }
+  const morceaux = []
+  try {
+    relancer()
+    const rep = await fetch(adresse, { ...init, signal: controleur.signal })
+    relancer()
+    if (rep.body) {
+      for await (const morceau of rep.body) {
+        relancer()
+        morceaux.push(Buffer.from(morceau))
+        suivi.recu += morceau.length
+      }
+    }
+    return { rep, corps: Buffer.concat(morceaux) }
+  } catch (e) {
+    if (controleur.signal.aborted) {
+      throw Object.assign(new Error(`aucune donnée reçue depuis ${DELAI_REQUETE_MS / 1000} s`), { lent: true })
+    }
+    throw e
+  } finally {
+    clearTimeout(minuterie)
+  }
+}
+
 class AncienSupabase {
   constructor(url, cle) {
     this.url = url
@@ -126,16 +180,22 @@ class AncienSupabase {
       ? [`${this.url}/api/platform/pg-meta/default/query`, { Authorization: `Basic ${this.basic}` }]
       : [`${this.url}/pg/query`, this.entetesCle()]
     let rep
+    let corps
+    suivi.attente = Date.now()
     try {
-      rep = await fetch(adresse, {
+      ;({ rep, corps } = await reponseAvecDelai(adresse, {
         method: 'POST',
         headers: { ...entetes, 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: texte }),
-      })
+      }))
     } catch (e) {
+      // Serveur trop lent : on ne réessaie pas à l'identique, la copie réduit les paquets.
+      if (e.lent) throw e
       throw new ErreurAcces('reseau', messageReseau(e))
+    } finally {
+      suivi.attente = null
     }
-    const corps = await rep.text()
+    corps = corps.toString('utf8')
     if (!rep.ok) {
       let detail = corps
       try { detail = JSON.parse(corps).error || JSON.parse(corps).message || corps } catch {}
@@ -166,14 +226,18 @@ class AncienSupabase {
     const chemin = nom.split('/').map(encodeURIComponent).join('/')
     for (let essai = 1; ; essai++) {
       try {
-        const rep = await fetch(`${this.url}/storage/v1/object/${encodeURIComponent(bucket)}/${chemin}`, {
+        suivi.attente = Date.now()
+        suivi.detail = `${bucket}/${nom}`
+        const { rep, corps } = await reponseAvecDelai(`${this.url}/storage/v1/object/${encodeURIComponent(bucket)}/${chemin}`, {
           headers: this.entetesCle(),
         })
-        if (rep.ok) return Buffer.from(await rep.arrayBuffer())
-        const erreur = new Error(`téléchargement refusé (${rep.status}) : ${(await rep.text()).slice(0, 200)}`)
+        suivi.attente = null
+        if (rep.ok) return corps
+        const erreur = new Error(`téléchargement refusé (${rep.status}) : ${corps.toString('utf8').slice(0, 200)}`)
         erreur.definitif = rep.status < 500
         throw erreur
       } catch (e) {
+        suivi.attente = null
         if (e.definitif || essai >= 4) throw new Error(e.definitif ? e.message : messageReseau(e))
         await new Promise((r) => setTimeout(r, 3000 * essai))
       }
@@ -663,13 +727,16 @@ async function colonnesCible(db, q) {
 // Copie une table par paquets. La taille des paquets s'adapte au poids des lignes
 // (documents volumineux) pour ne jamais demander trop d'un coup au serveur.
 async function copierTable(src, db, q, colonnesSrc, adapter = (cols, r) => (r === null ? cols : r)) {
+  suivi.etape = `Copie de ${q}`
+  suivi.detail = ''
   const cible = await colonnesCible(db, q)
   const colsNoms = adapter(cible.filter((col) => colonnesSrc.includes(col)), null)
   const cols = colsNoms.map(qid).join(', ')
-  const CIBLE_OCTETS = 8 * 1024 * 1024
+  const CIBLE_OCTETS = 2 * 1024 * 1024
   let curseur = '(0,0)'
   let total = 0
   let taille = 50
+  let plafond = 500 // taille maximale autorisée pour cette table (abaissée si le serveur a dû être ménagé)
   for (;;) {
     let lignes
     let octets
@@ -679,7 +746,13 @@ async function copierTable(src, db, q, colonnesSrc, adapter = (cols, r) => (r ==
         where t.ctid > ${lit(curseur)}::tid order by t.ctid limit ${taille}`)
       octets = JSON.stringify(lignes).length
     } catch (e) {
-      if (taille > 1) { taille = Math.max(1, Math.floor(taille / 4)); continue }
+      if (taille > 1) {
+        // Ce paquet n'a pas été servi à temps : on ne remontera plus au-dessus pour cette table.
+        plafond = Math.max(1, Math.floor(taille / 4))
+        taille = plafond
+        process.stdout.write(`\n  Serveur lent (${e.message}) : paquets réduits à ${taille} ligne(s)\n`)
+        continue
+      }
       throw new Error(`Lecture de ${q} impossible : ${e.message}`)
     }
     if (!lignes.length) break
@@ -688,12 +761,15 @@ async function copierTable(src, db, q, colonnesSrc, adapter = (cols, r) => (r ==
       [JSON.stringify(lignes.map((l) => adapter(colsNoms, l.r)))])
     total += lignes.length
     curseur = lignes[lignes.length - 1]._ctid
-    // Ajuste le prochain paquet pour viser environ 8 Mo
+    // Après un paquet réussi, le plafond remonte (x2) : une coupure ponctuelle ne ralentit pas tout l'export.
+    plafond = Math.min(500, plafond * 2)
+    // Ajuste le prochain paquet pour viser environ 2 Mo (un paquet court = reprise plus fine après coupure)
     const parLigne = Math.max(1, octets / lignes.length)
-    taille = Math.max(1, Math.min(500, Math.floor(CIBLE_OCTETS / parLigne)))
-    process.stdout.write(`\r    ${q} : ${total} ligne(s)`)
+    taille = Math.max(1, Math.min(plafond, Math.floor(CIBLE_OCTETS / parLigne)))
+    suivi.detail = `${total} ligne(s)`
+    process.stdout.write(`    ${q} : ${total} ligne(s)\n`)
   }
-  process.stdout.write(`\r    ${q} : ${total} ligne(s)\n`)
+  process.stdout.write(`    ${q} : ${total} ligne(s), terminé\n`)
   return total
 }
 
@@ -769,6 +845,8 @@ async function migrer(sourceHorsLigne = null) {
 
   // 1. Structure + données en une seule transaction : en cas d'erreur, rien n'est gardé.
   dire()
+  demarrerSuivi()
+  suivi.etape = '1/3 Structure et données'
   dire('1/3  Copie de la structure et des données...')
   if (!sourceHorsLigne && fs.existsSync(ETAPE1)) {
     dire(c.ok('     Déjà faite lors d\'un essai précédent.'))
@@ -795,6 +873,8 @@ async function migrer(sourceHorsLigne = null) {
     }
     // Les objets dépendent parfois les uns des autres dans un ordre imprévisible :
     // on rejoue les instructions en échec tant qu'il y a du progrès.
+    suivi.etape = 'Recréation de la structure'
+    suivi.detail = ''
     let restantes = scriptStructure(structure)
     let derniereErreur = new Map()
     while (restantes.length) {
@@ -845,6 +925,7 @@ async function migrer(sourceHorsLigne = null) {
   }
 
   // 2. Fichiers
+  suivi.etape = '2/3 Fichiers'
   dire('2/3  Copie des fichiers...')
   const service = process.env.SERVICE_ROLE_KEY
   const echecs = []
@@ -867,9 +948,9 @@ async function migrer(sourceHorsLigne = null) {
     } catch (e) {
       echecs.push(`${f.bucket_id}/${f.name} : ${e.message}`)
     }
-    process.stdout.write(`\r     ${i + 1}/${fichiers.length} fichier(s)`)
+    suivi.detail = `${i + 1}/${fichiers.length} fichier(s)`
+    process.stdout.write(`     ${i + 1}/${fichiers.length} fichier(s)\n`)
   }
-  if (fichiers.length) process.stdout.write('\n')
   // Propriétaires des fichiers (servent aux règles d'accès)
   const colsObjets = await colonnesCible(db, 'storage.objects')
   const majProprio = ['owner', 'owner_id'].filter((col) => colsObjets.includes(col) && fichiers[0] && col in fichiers[0])
@@ -882,6 +963,8 @@ async function migrer(sourceHorsLigne = null) {
   }
 
   // 3. Vérification
+  suivi.etape = '3/3 Vérification'
+  suivi.detail = ''
   dire('3/3  Vérification...')
   const problemes = []
   const verifier = async (q, attendu) => {
@@ -894,6 +977,7 @@ async function migrer(sourceHorsLigne = null) {
   // L'API garde en mémoire la liste des tables : on lui demande de la relire.
   await db.query("notify pgrst, 'reload schema'")
   await db.end()
+  arreterSuivi()
 
   dire()
   if (echecs.length || problemes.length) {
