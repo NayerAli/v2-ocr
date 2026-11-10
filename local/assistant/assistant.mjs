@@ -807,8 +807,8 @@ async function compter(src, q) {
   return r.n
 }
 
-async function migrer() {
-  if (fs.existsSync(MARQUEUR)) {
+async function migrer(sourceHorsLigne = null) {
+  if (!sourceHorsLigne && fs.existsSync(MARQUEUR)) {
     dire(c.ok('La migration a déjà été faite sur cet ordinateur. Rien à refaire.'))
     return
   }
@@ -823,7 +823,7 @@ async function migrer() {
   dire('Le serveur actuel est seulement lu : rien n\'y est modifié ni supprimé.')
   dire()
 
-  const src = await questions(rl)
+  const src = sourceHorsLigne || await questions(rl)
 
   dire()
   dire('Analyse de votre base actuelle...')
@@ -843,7 +843,7 @@ async function migrer() {
     dire(c.err(`  Attention : les schémas ${structure.autresSchemas.join(', ')} ne seront pas copiés.`))
   }
   dire()
-  const ok = await demander(rl, 'Tapez OUI puis Entrée pour lancer la copie : ')
+  const ok = sourceHorsLigne ? 'oui' : await demander(rl, 'Tapez OUI puis Entrée pour lancer la copie : ')
   rl.close()
   if (ok.toLowerCase() !== 'oui') {
     dire('Copie annulée. Recollez la commande d\'installation quand vous voudrez.')
@@ -859,11 +859,15 @@ async function migrer() {
   // 1. Structure + données en une seule transaction : en cas d'erreur, rien n'est gardé.
   dire()
   dire('1/3  Copie de la structure et des données...')
-  if (fs.existsSync(ETAPE1)) {
+  if (!sourceHorsLigne && fs.existsSync(ETAPE1)) {
     dire(c.ok('     Déjà faite lors d\'un essai précédent.'))
   } else try {
     await db.query('begin')
     await db.query("set local check_function_bodies = off; set local session_replication_role = replica; set local search_path = public, extensions")
+    if (sourceHorsLigne) {
+      await db.query('drop schema public cascade; create schema public; grant usage on schema public to public; grant all on schema public to postgres, service_role')
+      await db.query('truncate auth.users, auth.identities, storage.objects, storage.buckets cascade')
+    }
     for (const e of structure.extensions) {
       await db.query('savepoint ext')
       try {
@@ -988,7 +992,9 @@ async function migrer() {
 
 // ---------------------------------------------------------------------------
 
+export { questions, lireStructure, colonnesSource, copierTable, compter, migrer }
 const action = process.argv[2]
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
 try {
   if (action === 'init') init()
   else if (action === 'migrer') await migrer()
@@ -1002,3 +1008,5 @@ try {
   dire('à votre prestataire, ou recollez la commande d\'installation pour réessayer.')
   process.exit(1)
 }
+}
+

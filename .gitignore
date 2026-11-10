@@ -99,3 +99,7 @@ rapport-migration.txt
 diagnostic-supabase.txt
 local/infos-pc.txt
 local/.adresse-serveur
+
+# Offline transfers and local rollback snapshots
+supabase_migration*.zip
+sauvegardes/
