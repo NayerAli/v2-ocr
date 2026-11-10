@@ -89,7 +89,11 @@ export async function exporter(folder, remote = null) {
   await compter(src, 'auth.users')
   const objects = await src.sql('select * from storage.objects order by bucket_id, name')
   suivi.etape = 'Comptage des lignes'
-  for (const t of structure.tables) await compter(src, t.q)
+  // Total de lignes à copier, affiché pendant l'export (les comptages sont aussi gardés pour la reprise).
+  suivi.lignesTotales = 0
+  for (const table of ['auth.users', 'auth.identities', 'storage.buckets', ...structure.tables.map(t => t.q)]) {
+    suivi.lignesTotales += await compter(src, table)
+  }
   const tables = ['auth.users', 'auth.identities', 'storage.buckets', ...structure.tables.map(t => t.q)]
   for (const table of tables) {
     const columns = await colonnesSource(src, table)

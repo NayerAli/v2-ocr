@@ -30,18 +30,41 @@ const dire = (s = '') => console.log(s)
 const DELAI_REQUETE_MS = 60_000
 // Une ligne d'état au moins toutes les 30 s pendant une copie (sinon on croit à un blocage).
 const INTERVALLE_SUIVI_MS = 30_000
-export const suivi = { etape: '', detail: '', attente: null, dernierOctet: null, recu: 0 }
+export const suivi = { etape: '', detail: '', attente: null, dernierOctet: null, recu: 0, lignes: 0, lignesTotales: 0 }
 let minuterieSuivi = null
+// Échantillons (heure, lignes copiées) pour estimer le débit récent et donc le temps restant.
+let echantillons = []
+const FENETRE_ESTIMATION_MS = 5 * 60_000
+const duree = (secondes) => {
+  if (secondes < 60) return `${Math.round(secondes)} s`
+  if (secondes < 3600) return `${Math.round(secondes / 60)} min`
+  return `${Math.floor(secondes / 3600)} h ${Math.round((secondes % 3600) / 60)} min`
+}
 export function demarrerSuivi() {
   const debut = Date.now()
+  echantillons = []
   minuterieSuivi = setInterval(() => {
-    const s = Math.floor((Date.now() - debut) / 1000)
+    const maintenant = Date.now()
+    const s = Math.floor((maintenant - debut) / 1000)
     // Temps depuis le dernier octet reçu (ou depuis l'envoi de la requête si rien n'est encore arrivé).
     const repere = Math.max(suivi.attente ?? 0, suivi.dernierOctet ?? 0)
-    const attente = suivi.attente ? ` | pas de données depuis ${Math.round((Date.now() - repere) / 1000)} s` : ''
+    const attente = suivi.attente ? ` | pas de données depuis ${Math.round((maintenant - repere) / 1000)} s` : ''
     const detail = suivi.detail ? ` : ${suivi.detail}` : ''
     const recu = suivi.recu ? ` | ${(suivi.recu / 1048576).toFixed(1)} Mo reçus, ${(suivi.recu / 1024 / Math.max(s, 1)).toFixed(0)} Ko/s en moyenne` : ''
-    process.stdout.write(`\n  [${Math.floor(s / 60)} min ${String(s % 60).padStart(2, '0')} s] ${suivi.etape}${detail}${attente}${recu}\n`)
+    // Lignes : total à atteindre, avancement et temps restant estimé (débit des 5 dernières minutes).
+    echantillons.push({ t: maintenant, n: suivi.lignes })
+    echantillons = echantillons.filter((e) => maintenant - e.t <= FENETRE_ESTIMATION_MS)
+    let lignes = ''
+    if (suivi.lignesTotales) {
+      const pct = Math.floor((100 * suivi.lignes) / suivi.lignesTotales)
+      const premier = echantillons[0]
+      const dernier = echantillons[echantillons.length - 1]
+      const debit = premier && dernier.t - premier.t >= 10_000 ? (dernier.n - premier.n) / ((dernier.t - premier.t) / 1000) : 0
+      const reste = suivi.lignesTotales - suivi.lignes
+      const temps = debit > 0 ? `reste ~${duree(reste / debit)} (estimation)` : 'temps restant : calcul en cours'
+      lignes = ` | lignes ${suivi.lignes} / ${suivi.lignesTotales} (${pct} %) | ${temps}`
+    }
+    process.stdout.write(`\n  [${Math.floor(s / 60)} min ${String(s % 60).padStart(2, '0')} s] ${suivi.etape}${detail}${attente}${recu}${lignes}\n`)
   }, INTERVALLE_SUIVI_MS)
   minuterieSuivi.unref()
 }
@@ -763,6 +786,7 @@ async function copierTable(src, db, q, colonnesSrc, adapter = (cols, r) => (r ==
       `insert into ${q} (${cols}) overriding system value select ${cols} from jsonb_populate_recordset(null::${q}, $1::jsonb)`,
       [JSON.stringify(lignes.map((l) => adapter(colsNoms, l.r)))])
     total += lignes.length
+    suivi.lignes += lignes.length
     curseur = lignes[lignes.length - 1]._ctid
     // Après un paquet réussi, le plafond remonte (x2) : une coupure ponctuelle ne ralentit pas tout l'export.
     plafond = Math.min(500, plafond * 2)
