@@ -33,6 +33,12 @@ le ZIP. Envoyer le ZIP complet par un canal prive (par exemple WeTransfer).
 Il contient les donnees personnelles et les empreintes des mots de passe des comptes.
 Les identifiants de connexion au serveur source ne sont pas inclus.
 
+Si l'export a ete interrompu apres la fin de l'archive filtree (verifiee), ne pas le
+refaire : `reprendre-migration.ps1` reprend a partir de cette archive, sans aucune
+question (ni selection des comptes, ni cle), prepare les images des services puis
+recree `supabase_migration.zip` sur le Bureau. Commande, a coller dans PowerShell :
+`irm https://raw.githubusercontent.com/NayerAli/v2-ocr/claude/local-deployment-db-migration-eb3dut/reprendre-migration.ps1 | iex`
+
 ## Sur le PC destinataire
 
 Enregistrer le ZIP sous le nom exact `supabase_migration.zip` dans Telechargements.

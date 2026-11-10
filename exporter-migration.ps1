@@ -78,6 +78,12 @@ if (Test-Path -LiteralPath $manifest) {
     Remove-Item Env:OCR_ADRESSE -ErrorAction SilentlyContinue
   }
   if (-not (Test-Path -LiteralPath (Join-Path $exportDir 'payload\manifest.json'))) { throw 'Aucune archive produite : export annule ou interrompu.' }
+  # Un kit\payload reste d'une ancienne tentative : il est mis de cote (jamais supprime, jamais transmis).
+  if (Test-Path -LiteralPath $payload) {
+    $ecarte = Join-Path $work ('payload-ecarte-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Move-Item -LiteralPath $payload -Destination $ecarte
+    Write-Host "Ancien contenu de kit\payload mis de cote (non transmis) : $ecarte" -ForegroundColor Yellow
+  }
   Move-Item -LiteralPath (Join-Path $exportDir 'payload') -Destination $payload
   Write-Host "Rapport de filtrage (adresses e-mail : ne pas transmettre) : $(Join-Path $exportDir 'rapport-filtrage.txt')" -ForegroundColor Yellow
 }
