@@ -301,7 +301,9 @@ async function principal() {
 
 async function exporterArchive({ remote, dossier, choisis, nonChoisis, totalLignes, fichiers }) {
   const payload = path.join(dossier, 'payload')
-  if (fs.existsSync(path.join(payload, 'manifest.json'))) throw new Error('Cet export est déjà terminé dans ce dossier')
+  // Le manifeste n'existe qu'après un contrôle réussi. Un manifeste resté là (ancienne version, ou contrôle
+  // refusé) n'est pas une preuve : on le retire et on refait le contrôle, sans retélécharger ce qui est déjà reçu.
+  fs.rmSync(path.join(payload, 'manifest.json'), { force: true })
   const identite = digest(JSON.stringify({ url: remote.url, comptes: choisis.map((c) => c.id), decisions: DECISIONS }))
   const marque = path.join(dossier, 'reprise.json')
   let precedente = null
@@ -408,12 +410,13 @@ async function exporterArchive({ remote, dossier, choisis, nonChoisis, totalLign
     suivi.unite = undefined
     suivi.facteur = undefined
     fs.writeFileSync(path.join(dossier, 'fichiers.tsv'), objets.map((o) => `${o.bucket_id}\t${o.name}\t${o.metadata?.size ?? ''}`).join('\n') + (objets.length ? '\n' : ''))
-    fs.writeFileSync(path.join(payload, 'manifest.json'), JSON.stringify(manifest, null, 2))
-    new ArchiveSource(payload)
   } finally {
     arreterSuivi()
   }
-  dire('Archive écrite et vérifiée (empreintes des fichiers).')
+  // Fichiers restés d'un essai précédent qui ne font plus partie de cet export : retirés avant le contrôle.
+  for (const nom of fs.readdirSync(payload)) {
+    if (/\.(json|bin)$/.test(nom) && !Object.hasOwn(manifest.files, nom)) fs.rmSync(chemin(nom))
+  }
 
   // Contrôle : rien d'un compte non choisi dans l'archive ; les clés des comptes choisis y sont.
   const contenus = fs.readdirSync(payload).filter((f) => /\.(json|bin)$/.test(f)).map((f) => fs.readFileSync(chemin(f)))
@@ -434,7 +437,17 @@ async function exporterArchive({ remote, dossier, choisis, nonChoisis, totalLign
     if (!contenus.some((buf) => buf.includes(Buffer.from(`"${v}"`)))) absentes++
   }
   for (const cpt of choisis) if (!contenus.some((buf) => buf.includes(Buffer.from(cpt.id)))) absentes++
-  if (fuites || absentes) throw new Error(`Contrôle échoué : ${fuites} fuite(s) d'un compte non choisi, ${absentes} élément(s) d'un compte choisi absent(s). Export non valide.`)
+  if (fuites || absentes) {
+    // Les réponses SQL en cache ne doivent pas figer une donnée fautive : la relance relit la base.
+    // Les fichiers déjà téléchargés sont gardés et réutilisés.
+    for (const nom of fs.readdirSync(payload)) if (nom.endsWith('.json')) fs.rmSync(chemin(nom))
+    throw new Error(`Contrôle échoué : ${fuites} fuite(s) d'un compte non choisi, ${absentes} élément(s) d'un compte choisi absent(s). Export non valide. Corrigez la cause dans la base (ou désélectionnez le compte concerné), puis relancez la même commande.`)
+  }
+
+  // Seul un export qui a passé le contrôle reçoit son manifeste : c'est lui qui marque l'export comme terminé.
+  fs.writeFileSync(path.join(payload, 'manifest.json'), JSON.stringify(manifest, null, 2))
+  new ArchiveSource(payload)
+  dire('Archive écrite et vérifiée (empreintes des fichiers et contrôle des comptes).')
 
   // Rapport (hors archive : il contient des adresses e-mail)
   const lignes = [
