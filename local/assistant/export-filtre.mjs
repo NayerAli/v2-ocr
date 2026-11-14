@@ -449,8 +449,8 @@ async function exporterArchive({ remote, dossier, choisis, nonChoisis, totalLign
     suivi.paquet = 0
     suivi.lignesTotales = total
     suivi.lignes = dejaRecu
-    // Six transferts au plus par défaut, borne absolue de huit pour ménager le serveur.
-    const PARALLELE = Math.min(8, Math.max(1, Math.floor(Number(process.env.OCR_PARALLELE) || 6)))
+    // Dix transferts au plus par défaut, borne absolue de dix pour ménager le serveur.
+    const PARALLELE = Math.min(10, Math.max(1, Math.floor(Number(process.env.OCR_PARALLELE) || 10)))
     let suivant = 0
     const ouvrier = async () => {
       while (suivant < aFaire.length) {

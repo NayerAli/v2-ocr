@@ -153,7 +153,7 @@ try {
             $sourceKey = Read-Host 'Cle service_role du serveur source (saisie masquee, non memorisee)' -AsSecureString
             $studioUser = Read-Host 'Identifiant Studio si acces SQL protege (Entree si inutile)'
             if ($studioUser) { $studioPassword = Read-Host 'Mot de passe Studio (saisie masquee)' -AsSecureString }
-            $childEnv = @{OCR_ADRESSE=$address; OCR_CLE=(Unprotect-Text $sourceKey); OCR_CLIENT_EXPORT='1'; OCR_PARALLELE='6'}
+            $childEnv = @{OCR_ADRESSE=$address; OCR_CLE=(Unprotect-Text $sourceKey); OCR_CLIENT_EXPORT='1'; OCR_PARALLELE='10'}
             if ($studioUser) { $childEnv.OCR_STUDIO_USER=$studioUser; $childEnv.OCR_STUDIO_PASSWORD=(Unprotect-Text $studioPassword) }
             $selection = Join-Path $export 'selection.json'
             $arguments = @('--use-system-ca',$exportScript,$export,'--ecrire-config',$selection)
