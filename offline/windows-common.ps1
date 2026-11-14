@@ -51,10 +51,12 @@ function Invoke-Tool {
             $err = $process.StandardError.ReadLineAsync()
         }
         do {
+            $readReady = $false
             if (-not $Interactive) {
                 foreach ($stream in @('out', 'err')) {
                     $read = Get-Variable $stream -ValueOnly
                     if ($read -and $read.IsCompleted) {
+                        $readReady = $true
                         $line = $read.GetAwaiter().GetResult()
                         if ($null -ne $line) {
                             $activity = $clock.Elapsed.TotalSeconds
@@ -75,7 +77,8 @@ function Invoke-Tool {
                 throw "Delai depasse : $([IO.Path]::GetFileName($Exe)) $($Arguments[0]) (limite ${Timeout}s, inactivite ${Idle}s)."
             }
             if ($process.HasExited -and ($Interactive -or (-not $out -and -not $err))) { break }
-            Start-Sleep -Milliseconds 40
+            # Poll only while waiting for new output, not while draining queued lines.
+            if (-not $readReady) { Start-Sleep -Milliseconds 40 }
         } while ($true)
         if ($process.ExitCode -ne 0) { throw "Echec : $([IO.Path]::GetFileName($Exe)) $($Arguments[0]) (code $($process.ExitCode))." }
         if ($Capture) { return $output.ToArray() }
