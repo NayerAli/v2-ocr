@@ -23,7 +23,13 @@ ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NEXT_CACHE_DISABLED=1
 COPY . .
-RUN  npm run build && npm prune --omit=dev
+# The offline builder supplies a placeholder for the public key only.
+ARG OCR_BUILD_SUPABASE_URL
+ARG OCR_BUILD_SUPABASE_ANON_KEY
+RUN if [ -n "$OCR_BUILD_SUPABASE_URL" ]; then \
+      NEXT_PUBLIC_SUPABASE_URL="$OCR_BUILD_SUPABASE_URL" \
+      NEXT_PUBLIC_SUPABASE_ANON_KEY="$OCR_BUILD_SUPABASE_ANON_KEY" npm run build; \
+    else npm run build; fi && npm prune --omit=dev
 
 RUN mkdir -p /opt \
   && cp -a .next/standalone/. /opt/ \

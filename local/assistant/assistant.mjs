@@ -122,7 +122,30 @@ function motDePasseLisible() {
 
 function init() {
   const fichierEnv = path.join(LOCAL, '.env')
+  const horsLigne = process.env.OCR_OFFLINE_INSTALL === '1'
+  const fichierApp = path.join(PROJET, '.env.local')
+  const ecrire = (fichier, contenu) => {
+    if (!horsLigne) return fs.writeFileSync(fichier, contenu)
+    fs.writeFileSync(fichier + '.tmp', contenu, { mode: 0o600 })
+    fs.renameSync(fichier + '.tmp', fichier)
+  }
+  const ecrireApp = (anon, service) => ecrire(fichierApp, [
+    '# Généré automatiquement par Installer-OCR.',
+    'NEXT_PUBLIC_SUPABASE_URL=http://localhost:8000',
+    `NEXT_PUBLIC_SUPABASE_ANON_KEY=${anon}`,
+    `SUPABASE_SERVICE_ROLE_KEY=${service}`,
+    'NEXT_PUBLIC_SITE_URL=http://localhost:3000',
+    'NODE_ENV=production',
+    '',
+  ].join('\n'))
   if (fs.existsSync(fichierEnv)) {
+    if (horsLigne && !fs.existsSync(fichierApp)) {
+      const env = fs.readFileSync(fichierEnv, 'utf8')
+      const anon = env.match(/^ANON_KEY=(.+)$/m)?.[1]
+      const service = env.match(/^SERVICE_ROLE_KEY=(.+)$/m)?.[1]
+      if (!anon || !service) throw new Error('Configuration locale incomplète')
+      ecrireApp(anon, service)
+    }
     dire('Configuration locale déjà présente : rien à générer.')
     return
   }
@@ -133,7 +156,7 @@ function init() {
   const SERVICE_ROLE_KEY = jwt({ role: 'service_role', iss: 'supabase', iat, exp }, JWT_SECRET)
   const DASHBOARD_PASSWORD = motDePasseLisible()
 
-  fs.writeFileSync(fichierEnv, [
+  ecrire(fichierEnv, [
     '# Généré automatiquement par Installer-OCR. Ne pas modifier, ne pas partager.',
     `POSTGRES_PASSWORD=${hasard(24)}`,
     `JWT_SECRET=${JWT_SECRET}`,
@@ -145,15 +168,8 @@ function init() {
     '',
   ].join('\n'))
 
-  fs.writeFileSync(path.join(PROJET, '.env.local'), [
-    '# Généré automatiquement par Installer-OCR.',
-    'NEXT_PUBLIC_SUPABASE_URL=http://localhost:8000',
-    `NEXT_PUBLIC_SUPABASE_ANON_KEY=${ANON_KEY}`,
-    `SUPABASE_SERVICE_ROLE_KEY=${SERVICE_ROLE_KEY}`,
-    'NEXT_PUBLIC_SITE_URL=http://localhost:3000',
-    'NODE_ENV=production',
-    '',
-  ].join('\n'))
+  ecrireApp(ANON_KEY, SERVICE_ROLE_KEY)
+  if (horsLigne) return
 
   fs.writeFileSync(path.join(PROJET, 'MES-ACCES.txt'), [
     'APPLICATION OCR - VOS ACCES (a conserver)',

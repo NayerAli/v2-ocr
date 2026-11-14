@@ -1,0 +1,47 @@
+name: V2 OCR offline installer
+on:
+  push:
+    branches: [feature/r2-offline-installer]
+    paths:
+      - 'offline/**'
+      - 'local/**'
+      - 'Dockerfile'
+      - '.github/workflows/offline-installer.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Verify archive, signing, segmentation and HTTP range handling
+        run: |
+          python3 -m unittest offline.tests.prepare_test
+          node --test offline/tests/*.test.mjs local/assistant/archive.test.mjs
+      - name: Build the release and test the actual Docker services
+        run: |
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$RUNNER_TEMP/test-signing.pem"
+          python3 offline/prepare.py lock-images "$RUNNER_TEMP/images.lock.json"
+          python3 offline/prepare.py build \
+            --lock "$RUNNER_TEMP/images.lock.json" --output "$RUNNER_TEMP/release" \
+            --signing-key "$RUNNER_TEMP/test-signing.pem" \
+            --channel-url "https://example.test/$(printf '%064d' 0)/manifest.json" \
+            --version "ci-$GITHUB_RUN_NUMBER" --sequence "$GITHUB_RUN_NUMBER"
+          bash offline/tests/docker-smoke.sh "$RUNNER_TEMP/release"
+  windows-parser:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Parse the installer with Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          $tokens = $null
+          $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path 'offline/install.ps1').Path, [ref]$tokens, [ref]$errors)
+          if ($errors.Count) { $errors | Out-String | Write-Error }

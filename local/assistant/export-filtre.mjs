@@ -182,6 +182,8 @@ async function principal() {
     dire('Le serveur est seulement lu. Une ligne d\'état s\'affiche toutes les 15 s pendant la copie.')
     dire()
     const remote = await questions(rl)
+    const [{ version_num: postgresVersion }] = await remote.sql(
+      "select current_setting('server_version_num') as version_num")
 
     // 1. Structure et liens
     const structure = await lireStructure(remote)
@@ -308,13 +310,13 @@ async function principal() {
 
     // 5. Export puis contrôle
     const totalLignes = [...total.entries()].filter(([q]) => q !== 'storage.objects').reduce((a, [, x]) => a + x.n, 0)
-    await exporterArchive({ remote, dossier, choisis, nonChoisis, totalLignes, fichiers: total.get('storage.objects') ?? { n: 0, octets: 0 } })
+    await exporterArchive({ remote, dossier, choisis, nonChoisis, totalLignes, postgresVersion, fichiers: total.get('storage.objects') ?? { n: 0, octets: 0 } })
   } finally {
     rl.close()
   }
 }
 
-async function exporterArchive({ remote, dossier, choisis, nonChoisis, totalLignes, fichiers }) {
+async function exporterArchive({ remote, dossier, choisis, nonChoisis, totalLignes, fichiers, postgresVersion }) {
   const payload = path.join(dossier, 'payload')
   // Le manifeste n'existe qu'après un contrôle réussi. Un manifeste resté là (ancienne version, ou contrôle
   // refusé) n'est pas une preuve : on le retire et on refait le contrôle, sans retélécharger ce qui est déjà reçu.
@@ -335,6 +337,7 @@ async function exporterArchive({ remote, dossier, choisis, nonChoisis, totalLign
     created: new Date().toISOString(),
     files: {},
     counts: {},
+    postgresVersion,
     filtre: { version: 1, perimetre: 'comptes choisis', comptes: choisis.length, globales: DECISIONS.globales, orphelins: DECISIONS.orphelins, cles_confirmees: DECISIONS.cles },
   }
   const chemin = (nom) => path.join(payload, nom)
