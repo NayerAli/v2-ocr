@@ -8,6 +8,9 @@
 | Tests Node de chiffrement, corruption et plages HTTP du Worker | 2 réussis |
 | Tests Node du moteur d'archive existant avec source simulée | 2 réussis |
 | Analyse syntaxique JavaScript, compilation Python, lecture YAML et analyse Bash | Exécutées avec succès |
+| Compilation Next.js avec le marqueur Supabase | Réussie sous Linux. Le marqueur figure dans les bundles navigateur et serveur. |
+| Syntaxe de l'installateur | Analyse réussie par Windows PowerShell 5.1 dans [GitHub Actions](https://github.com/NayerAli/v2-ocr/actions/runs/43557187550). |
+| Digests des huit images Compose | Relevés dans le registre Docker et consignés dans `offline/images.lock.json`. |
 | Création R2, déploiement du Worker et lecture d'un objet synthétique via l'API R2 | Réussis |
 | Requêtes HTTPS vers le Worker déployé | HTTP 200 sur l'objet, 206 sur la reprise à l'octet 7, 416 sur une plage hors limites |
 | Construction réelle des images et essai Docker | En attente de la CI Linux. Aucun démon Docker accessible dans l'environnement de travail. |

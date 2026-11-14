@@ -19,8 +19,11 @@ $Suffix = @{ runtime='tar.gz'; images='tar.gz'; migration='enc'; wsl='msi'; dock
 function Write-Atomic([string]$File, [string]$Value) {
     $temp = "$File.new"
     [IO.File]::WriteAllText($temp, $Value, (New-Object Text.UTF8Encoding($false)))
-    if (Test-Path -LiteralPath $File) { [IO.File]::Replace($temp, $File, $null) }
-    else { [IO.File]::Move($temp, $File) }
+    if (Test-Path -LiteralPath $File) {
+        $backup = "$File.previous"
+        [IO.File]::Replace($temp, $File, $backup)
+        Remove-Item -LiteralPath $backup -Force
+    } else { [IO.File]::Move($temp, $File) }
 }
 
 function Read-Json([string]$File) {
@@ -334,9 +337,8 @@ function Start-App([string]$Release) {
     $envFile = Join-Path $State 'local/.env'
     $anon = ((Get-Content -LiteralPath $envFile | Where-Object { $_ -like 'ANON_KEY=*' }) -split '=', 2)[1]
     if (-not $anon) { throw 'Cle locale Supabase absente.' }
-    & curl.exe -q --silent --fail --noproxy '*' --max-time 10 --output NUL `
-        --header "apikey: $anon" 'http://localhost:8000/auth/v1/health'
-    if ($LASTEXITCODE -ne 0) { throw 'Supabase local ne repond pas.' }
+    Invoke-WebRequest -UseBasicParsing -TimeoutSec 10 -Headers @{apikey=$anon} `
+        -Uri 'http://localhost:8000/auth/v1/health' | Out-Null
 }
 
 function Save-Volumes([string]$Release, [string]$Directory) {

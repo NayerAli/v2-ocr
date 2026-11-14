@@ -25,9 +25,8 @@ jobs:
       - name: Build the release and test the actual Docker services
         run: |
           openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$RUNNER_TEMP/test-signing.pem"
-          python3 offline/prepare.py lock-images "$RUNNER_TEMP/images.lock.json"
           python3 offline/prepare.py build \
-            --lock "$RUNNER_TEMP/images.lock.json" --output "$RUNNER_TEMP/release" \
+            --lock offline/images.lock.json --output "$RUNNER_TEMP/release" \
             --signing-key "$RUNNER_TEMP/test-signing.pem" \
             --channel-url "https://example.test/$(printf '%064d' 0)/manifest.json" \
             --version "ci-$GITHUB_RUN_NUMBER" --sequence "$GITHUB_RUN_NUMBER"

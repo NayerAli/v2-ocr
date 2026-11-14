@@ -19,7 +19,7 @@ Le poste de préparation est Linux x64 avec Docker et Compose, Python 3.12+, Nod
 node local/assistant/export-filtre.mjs /chemin/prive/export
 ```
 
-3. Résoudre les tags existants en digests, puis conserver le verrou avec les dossiers de version. Réutiliser ce verrou pour les builds suivants. Le fichier généré par la commande suivante doit être créé une fois par jeu de versions validé.
+3. Utiliser `offline/images.lock.json` pour les versions Compose de référence. Les digests ont été relevés dans le registre. En cas de changement de versions, générer puis revoir un nouveau verrou.
 
 ```bash
 python3 offline/prepare.py lock-images /chemin/prive/images.lock.json
@@ -39,7 +39,7 @@ host="https://v2-ocr-distribution.nayer-v2-ocr.workers.dev"
 
 ```bash
 python3 offline/prepare.py build \
-  --lock /chemin/prive/images.lock.json \
+  --lock offline/images.lock.json \
   --output /chemin/prive/version-1 \
   --signing-key /chemin/prive/signature.pem \
   --channel-url "$host/$channel/manifest.json" --version 1.0.0 --sequence 1 \
