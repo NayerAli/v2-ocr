@@ -30,9 +30,7 @@ const dire = (s = '') => console.log(s)
 const DELAI_REQUETE_MS = 60_000
 // Une ligne d'état toutes les 15 s : état du serveur, mesures, avancement.
 const INTERVALLE_SUIVI_MS = 15_000
-// Nombre d'essais supplémentaires pour une ligne qui ne répond pas, avec un délai croissant.
-const ESSAIS_LIGNE = 4
-// Délai courant : augmenté temporairement quand une seule ligne résiste.
+// Limite par requête, identique lors de la tentative avec une seule ligne.
 export const reglage = { delaiMs: DELAI_REQUETE_MS }
 // Dernières requêtes terminées (heure, latence, octets, durée du transfert) pour classer le serveur.
 export const suivi = { etape: '', detail: '', attente: null, dernierOctet: null, recu: 0, lignes: 0, lignesTotales: 0, paquet: 0, note: '', requetes: [] }
@@ -250,14 +248,14 @@ class AncienSupabase {
         return await this.sqlUneFois(requete)
       } catch (e) {
         const passager = e.type === 'reseau' || e.passager
-        if (!passager || essai >= 4) throw e
-        await new Promise((r) => setTimeout(r, 3000 * essai))
+        if (!passager || essai >= 2) throw e
+        await new Promise((r) => setTimeout(r, 2000 * essai))
       }
     }
   }
 
   async sqlUneFois(requete) {
-    const texte = `set local transaction read only; set local search_path = pg_catalog; ${requete}`
+    const texte = `set local transaction read only; set local statement_timeout = '55s'; set local lock_timeout = '5s'; set local search_path = pg_catalog; ${requete}`
     const [adresse, entetes] = this.basic
       ? [`${this.url}/api/platform/pg-meta/default/query`, { Authorization: `Basic ${this.basic}` }]
       : [`${this.url}/pg/query`, this.entetesCle()]
@@ -294,7 +292,7 @@ class AncienSupabase {
   // 'ok', 'refus' ou un message d'erreur
   async verifierStockage() {
     try {
-      const rep = await fetch(`${this.url}/storage/v1/bucket`, { headers: this.entetesCle() })
+      const rep = await fetch(`${this.url}/storage/v1/bucket`, { headers: this.entetesCle(), signal: AbortSignal.timeout(20000) })
       if (rep.ok) return 'ok'
       const texte = await rep.text()
       if (rep.status === 401 || rep.status === 403 || /jwt|signature|unauthori/i.test(texte)) return 'refus'
@@ -320,8 +318,8 @@ class AncienSupabase {
         throw erreur
       } catch (e) {
         suivi.attente = null
-        if (e.definitif || essai >= 4) throw new Error(e.definitif ? e.message : messageReseau(e))
-        await new Promise((r) => setTimeout(r, 3000 * essai))
+        if (e.definitif || essai >= 2) throw new Error(e.definitif ? e.message : messageReseau(e))
+        await new Promise((r) => setTimeout(r, 2000 * essai))
       }
     }
   }
@@ -450,8 +448,10 @@ async function questions(rl) {
   // Identifiants déjà connus du lanceur (mémorisés sur ce PC) : utilisés une seule fois, sans question.
   // Si un identifiant est refusé, la question revient normalement.
   const reprises = { adresse: process.env.OCR_ADRESSE || '', cle: process.env.OCR_CLE || '' }
+  const automatique = process.env.OCR_CLIENT_EXPORT === '1'
   const saisir = async (nom, question) => {
     if (reprises[nom]) { const valeur = reprises[nom]; reprises[nom] = ''; return valeur }
+    if (automatique) throw new Error('Identifiants source invalides. Relancez la commande pour les saisir de nouveau, de facon masquee.')
     return demander(rl, question)
   }
   dire(c.titre('Question 1 sur 2 : l\'adresse de votre Supabase actuel'))
@@ -481,6 +481,7 @@ async function questions(rl) {
       try { fs.writeFileSync(path.join(LOCAL, '.adresse-serveur'), url) } catch {}
       break
     } catch (e) {
+      if (automatique) throw e
       dire(c.err(`  Impossible de joindre cette adresse (${e.message}).`))
       dire('  Vérifiez-la (copiez-la depuis la barre d\'adresse du navigateur) puis réessayez.')
     }
@@ -516,11 +517,11 @@ async function questions(rl) {
     const stockage = await ancien.verifierStockage()
     if (stockage === 'refus') {
       dire(c.err('  Le serveur refuse cette clé. Vérifiez que vous avez copié la clé « service_role » de CE serveur.'))
-      await diagnostic(url, cle, 'clé refusée par le stockage des fichiers')
+      if (!automatique) await diagnostic(url, cle, 'clé refusée par le stockage des fichiers')
       continue
     }
     if (stockage !== 'ok') {
-      await diagnostic(url, cle, `stockage des fichiers injoignable (${stockage})`)
+      if (!automatique) await diagnostic(url, cle, `stockage des fichiers injoignable (${stockage})`)
       throw new Error(`Le stockage des fichiers du serveur ne répond pas (${stockage}).`)
     }
     try {
@@ -528,13 +529,19 @@ async function questions(rl) {
       dire(c.ok('  Clé acceptée.'))
       return ancien
     } catch (e) {
-      await diagnostic(url, cle, `accès à la base refusé (${e.type || 'erreur'} : ${e.message})`)
-      if (e.type === 'refus' && ++refus < 2) {
+      if (!automatique) await diagnostic(url, cle, `accès à la base refusé (${e.type || 'erreur'} : ${e.message})`)
+      if (!automatique && e.type === 'refus' && ++refus < 2) {
         dire(c.err('  Le serveur refuse cette clé. Vérifiez que vous avez copié la clé « service_role » de CE serveur.'))
         continue
       }
       if (e.type === 'refus' || e.type === 'absent') {
         // Accès SQL direct indisponible : on passe par le tableau de bord.
+        if (automatique) {
+          if (!process.env.OCR_STUDIO_USER || !process.env.OCR_STUDIO_PASSWORD) throw new Error('Acces SQL HTTP indisponible avec cette cle. Relancez en renseignant aussi les identifiants Studio proposes par le preparateur.')
+          ancien.basic = Buffer.from(`${process.env.OCR_STUDIO_USER}:${process.env.OCR_STUDIO_PASSWORD}`).toString('base64')
+          await ancien.sql('select 1 as ok')
+          return ancien
+        }
         return planB(rl, ancien)
       }
       throw e
@@ -840,26 +847,10 @@ async function copierTable(src, db, q, colonnesSrc, adapter = (cols, r) => (r ==
       reglage.delaiMs = DELAI_REQUETE_MS
       suivi.note = ''
     } catch (e) {
-      if (taille > 1) {
-        // Ce paquet n'a pas été servi à temps : on ne remontera plus au-dessus pour cette table.
-        plafond = Math.max(1, Math.floor(taille / 4))
-        taille = plafond
-        process.stdout.write(`\n  Serveur lent (${e.message}) : paquets réduits à ${taille} ligne(s)\n`)
-        continue
-      }
-      if (!e.lent) throw new Error(`Lecture de ${q} impossible : ${e.message}`)
-      // Une seule ligne ne répond pas : on laisse au serveur plus de temps, quelques fois, avant d'abandonner.
-      echecsLigne += 1
-      if (echecsLigne > ESSAIS_LIGNE) {
-        throw new Error(
-          `Lecture de ${q} bloquée sur la ligne qui suit ${curseur} : le serveur ne répond pas pour cette ligne, ` +
-          `même après ${ESSAIS_LIGNE} essais (dernier délai : ${Math.round(reglage.delaiMs / 1000)} s). ` +
-          `Relancez l'export plus tard : il reprend à cet endroit. ` +
-          `Pour voir la ligne sur le serveur (lecture seule) : select ctid, pg_column_size(t.*) as octets from ${q} t where t.ctid > '${curseur}'::tid order by t.ctid limit 1;`)
-      }
-      reglage.delaiMs = Math.min(15 * 60_000, DELAI_REQUETE_MS * 2 ** echecsLigne)
-      suivi.note = `Ligne bloquée après ${curseur} : essai ${echecsLigne}/${ESSAIS_LIGNE}, délai porté à ${Math.round(reglage.delaiMs / 1000)} s`
-      process.stdout.write(`\n  ${suivi.note}\n`)
+      if (!e.lent || ++echecsLigne > 1) throw new Error(`Lecture de ${q} interrompue : ${e.message}. Relancez la meme commande pour reprendre.`)
+      plafond = 1
+      taille = 1
+      process.stdout.write(`\n  Lecture lente : un dernier essai avec une seule ligne, limite 60 s.\n`)
       continue
     }
     if (!lignes.length) break
@@ -947,7 +938,7 @@ async function migrer(sourceHorsLigne = null) {
 
   const db = new pg.Client({
     host: 'db', port: 5432, database: 'postgres', user: 'supabase_admin',
-    password: process.env.POSTGRES_PASSWORD,
+    password: process.env.POSTGRES_PASSWORD, connectionTimeoutMillis: 15000, query_timeout: 60000, statement_timeout: 55000,
   })
   await db.connect()
 
@@ -1050,11 +1041,11 @@ async function migrer(sourceHorsLigne = null) {
           // Le stockage garde parfois « 3600 », parfois « max-age=3600 » : on ne préfixe que les nombres.
           'Cache-Control': cacheControlDe(f.metadata?.cacheControl),
         },
-        body: contenu,
+        body: contenu, signal: AbortSignal.timeout(60000),
       })
       if (!rep.ok) throw new Error(`envoi refusé (${rep.status}) : ${(await rep.text()).slice(0, 200)}`)
     } catch (e) {
-      echecs.push(`${f.bucket_id}/${f.name} : ${e.message}`)
+      throw new Error(`Import interrompu pour ${f.bucket_id}/${f.name} : ${e.message}`)
     }
     suivi.detail = `${i + 1}/${fichiers.length} fichier(s)`
     process.stdout.write(`     ${i + 1}/${fichiers.length} fichier(s)\n`)

@@ -38,10 +38,14 @@ const dire = (s = '') => console.log(s)
 const masquer = (v) => (v.length <= 8 ? '****' : `${v.slice(0, 4)}...${v.slice(-4)}`)
 
 // Clés fournisseurs : nom de champ sensible, ou valeur de forme « AIza... » (Google).
-const MOTIF_CLE = '"(apikey|api_key|secret|token|password|private_key)"\\s*:|AIza[0-9A-Za-z_-]{35}'
-const NOMS_CLE = /^(apikey|api_key|secret|token|password|private_key)$/i
+const MOTIF_CLE = '"([a-z_]*api_?keys?|secret|token|password|private_key)"\\s*:|AIza[0-9A-Za-z_-]{35}'
+const NOMS_CLE = /^(.*api[_-]?keys?|secret|token|password|private_key)$/i
 const LISTE_TOUS = '(SELECT u.id::text FROM auth.users u)'
 const COLONNES_COMPTE = ['user_id', 'owner', 'owner_id']
+const CLIENT_ISOLE = process.env.OCR_CLIENT_EXPORT === '1'
+const PARAMETRES_PARTAGES = /^public\."?(?:settings|public_settings|system_settings)"?$/i
+// These tables keep their schema; their shared rows never leave the server.
+const tablePartagee = (q) => PARAMETRES_PARTAGES.test(q)
 
 // État du filtre, construit une fois la structure lue.
 let INFOS = new Map()          // table -> { colonnes, directes, fks }
@@ -79,13 +83,15 @@ function predicat(q, a, liste, pile = []) {
 
 // Prédicat de copie : lignes des comptes choisis, plus les lignes sans compte si la décision le prévoit.
 function predicatCopie(q, a) {
+  if (tablePartagee(q)) return 'FALSE'
+  if (CLIENT_ISOLE && q === 'storage.buckets') return `${a}.id IN (SELECT o.bucket_id FROM storage.objects o WHERE ${predicatCopie('storage.objects', 'o')})`
   const sel = predicat(q, a, SEL_LISTE)
   const tous = q === 'storage.buckets' ? null : predicat(q, a, LISTE_TOUS)
   const morceaux = []
   if (sel) morceaux.push(`COALESCE(${sel}, false)`)
   const inclure = tous ? DECISIONS.orphelins[q] === true : DECISIONS.globales[q] === true
   const bloque = CLE_TROUVEE.has(q) && !DECISIONS.cles[q]
-  if (inclure && !bloque) morceaux.push(tous ? `NOT COALESCE(${tous}, false)` : 'TRUE')
+  if (!CLIENT_ISOLE && inclure && !bloque) morceaux.push(tous ? `NOT COALESCE(${tous}, false)` : 'TRUE')
   return morceaux.length ? `(${morceaux.join(' OR ')})` : 'FALSE'
 }
 
@@ -138,6 +144,7 @@ function extraireCles(noeud, sortie = []) {
   if (noeud && typeof noeud === 'object') {
     for (const [nom, v] of Object.entries(noeud)) {
       if (NOMS_CLE.test(nom) && typeof v === 'string' && v.length >= 8) sortie.push({ nom, valeur: v })
+      else if (NOMS_CLE.test(nom) && Array.isArray(v)) { for (const cle of v) if (typeof cle === 'string' && cle.length >= 8) sortie.push({ nom, valeur: cle }); else extraireCles(cle, sortie) }
       else extraireCles(v, sortie)
     }
   } else if (typeof noeud === 'string') {
@@ -154,7 +161,7 @@ async function lignesAvecCle(remote, q, cond, limite = null) {
 async function valeursCles(remote, condPour) {
   const valeurs = new Set()
   for (const q of COPIE) {
-    if (q === 'auth.users' || q === 'storage.buckets') continue
+    if (q === 'auth.users' || q === 'storage.buckets' || tablePartagee(q)) continue
     const tous = predicat(q, 't', LISTE_TOUS)
     if (!tous) continue
     for (const l of await lignesAvecCle(remote, q, `COALESCE(${tous}, false) and ${condPour(q)}`)) {
@@ -193,6 +200,9 @@ async function principal() {
     COPIE = ['auth.users', 'auth.identities', 'storage.buckets', ...structure.tables.map((t) => t.q)]
     INFOS = new Map()
     for (const q of [...COPIE, 'storage.objects']) {
+      if (CLIENT_ISOLE || tablePartagee(q)) {
+        dire(`  - ${q} : lignes globales/sans proprietaire exclues automatiquement`); continue
+      }
       if (q === 'storage.buckets') { INFOS.set(q, { colonnes: [], directes: [], fks: [] }); continue }
       const pub = structure.tables.find((t) => t.q === q)
       const colonnes = pub
@@ -248,6 +258,7 @@ async function principal() {
       }
     }
     const choisis = indices.map((i) => comptes[i])
+    if (CLIENT_ISOLE && choisis.length !== 1) throw new Error('Choisissez exactement un compte pour ce canal client.')
     const nonChoisis = comptes.filter((c) => !choisis.includes(c))
     SEL_LISTE = choisis.length ? `(${choisis.map((c) => lit(c.id)).join(',')})` : '(NULL::text)'
     if (!choisis.length) dire('Attention : aucun compte choisi, l\'archive ne contiendra aucune ligne de compte.')
@@ -268,6 +279,9 @@ async function principal() {
       if (!x.n) continue
       rienASignaler = false
       // Les buckets Storage sont la structure du stockage : toujours inclus, sans question.
+      if (CLIENT_ISOLE || tablePartagee(q)) {
+        dire(`  - ${q} : lignes globales/sans proprietaire exclues automatiquement`); continue
+      }
       if (q === 'storage.buckets') {
         DECISIONS.globales[q] = true
         dire(`  - ${q} : ${x.n} bucket(s), toujours inclus (structure du Storage)`)
@@ -283,6 +297,7 @@ async function principal() {
     }
     if (rienASignaler) dire('  (aucune)')
     for (const [q, n] of CLE_TROUVEE) {
+      if (CLIENT_ISOLE || tablePartagee(q)) { DECISIONS.cles[q] = false; continue }
       dire(`  ATTENTION : clé OCR détectée dans ${n} ligne(s) hors compte (${q}). Elle n'est exportée que si vous confirmez.`)
       const exemples = await lignesAvecCle(remote, q, condSansCompte(q), 2)
       for (const l of exemples) for (const c of extraireCles(JSON.parse(l.j)).slice(0, 2)) dire(`    exemple : ${c.nom} = ${masquer(c.valeur)}`)
@@ -321,7 +336,7 @@ async function exporterArchive({ remote, dossier, choisis, nonChoisis, totalLign
   // Le manifeste n'existe qu'après un contrôle réussi. Un manifeste resté là (ancienne version, ou contrôle
   // refusé) n'est pas une preuve : on le retire et on refait le contrôle, sans retélécharger ce qui est déjà reçu.
   fs.rmSync(path.join(payload, 'manifest.json'), { force: true })
-  const identite = digest(JSON.stringify({ url: remote.url, comptes: choisis.map((c) => c.id), decisions: DECISIONS }))
+  const identite = digest(JSON.stringify({ url: remote.url, comptes: choisis.map((c) => c.id), decisions: DECISIONS, politique: CLIENT_ISOLE ? 'client-isole-v2' : 'historique' }))
   const marque = path.join(dossier, 'reprise.json')
   let precedente = null
   try { precedente = JSON.parse(fs.readFileSync(marque, 'utf8')) } catch { /* pas de reprise */ }
@@ -331,6 +346,16 @@ async function exporterArchive({ remote, dossier, choisis, nonChoisis, totalLign
   }
   fs.mkdirSync(payload, { recursive: true })
   fs.writeFileSync(marque, JSON.stringify({ identite }))
+  // Re-read SQL on retry: cached rows could belong to an older source state or policy.
+  for (const name of fs.readdirSync(payload)) if (name.endsWith('.json')) fs.rmSync(path.join(payload, name))
+  const cacheFile = path.join(dossier, 'storage-cache.json')
+  let cache = {}
+  try { cache = JSON.parse(fs.readFileSync(cacheFile, 'utf8')) } catch { }
+  const recordObject = (name, object, hash, size) => {
+    cache[name] = { source: digest(JSON.stringify(object)), hash, size }
+    fs.writeFileSync(cacheFile + '.new', JSON.stringify(cache))
+    fs.renameSync(cacheFile + '.new', cacheFile)
+  }
 
   const manifest = {
     format: 'ocr-offline-1',
@@ -338,7 +363,7 @@ async function exporterArchive({ remote, dossier, choisis, nonChoisis, totalLign
     files: {},
     counts: {},
     postgresVersion,
-    filtre: { version: 1, perimetre: 'comptes choisis', comptes: choisis.length, globales: DECISIONS.globales, orphelins: DECISIONS.orphelins, cles_confirmees: DECISIONS.cles },
+    filtre: { version: 1, politique: CLIENT_ISOLE ? 'client-isole-v2' : 'historique', perimetre: 'comptes choisis', comptes: choisis.length, globales: DECISIONS.globales, orphelins: DECISIONS.orphelins, cles_confirmees: DECISIONS.cles },
   }
   const chemin = (nom) => path.join(payload, nom)
   const relire = (nom) => (fs.existsSync(chemin(nom)) ? fs.readFileSync(chemin(nom)) : null)
@@ -407,27 +432,35 @@ async function exporterArchive({ remote, dossier, choisis, nonChoisis, totalLign
       if (fs.existsSync(chemin(nom))) {
         suivi.detail = `vérification des fichiers déjà reçus : ${i + 1}/${objets.length}`
         const { hash, taille: octets } = await empreinteFichier(chemin(nom))
-        manifest.files[nom] = hash
-        dejaRecu += octets
-      } else aFaire.push({ objet, nom })
+        if (cache[nom]?.hash === hash && cache[nom]?.size === octets && cache[nom]?.source === digest(JSON.stringify(objet))) {
+          manifest.files[nom] = hash
+          dejaRecu += octets
+          continue
+        }
+        fs.rmSync(chemin(nom))
+      }
+      aFaire.push({ objet, nom })
     }
     suivi.unite = 'Mo'
     suivi.facteur = 1048576
     suivi.paquet = 0
     suivi.lignesTotales = total
     suivi.lignes = dejaRecu
-    // Téléchargements en parallèle (12 à la fois par défaut ; OCR_PARALLELE pour changer).
-    const PARALLELE = Math.max(1, Number(process.env.OCR_PARALLELE) || 12)
+    // Six transferts au plus par défaut, borne absolue de huit pour ménager le serveur.
+    const PARALLELE = Math.min(8, Math.max(1, Math.floor(Number(process.env.OCR_PARALLELE) || 6)))
     let suivant = 0
     const ouvrier = async () => {
       while (suivant < aFaire.length) {
         const { objet, nom } = aFaire[suivant++]
         const contenu = await remote.telecharger(objet.bucket_id, objet.name)
         sauver(nom, contenu)
+        recordObject(nom, objet, manifest.files[nom], contenu.length)
         suivi.lignes += contenu.length
       }
     }
     await Promise.all(Array.from({ length: Math.min(PARALLELE, aFaire.length) }, ouvrier))
+    const currentObjects = await remote.sql(reecrire('select * from storage.objects order by bucket_id, name'))
+    if (JSON.stringify(currentObjects) !== JSON.stringify(objets)) throw new Error('Les objets Storage ont change pendant la copie. Relancez hors utilisation.')
     suivi.detail = ''
     suivi.unite = undefined
     suivi.facteur = undefined
@@ -451,6 +484,12 @@ async function exporterArchive({ remote, dossier, choisis, nonChoisis, totalLign
   }
   for (const v of await valeursCles(remote, (q) => { const sel = predicat(q, 't', SEL_LISTE); return sel ? `NOT COALESCE(${sel}, false)` : 'true' })) {
     interdits.set(`"${v}"`, 'clé d\'un compte non choisi')
+  }
+  // A shared key copied into any other row or function must also block publication.
+  for (const q of COPIE.filter(tablePartagee)) {
+    for (const row of await lignesAvecCle(remote, q, 'true')) {
+      for (const key of extraireCles(JSON.parse(row.j))) interdits.set(key.valeur, 'cle personnelle partagee')
+    }
   }
   const attendus = new Map()
   for (const v of await valeursCles(remote, (q) => { const sel = predicat(q, 't', SEL_LISTE); return sel ? `COALESCE(${sel}, false)` : 'false' })) {
@@ -516,4 +555,4 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   })
 }
 
-export { predicat, predicatCopie }
+export { predicat, predicatCopie, extraireCles, tablePartagee, parserChoix }

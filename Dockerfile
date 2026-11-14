@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1
 ARG NODE_IMAGE=node:20-alpine
 
 # --------- 1. Dépendances (cache npm) ---------

@@ -6,7 +6,7 @@ export default {
     const { pathname } = new URL(request.url)
     const headers = { 'Cache-Control': 'private, no-store', 'Referrer-Policy': 'no-referrer',
       'X-Content-Type-Options': 'nosniff' }
-    if (!objectPath.test(pathname)) return new Response(null, { status: 404, headers })
+    if (pathname !== '/prepare.ps1' && !objectPath.test(pathname)) return new Response(null, { status: 404, headers })
     if (request.method !== 'GET' && request.method !== 'HEAD') {
       return new Response(null, { status: 405, headers: { ...headers, Allow: 'GET, HEAD' } })
     }

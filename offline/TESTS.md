@@ -1,4 +1,23 @@
-# Rapport d'exécution
+# Contrôles du parcours Windows simplifié
+
+14 novembre 2026. Cette révision ajoute le préparateur Windows en une commande et le canal réutilisable. À la demande du propriétaire, **aucun test de migration réelle ni de fonctionnement Docker complet n'a été relancé pour cette révision**.
+
+| Contrôle exécuté | Résultat |
+| --- | --- |
+| Tests Node : archives, chiffrement, transport, préparateur et filtrage | 11 réussis sous Linux, dont génération complète d'un petit paquet synthétique, manifeste signé et scripts Windows embarqués |
+| Tests Python du préparateur existant | 2 réussis |
+| Scripts PowerShell | Syntaxe analysée avec PowerShell 7.5.4 sous Linux ; tests exécutés d'isolation de l'environnement enfant, arrêt sur code non nul et arrêt d'un processus dépassant sa limite |
+| Signature des requêtes R2 | Signature du code Node identique à celle de l'implémentation AWS botocore 1.35.99 pour la même requête fixe, avec identifiants fictifs ; aucun accès S3 réel dans ce test |
+| Reprise du téléchargement PowerShell | Coupure réelle d'une réponse HTTPS locale à 400 000 octets, reprise Range et reconstruction depuis le cache sans nouvelle requête |
+| Vérification du diff et syntaxe JavaScript | `git diff --check` et `node --check` réussis |
+| Filtrage | Tests des prédicats excluant les tables partagées et de la détection des clés OCR des comptes ; pas de validation sur la base de production |
+| Windows PowerShell 5.1 | Contrôle prévu par le job CI `windows-parser` ; résultat de cette révision à lire dans le run associé au commit |
+
+Les essais avec données synthétiques ne démontrent pas la restauration du compte réel. Restent à exécuter par le propriétaire : export réel filtré, compilation du paquet depuis son PC, publication S3 avec ses droits, installation Windows avec Docker Desktop, comparaison des comptes/documents, redémarrage, mise à jour et restauration après échec. Les limites de temps sont volontairement courtes ; une compilation silencieuse ou un disque particulièrement lent peut déclencher un arrêt et nécessiter un diagnostic.
+
+Les résultats Docker ci-dessous sont **historiques** et concernent le code antérieur à ce nouveau préparateur.
+
+## Vérifications historiques
 
 14 novembre 2026, environnement Linux de travail.
 

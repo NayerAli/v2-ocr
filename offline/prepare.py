@@ -140,8 +140,8 @@ def make_archives(args, revision, work):
                 metadata.get("filtre", {}).get("perimetre") != "comptes choisis" or
                 metadata["filtre"].get("comptes", 0) < 1):
             raise ValueError("Export filtre par compte requis")
-        if not re.fullmatch(r"17[0-9]{4}", str(metadata.get("postgresVersion", ""))):
-            raise ValueError("PostgreSQL source 17 non confirme: refaire l'export avec cette branche")
+        if not re.fullmatch(r"1[4-7][0-9]{4}", str(metadata.get("postgresVersion", ""))):
+            raise ValueError("PostgreSQL source 14 a 17 non confirme: refaire l'export avec cette branche")
         run("node", "local/assistant/archive.mjs", "verify", str(args.payload))
         plain = work / "migration.tar"
         with tarfile.open(plain, "w", format=tarfile.PAX_FORMAT) as archive:
@@ -202,7 +202,9 @@ def make_bootstrap(key, channel_url):
         raise ValueError("URL HTTPS du canal prive requise")
     return ((ROOT / "offline/install.ps1").read_text(encoding="ascii")
             .replace("__RELEASE_URL__", channel_url)
-            .replace("__RSA_MODULUS__", modulus64))
+            .replace("__RSA_MODULUS__", modulus64)
+            .replace("__UNINSTALL_BASE64__", base64.b64encode((ROOT / "offline/uninstall.ps1").read_text().replace("# __WINDOWS_COMMON__", (ROOT / "offline/windows-common.ps1").read_text()).encode()).decode())
+            .replace("# __WINDOWS_COMMON__", (ROOT / "offline/windows-common.ps1").read_text(encoding="ascii")))
 
 
 def build(args):
@@ -273,8 +275,8 @@ def publish(args):
         if not HEX.fullmatch(path.name) or hashlib.sha256(path.read_bytes()).hexdigest() != path.name:
             raise ValueError(f"Segment local incorrect: {path.name}")
         upload(f"{args.channel}/objects/{path.name}", path, "application/octet-stream", immutable=True)
-    # Keep the bootstrap and its pinned trust key immutable for a given channel.
-    upload(f"{args.channel}/install.ps1", args.output / "install.ps1", "text/plain", immutable=True)
+    # Update code at the same URL; the signing key must remain the same for this channel.
+    upload(f"{args.channel}/install.ps1", args.output / "install.ps1", "text/plain")
     upload(manifest_key, envelope, "application/json", etag=previous_etag)
 
 

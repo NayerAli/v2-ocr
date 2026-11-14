@@ -1,7 +1,15 @@
+& {
 # Windows PowerShell 5.1. The release builder supplies the channel URL and the RSA public key.
+$oldTls = [Net.ServicePointManager]::SecurityProtocol
+$oldEnvironment = @{}
+foreach ($name in @('OCR_STATE','POSTGRES_PASSWORD','JWT_SECRET','ANON_KEY','SERVICE_ROLE_KEY','PG_META_CRYPTO_KEY','DASHBOARD_USERNAME','DASHBOARD_PASSWORD','KONG_PORT')) {
+    $oldEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
+}
 $installer = {
 param([string]$SourceText)
 $ErrorActionPreference = 'Stop'
+$Context = @{ DockerExe=$null }
+# __WINDOWS_COMMON__
 $ProgressPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $ReleaseUrl = '__RELEASE_URL__'
@@ -89,7 +97,7 @@ function Get-Segment($Part) {
     if (Test-Hash $file $Part) { return $file }
     $partial = "$file.part"
     $base = $ReleaseUrl.Substring(0, $ReleaseUrl.LastIndexOf('/'))
-    for ($attempt = 1; $attempt -le 8; $attempt++) {
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
         if (Test-Hash $partial $Part) {
             Move-Item -LiteralPath $partial -Destination $file -Force
             return $file
@@ -101,18 +109,19 @@ function Get-Segment($Part) {
         $prior = $ErrorActionPreference
         try {
             $ErrorActionPreference = 'Continue'
-            & curl.exe -q --fail --silent --show-error --connect-timeout 20 --speed-limit 1 --speed-time 90 `
-                --proto '=https' --continue-at - --output $partial "$base/$($Part.key)" 2>$null
+            $status = & curl.exe -q --fail --silent --show-error --connect-timeout 15 --speed-limit 1 --speed-time 30 `
+                --proto '=https' --write-out '%{http_code}' --continue-at - --output $partial "$base/$($Part.key)" 2>$null
             $code = $LASTEXITCODE
         } finally { $ErrorActionPreference = $prior }
         if (Test-Hash $partial $Part) {
             Move-Item -LiteralPath $partial -Destination $file -Force
             return $file
         }
+        if ($code -eq 22 -and "$status" -match '^(400|401|403|404|410)$') { throw "Distribution bloquee : HTTP $status pour le segment $($Part.sha256.Substring(0,12))." }
         if ($code -in 33, 36) { Remove-Item -LiteralPath $partial -Force -ErrorAction SilentlyContinue }
-        if ($attempt -lt 8) {
-            Write-Host "Connexion interrompue ou segment indisponible. Nouvelle tentative ($attempt/8)..."
-            Start-Sleep -Seconds ([Math]::Min(30, [Math]::Pow(2, $attempt)))
+        if ($attempt -lt 3) {
+            Write-Host "Connexion interrompue ou segment indisponible. Nouvelle tentative ($attempt/3)..."
+            Start-Sleep -Seconds ((2 * $attempt))
         }
     }
     throw "Segment indisponible ou incorrect ($($Part.sha256.Substring(0,12))). Relancez avec la meme commande."
@@ -142,6 +151,11 @@ function Get-Archive([string]$Name, $Entry) {
 }
 
 function Enable-Resume {
+    $runOnce = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\RunOnce'
+    New-Item -Path $runOnce -Force | Out-Null
+    $resumeCommand = '"' + $env:WINDIR + '\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "' + $Bootstrap + '"'
+    Set-ItemProperty -Path $runOnce -Name 'V2-OCR-reprise' -Value $resumeCommand
+    try {
     if (Get-ScheduledTask -TaskName $Task -ErrorAction SilentlyContinue) { return }
     $exe = "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe"
     $action = New-ScheduledTaskAction -Execute $exe -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$Bootstrap`""
@@ -151,6 +165,7 @@ function Enable-Resume {
         -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
     Register-ScheduledTask -TaskName $Task -Action $action -Trigger $trigger -Principal $principal `
         -Settings $settings -Force | Out-Null
+    } catch { Write-Host 'Reprise configuree pour la prochaine ouverture de session Windows.' }
 }
 
 function Invoke-Admin([string]$Command) {
@@ -171,24 +186,35 @@ function Read-WslVersion {
     $prior = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     try {
-        $message = (& wsl.exe --version 2>$null | Out-String).Replace([string][char]0, '')
+        $message = (Invoke-Tool -Exe 'wsl.exe' -Arguments @('--version') -Timeout 15 -Capture | Out-String).Replace([string][char]0, '')
         $match = [regex]::Match($message, '\d+\.\d+\.\d+')
-        if ($LASTEXITCODE -eq 0 -and $match.Success) { return [version]$match.Value }
-    } finally { $ErrorActionPreference = $prior }
+        if ($match.Success) { return [version]$match.Value }
+    } catch { return $null } finally { $ErrorActionPreference = $prior }
 }
 
 function Test-LinuxDocker {
-    if (-not $script:V2OcrDockerExe) { return $false }
+    if (-not $Context.DockerExe) { return $false }
     $prior = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     try {
-        $engine = & $script:V2OcrDockerExe --context desktop-linux info --format '{{.OSType}} {{.KernelVersion}}' 2>$null
-        return ($LASTEXITCODE -eq 0 -and "$engine" -match '^linux .*microsoft.*WSL2')
-    } finally { $ErrorActionPreference = $prior }
+        $engine = Invoke-Tool -Exe $Context.DockerExe -Arguments @('--context','desktop-linux','info','--format','{{.OSType}}') -Timeout 20 -Capture
+        return ("$engine" -eq 'linux')
+    } catch { return $false } finally { $ErrorActionPreference = $prior }
 }
 
 function Install-Prerequisites($Manifest) {
     $desktop = Find-Desktop
+    $Context.DockerExe = (Get-Command docker.exe -ErrorAction SilentlyContinue).Source
+    if (-not $Context.DockerExe -and $desktop) { $Context.DockerExe = Join-Path (Split-Path $desktop) 'resources\bin\docker.exe' }
+    # A functioning Linux engine is the authority; do not reconfigure an already working PC.
+    if (Test-LinuxDocker) {
+        $v = (Docker compose version --short | Out-String).Trim().TrimStart('v')
+        if ([version]$v -lt [version]'2.24.0') { throw 'Docker Compose 2.24 ou ulterieur est requis.' }
+        return $true
+    }
+    if (-not $Manifest.archives.docker -and -not $Manifest.archives.wsl) {
+        throw 'Docker Desktop doit etre demarre en mode conteneurs Linux. Aucun changement Windows effectue.'
+    }
     $wsl = Read-WslVersion
     $features = @('VirtualMachinePlatform', 'Microsoft-Windows-Subsystem-Linux')
     $featuresReady = $true
@@ -239,17 +265,17 @@ exit 3010
         $desktop = Find-Desktop
         if ($code -ne 0 -or -not $desktop) { throw "Installation de Docker Desktop impossible (code $code)." }
     }
-    $script:V2OcrDockerExe = Join-Path (Split-Path $desktop) 'resources\bin\docker.exe'
+    $Context.DockerExe = Join-Path (Split-Path $desktop) 'resources\bin\docker.exe'
     if (-not (Test-LinuxDocker)) {
         Write-Host 'Demarrage de Docker Desktop...'
         Start-Process -FilePath $desktop | Out-Null
-        $deadline = (Get-Date).AddMinutes(5)
+        $deadline = (Get-Date).AddSeconds(60)
         while (-not (Test-LinuxDocker)) {
             if ((Get-Date) -ge $deadline) { throw 'Docker Desktop ne demarre pas en mode Linux WSL2. La reprise est conservee.' }
             Start-Sleep -Seconds 4
         }
     }
-    $composeVersion = (& $script:V2OcrDockerExe --context desktop-linux compose version --short | Out-String).Trim()
+    $composeVersion = (& $Context.DockerExe --context desktop-linux compose version --short | Out-String).Trim()
     $versionMatch = [regex]::Match($composeVersion, '\d+\.\d+\.\d+')
     if ($LASTEXITCODE -ne 0 -or -not $versionMatch.Success -or [version]$versionMatch.Value -lt [version]'2.24.0') {
         throw 'La version de Docker Compose installee est incompatible avec cette distribution.'
@@ -266,8 +292,24 @@ function Assert-Vendor([string]$File, [string]$Publisher) {
 }
 
 function Docker {
-    & $script:V2OcrDockerExe --context desktop-linux @args
-    if ($LASTEXITCODE -ne 0) { throw "Docker : echec de $($args[0]) (code $LASTEXITCODE)." }
+    $arguments = @($args)
+    $limit = 60; $idle = 0; $temporaryName = $null
+    if ($arguments[0] -eq 'load' -or $arguments -contains 'run') { $limit = 0; $idle = 120 }
+    if ($arguments -contains 'up') { $limit = 120 }
+    $index = [Array]::IndexOf($arguments, 'run')
+    if ($index -ge 0 -and $arguments -notcontains '--name') {
+        $temporaryName = 'v2ocr-task-' + [guid]::NewGuid().ToString('N')
+        $arguments = @($arguments[0..$index]) + @('--name',$temporaryName,'--label','com.v2ocr.temporary=installer') + @($arguments[($index+1)..($arguments.Length-1)])
+    } elseif ($arguments -contains '--name') { $temporaryName = $arguments[([Array]::IndexOf($arguments,'--name')+1)] }
+    try {
+        Invoke-Tool -Exe $Context.DockerExe -Arguments (@('--context','desktop-linux') + $arguments) -Timeout $limit -Idle $idle `
+            -Capture:($arguments[0] -in @('ps','image','volume') -or $arguments -contains 'version')
+    } finally {
+        if ($temporaryName) {
+            $remaining = Invoke-Tool -Exe $Context.DockerExe -Arguments @('--context','desktop-linux','ps','-aq','--filter',"name=^/${temporaryName}$") -Timeout 15 -Capture
+            if ($remaining) { Invoke-Tool -Exe $Context.DockerExe -Arguments @('--context','desktop-linux','rm','-f',$temporaryName) -Timeout 20 }
+        }
+    }
 }
 
 function Compose([string]$Release) {
@@ -277,8 +319,7 @@ function Compose([string]$Release) {
 }
 
 function Untar([string]$File, [string]$Destination) {
-    & tar.exe -xf $File -C $Destination
-    if ($LASTEXITCODE -ne 0) { throw "Extraction impossible : $([IO.Path]::GetFileName($File))." }
+    Invoke-Tool -Exe 'tar.exe' -Arguments @('-xf',$File,'-C',$Destination) -Timeout 120
 }
 
 function Expand-Release($Manifest) {
@@ -303,11 +344,11 @@ function Test-Images($Images) {
     $ErrorActionPreference = 'Continue'
     try {
         foreach ($image in $Images.ids.PSObject.Properties) {
-            $id = & $script:V2OcrDockerExe --context desktop-linux image inspect --format '{{.Id}}' $image.Name 2>$null
-            if ($LASTEXITCODE -ne 0 -or $id -ne $image.Value) { return $false }
+            $id = Docker image inspect --format '{{.Id}}' $image.Name
+            if ($id -ne $image.Value) { return $false }
         }
         return $true
-    } finally { $ErrorActionPreference = $prior }
+    } catch { return $false } finally { $ErrorActionPreference = $prior }
 }
 
 function Set-LocalConfig([string]$Release) {
@@ -323,7 +364,7 @@ function Set-LocalConfig([string]$Release) {
 }
 
 function Wait-Application {
-    $deadline = (Get-Date).AddMinutes(3)
+    $deadline = (Get-Date).AddSeconds(60)
     do {
         & curl.exe -q --silent --fail --noproxy '*' --max-time 5 --output NUL "$AppUrl/auth/login"
         if ($LASTEXITCODE -eq 0) { return }
@@ -333,7 +374,7 @@ function Wait-Application {
 }
 
 function Start-App([string]$Release) {
-    Compose $Release up -d --no-build --pull never --wait --wait-timeout 300
+    Compose $Release up -d --no-build --pull never --wait --wait-timeout 90
     Wait-Application
     $envFile = Join-Path $State 'local/.env'
     $anon = ((Get-Content -LiteralPath $envFile | Where-Object { $_ -like 'ANON_KEY=*' }) -split '=', 2)[1]
@@ -348,8 +389,9 @@ function Save-Volumes([string]$Release, [string]$Directory) {
     $hashes = @{}
     foreach ($volume in $VolumeNames) {
         Docker volume inspect $volume | Out-Null
-        Docker run --rm --network none --pull never -v "${volume}:/data:ro" -v "${Directory}:/backup" `
-            $helper tar -czf "/backup/$volume.tgz" -C /data . | Out-Host
+        Invoke-Tool -Exe $Context.DockerExe -Arguments @('--context','desktop-linux','run','--rm','--network','none','--pull','never',
+            '--name','v2ocr-backup','--label','com.v2ocr.temporary=installer','-v',"${volume}:/data:ro",'-v',"${Directory}:/backup",$helper,'tar','-czf',"/backup/$volume.tgz",'-C','/data','.') `
+            -Timeout 0 -Idle 120 -ProgressFile (Join-Path $Directory "$volume.tgz")
         Docker run --rm --network none --pull never -v "${Directory}:/backup:ro" `
             $helper tar -tzf "/backup/$volume.tgz" | Out-Null
         $hashes[$volume] = (Get-FileHash -LiteralPath (Join-Path $Directory "$volume.tgz")).Hash
@@ -383,7 +425,13 @@ function Restore-Volumes($Journal) {
     }
 }
 
+function Stop-TemporaryContainers {
+    $left = Docker ps -aq --filter 'label=com.v2ocr.temporary=installer'
+    if ($left) { Docker rm -f @left | Out-Null }
+}
+
 function Recover-Transaction {
+    Stop-TemporaryContainers
     $journal = Read-Json "$Root\transaction.json"
     if (-not $journal) { return }
     $current = Read-Json "$Root\active.json"
@@ -402,10 +450,10 @@ function Read-Migration([string]$Release, [string]$Cipher, [string]$Directory) {
     $pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secret)
     try {
         $key = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer)
-        $key | & $script:V2OcrDockerExe --context desktop-linux run --rm -i --network none --pull never `
-            -v "${Cache}:/cache:ro" -v "${Directory}:/work" -v "${Release}:/release:ro" `
-            $helper node /release/crypt.mjs decrypt "/cache/$([IO.Path]::GetFileName($Cipher))" /work/data.tar
-        if ($LASTEXITCODE -ne 0) { throw 'Dechiffrement impossible. Verifiez votre code de migration.' }
+        Invoke-Tool -Exe $Context.DockerExe -Arguments @('--context','desktop-linux','run','--rm','-i','--network','none','--pull','never',
+            '--name','v2ocr-decrypt','--label','com.v2ocr.temporary=installer','-v',"${Cache}:/cache:ro",'-v',"${Directory}:/work",'-v',"${Release}:/release:ro",$helper,'node','/release/crypt.mjs',
+            'decrypt',"/cache/$([IO.Path]::GetFileName($Cipher))",'/work/data.tar') -InputText $key `
+            -Timeout 0 -Idle 90 -ProgressFile (Join-Path $Directory 'data.tar.part')
     } finally {
         [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer)
         $key = $null
@@ -426,7 +474,7 @@ function Apply-Release($Manifest, [string]$Release, $Previous, [string]$Cipher) 
         $payload = if ($Cipher) { Read-Migration $Release $Cipher $work }
         $services = @('db','auth','rest','storage','meta','studio','kong')
         if (-not $Previous) {
-            Compose $Release up -d --no-build --pull never --wait --wait-timeout 300 @services | Out-Host
+            Compose $Release up -d --no-build --pull never --wait --wait-timeout 90 @services | Out-Host
         }
         $baseline = if ($Previous) { $Previous.directory } else { $Release }
         $backup = Join-Path $Root ("backup-" + [guid]::NewGuid().ToString('N'))
@@ -442,7 +490,7 @@ function Apply-Release($Manifest, [string]$Release, $Previous, [string]$Cipher) 
         }
         Write-Atomic "$Root\transaction.json" ($journal | ConvertTo-Json -Depth 4)
         if ($payload) {
-            Compose $Release up -d --no-build --pull never --wait --wait-timeout 300 @services | Out-Host
+            Compose $Release up -d --no-build --pull never --wait --wait-timeout 90 @services | Out-Host
             Compose $Release run --rm --no-deps --pull never -T --name $MigrationContainer -v "${payload}:/kit:ro" `
                 assistant node archive.mjs import /kit | Out-Host
         }
@@ -461,6 +509,7 @@ function Apply-Release($Manifest, [string]$Release, $Previous, [string]$Cipher) 
 }
 
 function Complete-Installation {
+    Remove-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\RunOnce' -Name 'V2-OCR-reprise' -ErrorAction SilentlyContinue
     Unregister-ScheduledTask -TaskName $Task -Confirm:$false -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath "$Root\pending.json" -Force -ErrorAction SilentlyContinue
     Write-Host 'V2 OCR est pret.' -ForegroundColor Green
@@ -482,6 +531,14 @@ try {
     if (-not $locked) { Write-Host 'Une installation V2 OCR est deja en cours.'; return }
     Open-PrivateDirectory $Root
     New-Item -ItemType Directory -Force -Path $State,$Cache | Out-Null
+    if ('__UNINSTALL_BASE64__' -notlike '__*') {
+        Write-Atomic (Join-Path $Root 'uninstall.ps1') ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('__UNINSTALL_BASE64__')))
+    }
+    $trust = Read-Json "$Root\trust.json"
+    if ($trust -and ($trust.url -cne $ReleaseUrl -or $trust.modulus -cne $PublicModulus)) {
+        throw 'Un autre canal ou une autre cle de signature est deja associe a cette installation.'
+    }
+    if (-not $trust) { Write-Atomic "$Root\trust.json" (@{url=$ReleaseUrl;modulus=$PublicModulus} | ConvertTo-Json) }
     if ($SourceText) { Write-Atomic $Bootstrap $SourceText }
     $active = Read-Json "$Root\active.json"
     $envelope = if (-not $SourceText -and (Test-Path -LiteralPath "$Root\pending.json")) {
@@ -491,7 +548,7 @@ try {
         try {
             $ErrorActionPreference = 'Continue'
             $remote = & curl.exe -q --silent --show-error --fail --proto '=https' --connect-timeout 15 `
-                --max-time 45 --retry 2 --max-filesize 2097152 $ReleaseUrl
+                --max-time 30 --retry 1 --retry-delay 2 --max-filesize 2097152 $ReleaseUrl
             $code = $LASTEXITCODE
         } finally { $ErrorActionPreference = $prior }
         if ($code -eq 0) { $remote -join "`n" }
@@ -500,9 +557,7 @@ try {
         else { throw 'La distribution V2 OCR est indisponible. Relancez la commande apres avoir verifie la connexion.' }
     }
     $manifest = Read-Manifest $envelope
-    if ([int](Get-CimInstance Win32_OperatingSystem).BuildNumber -lt 22631) {
-        throw 'Windows 11 version 23H2 (build 22631) ou ulterieure est requis.'
-    }
+    # Compatibility is checked against the actual Docker engine, without upgrading Windows.
     if ($active -and $manifest.sequence -lt $active.sequence) { throw 'Version anterieure refusee.' }
     $manifestHash = $null
     $sha = [Security.Cryptography.SHA256]::Create()
@@ -513,6 +568,7 @@ try {
     if ($active -and $manifest.sequence -eq $active.sequence -and $manifestHash -ne $active.manifest) {
         throw 'Numero de publication deja utilise.'
     }
+    if (-not (Install-Prerequisites $manifest)) { return }
     Write-Atomic "$Root\pending.json" $envelope
     Enable-Resume
     if (-not $active -or $manifest.sequence -gt $active.sequence) {
@@ -526,7 +582,6 @@ try {
         if ((-not $wsl -or $wsl -lt [version]'2.1.5') -and $manifest.archives.wsl) { $need += 'wsl' }
         foreach ($name in $need) { Get-Archive $name $manifest.archives.$name | Out-Null }
     }
-    if (-not (Install-Prerequisites $manifest)) { return }
     Recover-Transaction
     $stalePlaintext = Join-Path $Root 'migration-temp'
     if (Test-Path -LiteralPath $stalePlaintext) { Remove-Item -LiteralPath $stalePlaintext -Recurse -Force }
@@ -551,8 +606,17 @@ try {
     Write-Host $_.Exception.Message -ForegroundColor Red
     throw
 } finally {
+    if ($Context.DockerExe -and $locked) { try { Stop-TemporaryContainers } catch { Write-Host 'Nettoyage Docker incomplet : il sera retente a la reprise.' } }
     if ($locked) { $mutex.ReleaseMutex() }
     $mutex.Dispose()
 }
 }
-& $installer -SourceText ('$installer = {' + $installer.ToString() + "`n}" + "`n" + '& $installer')
+try {
+    $saved = '$installer = {' + $installer.ToString() + "`n}" + "`n" + '& $installer'
+    & $installer -SourceText $saved
+} finally {
+    foreach ($name in $oldEnvironment.Keys) { [Environment]::SetEnvironmentVariable($name, $oldEnvironment[$name], 'Process') }
+    [Net.ServicePointManager]::SecurityProtocol = $oldTls
+}
+
+}

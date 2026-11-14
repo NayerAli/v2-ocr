@@ -23,6 +23,7 @@ jobs:
           python3 -m unittest offline.tests.prepare_test
           node --test offline/tests/*.test.mjs local/assistant/archive.test.mjs
       - name: Build the release and test the actual Docker services
+        if: github.event_name == 'workflow_dispatch'
         run: |
           openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$RUNNER_TEMP/test-signing.pem"
           python3 offline/prepare.py build \
@@ -32,6 +33,7 @@ jobs:
             --version "ci-$GITHUB_RUN_NUMBER" --sequence "$GITHUB_RUN_NUMBER"
           bash offline/tests/docker-smoke.sh "$RUNNER_TEMP/release"
       - name: Retain the precompiled test package
+        if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: v2ocr-linux-amd64-test-package
@@ -46,9 +48,4 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - name: Parse the installer with Windows PowerShell 5.1
         shell: powershell
-        run: |
-          $tokens = $null
-          $errors = $null
-          [void][System.Management.Automation.Language.Parser]::ParseFile(
-              (Resolve-Path 'offline/install.ps1').Path, [ref]$tokens, [ref]$errors)
-          if ($errors.Count) { $errors | Out-String | Write-Error }
+        run: ./offline/tests/windows-basic.ps1
