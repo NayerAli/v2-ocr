@@ -425,9 +425,26 @@ async function diagnostic(url, cle, contexte) {
 
 function nettoyerUrl(saisie) {
   let u = saisie.trim().replace(/^["']|["']$/g, '')
+  if (!u) throw new Error('Adresse du Supabase requise.')
   if (!/^https?:\/\//i.test(u)) u = `http://${u}`
   const url = new URL(u)
-  return `${url.protocol}//${url.host}`
+  if (url.username || url.password) throw new Error('Saisissez une adresse sans identifiants.')
+  return url.origin
+}
+
+export async function verifierAdresseSupabase(saisie) {
+  const url = nettoyerUrl(saisie)
+  const route = `${url}/auth/v1/health`
+  let rep
+  try {
+    rep = await fetch(route, { signal: AbortSignal.timeout(20000) })
+  } catch (e) {
+    const cause = e?.cause?.errors?.[0] ?? e?.cause ?? e
+    throw new Error(`GET ${route} : ${messageReseau(cause)} (${cause.code || cause.name})`)
+  }
+  await rep.body?.cancel()
+  if (rep.status >= 500) throw new Error(`GET ${route} : HTTP ${rep.status}.`)
+  return { url, statut: rep.status }
 }
 
 function roleDeLaCle(cle) {
@@ -454,31 +471,33 @@ async function questions(rl) {
     if (automatique) throw new Error('Identifiants source invalides. Relancez la commande pour les saisir de nouveau, de facon masquee.')
     return demander(rl, question)
   }
-  dire(c.titre('Question 1 sur 2 : l\'adresse de votre Supabase actuel'))
-  dire('  1. Ouvrez l\'espace d\'administration Supabase dans votre navigateur.')
-  dire('  2. Sur la page d\'accueil, sous le nom du projet, cliquez sur « Copy »,')
-  dire('     puis sur « Project URL ».')
-  dire('  3. Revenez ici, clic droit (ou Ctrl+V) pour coller, puis Entrée.')
-  dire('  (Vous pouvez aussi copier l\'adresse de la barre d\'adresse du navigateur.)')
-  dire('Exemples : http://51.68.12.34:8000   ou   https://supabase.mon-site.fr')
-  dire()
+  if (!automatique) {
+    dire(c.titre('Question 1 sur 2 : l\'adresse de votre Supabase actuel'))
+    dire('  1. Ouvrez l\'espace d\'administration Supabase dans votre navigateur.')
+    dire('  2. Sur la page d\'accueil, sous le nom du projet, cliquez sur « Copy »,')
+    dire('     puis sur « Project URL ».')
+    dire('  3. Revenez ici, clic droit (ou Ctrl+V) pour coller, puis Entrée.')
+    dire('  (Vous pouvez aussi copier l\'adresse de la barre d\'adresse du navigateur.)')
+    dire('Exemples : http://51.68.12.34:8000   ou   https://supabase.mon-site.fr')
+    dire()
+  }
 
   let url
   for (;;) {
     const saisie = await saisir('adresse', 'Adresse : ')
     try {
       url = nettoyerUrl(saisie)
-      if (/^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:|$)/i.test(url)) {
+      if (!automatique && /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:|$)/i.test(url)) {
         dire(c.err('  Cette adresse (localhost) ne désigne pas le serveur, mais l\'ordinateur lui-même.'))
         dire('  Copiez plutôt l\'adresse affichée dans la barre d\'adresse du navigateur')
         dire('  quand l\'espace d\'administration Supabase est ouvert.')
         continue
       }
-      const rep = await fetch(`${url}/auth/v1/health`, { signal: AbortSignal.timeout(20000) })
-        .catch((e) => { throw new Error(e.name === 'TimeoutError' ? 'le serveur ne répond pas (délai dépassé)' : messageReseau(e)) })
-      if (rep.status >= 500) throw new Error(`le serveur répond avec une erreur ${rep.status}`)
+      await verifierAdresseSupabase(url)
       dire(c.ok(`  Serveur trouvé : ${url}`))
-      try { fs.writeFileSync(path.join(LOCAL, '.adresse-serveur'), url) } catch {}
+      if (!automatique) {
+        try { fs.writeFileSync(path.join(LOCAL, '.adresse-serveur'), url) } catch {}
+      }
       break
     } catch (e) {
       if (automatique) throw e
@@ -487,17 +506,19 @@ async function questions(rl) {
     }
   }
 
-  dire()
-  dire(c.titre('Question 2 sur 2 : la clé « service_role »'))
-  dire('  1. Dans l\'espace d\'administration Supabase, cliquez en bas à gauche')
-  dire('     sur la roue dentée (« Project Settings »).')
-  dire('  2. Dans le menu, cliquez sur « API Keys » (ou « API » selon la version).')
-  dire('  3. Cliquez sur l\'onglet « Legacy anon, service_role API keys ».')
-  dire('  4. Sur la ligne « service_role » (étiquette rouge « secret »), cliquez sur « Reveal »,')
-  dire('  5. puis sur « Copy » (attention : pas la clé « anon » juste au-dessus).')
-  dire('  6. Revenez ici, clic droit (ou Ctrl+V) pour coller, puis Entrée.')
-  dire('  Le guide d\'installation montre chaque étape en image.')
-  dire()
+  if (!automatique) {
+    dire()
+    dire(c.titre('Question 2 sur 2 : la clé « service_role »'))
+    dire('  1. Dans l\'espace d\'administration Supabase, cliquez en bas à gauche')
+    dire('     sur la roue dentée (« Project Settings »).')
+    dire('  2. Dans le menu, cliquez sur « API Keys » (ou « API » selon la version).')
+    dire('  3. Cliquez sur l\'onglet « Legacy anon, service_role API keys ».')
+    dire('  4. Sur la ligne « service_role » (étiquette rouge « secret »), cliquez sur « Reveal »,')
+    dire('  5. puis sur « Copy » (attention : pas la clé « anon » juste au-dessus).')
+    dire('  6. Revenez ici, clic droit (ou Ctrl+V) pour coller, puis Entrée.')
+    dire('  Le guide d\'installation montre chaque étape en image.')
+    dire()
+  }
 
   const ancien = new AncienSupabase(url, '')
   let refus = 0

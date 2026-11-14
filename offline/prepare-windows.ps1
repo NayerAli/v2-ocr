@@ -41,6 +41,20 @@ function Show-Result {
     Write-Host $secrets.migrationKey
     Write-Host "`nIdentite du canal et sauvegarde chiffree conserves dans : $homeDir"
 }
+function Get-ExportNode {
+    $version = '24.22.1'
+    $hash = 'd702daa815eabbff763c7d3808e235cf031cf2ca70211b56847bc72f51e240e5'
+    $exe = Join-Path $work "node-v$version-win-x64.exe"
+    if ((Test-Path -LiteralPath $exe) -and (Get-FileHash -LiteralPath $exe).Hash -eq $hash) { return $exe }
+    Write-Host 'Recuperation de Node.js portable pour exporter directement depuis Windows...'
+    Invoke-Tool -Exe 'curl.exe' -Arguments @('-q','--fail','--silent','--show-error','--location',
+        '--proto','=https','--proto-redir','=https','--connect-timeout','15','--speed-time','30','--speed-limit','1',
+        '--retry','2','--retry-delay','2','--output',"$exe.part","https://nodejs.org/dist/v$version/win-x64/node.exe") `
+        -Timeout 0 -Idle 60 -ProgressFile "$exe.part"
+    if ((Get-FileHash -LiteralPath "$exe.part").Hash -ne $hash) { throw 'Empreinte de Node.js portable incorrecte.' }
+    Move-Item -LiteralPath "$exe.part" -Destination $exe -Force
+    return $exe
+}
 try {
     if ($env:OS -ne 'Windows_NT' -or -not [Environment]::Is64BitProcess -or $env:PROCESSOR_ARCHITECTURE -ne 'AMD64') {
         throw 'Ouvrez PowerShell 64 bits sur Windows x64.'
@@ -131,19 +145,23 @@ try {
         New-Item -ItemType Directory -Force -Path $export | Out-Null
         if (-not (Test-Path "$export\payload\manifest.json")) {
             $address = (Read-Host 'Adresse du Supabase source accessible depuis ce PC').Trim()
+            if (-not $address) { throw 'Adresse du Supabase source requise.' }
+            $nodeExe = Get-ExportNode
+            $exportScript = Join-Path $source 'local\assistant\export-filtre.mjs'
+            Invoke-Tool -Exe $nodeExe -Arguments @('--use-system-ca',$exportScript,'--verifier-adresse') `
+                -Timeout 25 -Environment @{OCR_ADRESSE=$address}
             $sourceKey = Read-Host 'Cle service_role du serveur source (saisie masquee, non memorisee)' -AsSecureString
             $studioUser = Read-Host 'Identifiant Studio si acces SQL protege (Entree si inutile)'
             if ($studioUser) { $studioPassword = Read-Host 'Mot de passe Studio (saisie masquee)' -AsSecureString }
             $childEnv = @{OCR_ADRESSE=$address; OCR_CLE=(Unprotect-Text $sourceKey); OCR_CLIENT_EXPORT='1'; OCR_PARALLELE='6'}
             if ($studioUser) { $childEnv.OCR_STUDIO_USER=$studioUser; $childEnv.OCR_STUDIO_PASSWORD=(Unprotect-Text $studioPassword) }
-            $arguments = @('--context','desktop-linux','run','--rm','-it','--pull','never','--name',$container,'--cpus','2','--memory','2g',
-                '-e','OCR_ADRESSE','-e','OCR_CLE','-e','OCR_CLIENT_EXPORT','-e','OCR_PARALLELE','-e','OCR_STUDIO_USER','-e','OCR_STUDIO_PASSWORD',
-                '-v',"$source/local/assistant:/projet/local/assistant:ro",'-v',"${export}:/sortie",'-w','/sortie',
-                $node,'node','/projet/local/assistant/export-filtre.mjs','/sortie','--ecrire-config','/sortie/selection.json')
-            if (Test-Path "$export\selection.json") { $arguments += @('--config','/sortie/selection.json','--oui') }
+            $selection = Join-Path $export 'selection.json'
+            $arguments = @('--use-system-ca',$exportScript,$export,'--ecrire-config',$selection)
+            if (Test-Path -LiteralPath $selection) { $arguments += @('--config',$selection,'--oui') }
             try {
                 # Human selection can wait; all source HTTP operations have their own bounded deadlines.
-                Invoke-Tool -Exe $Ctx.Docker -Arguments $arguments -Interactive -Timeout 0 -Environment $childEnv
+                Write-Host 'Export depuis Windows...'
+                Invoke-Tool -Exe $nodeExe -Arguments $arguments -Interactive -Timeout 0 -Environment $childEnv
             } finally { $childEnv.Clear(); $sourceKey.Dispose(); $sourceKey = $null }
             if (-not (Test-Path "$export\payload\manifest.json")) { throw 'Export annule ou incomplet. Relancez la meme commande.' }
         }

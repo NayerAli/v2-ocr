@@ -12,7 +12,7 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import readline from 'node:readline/promises'
 import { fileURLToPath } from 'node:url'
-import { questions, lireStructure, colonnesSource, copierTable, compter, demarrerSuivi, arreterSuivi, suivi } from './assistant.mjs'
+import { questions, verifierAdresseSupabase, lireStructure, colonnesSource, copierTable, compter, demarrerSuivi, arreterSuivi, suivi } from './assistant.mjs'
 const digest = (valeur) => crypto.createHash('sha256').update(valeur).digest('hex')
 
 // Empreinte SHA-256 d'un fichier, lue par morceaux : asynchrone (le suivi continue de s'afficher)
@@ -173,6 +173,11 @@ async function valeursCles(remote, condPour) {
 
 async function principal() {
   const argv = process.argv.slice(2)
+  if (argv[0] === '--verifier-adresse') {
+    const { url, statut } = await verifierAdresseSupabase(process.env.OCR_ADRESSE ?? '')
+    dire(`Vérification depuis Windows : GET ${url}/auth/v1/health → HTTP ${statut}.`)
+    return
+  }
   const valeur = (nom) => { const i = argv.indexOf(nom); return i >= 0 ? argv[i + 1] : null }
   const dossierArg = valeur('--sortie') || (argv[0] && !argv[0].startsWith('--') ? argv[0] : null)
   if (!dossierArg) throw new Error('Usage : node export-filtre.mjs <dossier de sortie> [--config selection.json] [--ecrire-config selection.json] [--oui]')
@@ -185,7 +190,7 @@ async function principal() {
 
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
   try {
-    dire('=== Export filtré par compte (API Supabase, port 8000 seulement) ===')
+    dire('=== Export filtré par compte (API Supabase) ===')
     dire('Le serveur est seulement lu. Une ligne d\'état s\'affiche toutes les 15 s pendant la copie.')
     dire()
     const remote = await questions(rl)
@@ -200,9 +205,7 @@ async function principal() {
     COPIE = ['auth.users', 'auth.identities', 'storage.buckets', ...structure.tables.map((t) => t.q)]
     INFOS = new Map()
     for (const q of [...COPIE, 'storage.objects']) {
-      if (CLIENT_ISOLE || tablePartagee(q)) {
-        dire(`  - ${q} : lignes globales/sans proprietaire exclues automatiquement`); continue
-      }
+      if (tablePartagee(q)) continue
       if (q === 'storage.buckets') { INFOS.set(q, { colonnes: [], directes: [], fks: [] }); continue }
       const pub = structure.tables.find((t) => t.q === q)
       const colonnes = pub
