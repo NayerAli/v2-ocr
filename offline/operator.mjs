@@ -148,12 +148,16 @@ async function publish(work, config, secrets, credentials) {
     const old = readManifest(JSON.parse(remote.text), secrets.privateKey)
     if (old.sequence >= manifest.sequence) throw new Error('Conflit de publication : la version distante est plus recente. Aucune modification distante.')
   } else if (remote.status !== 404) throw new Error('Lecture du canal refusee')
-  for (const archive of Object.values(manifest.archives)) for (const part of archive.parts) {
+  const parts = [...new Map(Object.values(manifest.archives).flatMap(archive =>
+    archive.parts.map(part => [part.key, part]))).values()]
+  const concurrency = Number(process.env.OCR_R2_UPLOADS ?? 4)
+  if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 8) throw new Error('OCR_R2_UPLOADS doit etre compris entre 1 et 8.')
+  async function sendPart(part) {
     const objectKey = `${config.channel}/${part.key}`
     const present = await s3('HEAD', objectKey, credentials)
     if (present.status === 200) {
       if (present.size !== part.size || present.hash !== part.sha256) throw new Error('Objet distant incoherent : publication arretee')
-      continue
+      return
     }
     if (present.status !== 404) throw new Error('Verification R2 impossible')
     const file = join(output, part.key)
@@ -162,6 +166,15 @@ async function publish(work, config, secrets, credentials) {
     const sent = await s3('PUT', objectKey, credentials, { file, extra: { 'if-none-match': '*', 'x-amz-meta-sha256': part.sha256 } })
     if (sent.status !== 200) throw new Error('Conflit pendant le transfert R2. Relancer la meme commande.')
   }
+  let next = 0
+  let failure
+  await Promise.all(Array.from({ length: Math.min(concurrency, parts.length) }, async () => {
+    while (!failure && next < parts.length) {
+      try { await sendPart(parts[next++]) }
+      catch (error) { failure ??= error }
+    }
+  }))
+  if (failure) throw failure
   // Same URL and same signing identity on each release. All objects precede manifest publication.
   const bootstrapKey = `${config.channel}/install.ps1`
   const previous = await s3('HEAD', bootstrapKey, credentials)

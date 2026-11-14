@@ -24,7 +24,7 @@ function Run-Docker {
 }
 function Run-Helper([string]$Action, [string]$InputText) {
     $message = @{secrets=$secrets; credentials=if ($InputText) { $InputText | ConvertFrom-Json } else { $null }} | ConvertTo-Json -Depth 5 -Compress
-    Run-Docker -Arguments @('run','--rm','-i','--name',$container,'--pull','never','--cpus','2','--memory','1g',
+    Run-Docker -Arguments @('run','--rm','-i','--name',$container,'--pull','never','--cpus','2','--memory','1g','-e','OCR_R2_UPLOADS',
         '-v',"${source}:/source:ro",'-v',"${work}:/work",$node,'node','/source/offline/operator.mjs',$Action,'/source','/work') `
         -Timeout 0 -Idle 120 -InputText $message
 }

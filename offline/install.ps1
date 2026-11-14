@@ -132,15 +132,40 @@ function Get-Archive([string]$Name, $Entry) {
     if (Test-Hash $archive $Entry) { return $archive }
     $temp = "$archive.part"
     Write-Host "Telechargement de $Name ($($Entry.parts.Count) segments)..."
-    $count = 0
+    $parallel = 3
+    if ($env:OCR_R2_DOWNLOADS -and (-not [int]::TryParse($env:OCR_R2_DOWNLOADS, [ref]$parallel) -or $parallel -lt 1 -or $parallel -gt 8)) {
+        throw 'OCR_R2_DOWNLOADS doit etre compris entre 1 et 8.'
+    }
+    $missing = @($Entry.parts | Sort-Object sha256 -Unique | Where-Object {
+        -not (Test-Hash (Join-Path $Cache $_.sha256) $_)
+    })
+    if ($parallel -eq 1 -or $missing.Count -le 1) {
+        foreach ($part in $missing) { Get-Segment $part | Out-Null }
+    } else {
+        $definitions = @((Get-Command Test-Hash).ScriptBlock.ToString(), (Get-Command Get-Segment).ScriptBlock.ToString())
+        for ($offset = 0; $offset -lt $missing.Count; $offset += $parallel) {
+            $jobs = @()
+            try {
+                foreach ($part in ($missing | Select-Object -Skip $offset -First $parallel)) {
+                    $jobs += Start-Job -ArgumentList $part,$Cache,$ReleaseUrl,$definitions[0],$definitions[1] -ScriptBlock {
+                        param($Part,$Cache,$ReleaseUrl,$hashCode,$segmentCode)
+                        $ErrorActionPreference = 'Stop'
+                        Set-Item Function:Test-Hash ([scriptblock]::Create($hashCode))
+                        Set-Item Function:Get-Segment ([scriptblock]::Create($segmentCode))
+                        Get-Segment $Part
+                    }
+                }
+                Receive-Job -Job $jobs -Wait -ErrorAction Stop | Out-Null
+            } finally {
+                if ($jobs.Count) { Remove-Job -Job $jobs -Force }
+            }
+            Write-Host "  $Name : $([Math]::Min($offset + $parallel, $missing.Count)) / $($missing.Count) segments manquants traites"
+        }
+    }
     $stream = [IO.File]::Open($temp, 'Create', 'Write', 'None')
     try {
         foreach ($part in $Entry.parts) {
-            $count++
-            if ($count -eq 1 -or $count % 8 -eq 0 -or $count -eq $Entry.parts.Count) {
-                Write-Host "  $Name : segment $count / $($Entry.parts.Count)"
-            }
-            $file = Get-Segment $part
+            $file = Join-Path $Cache $part.sha256
             $partStream = [IO.File]::OpenRead($file)
             try { $partStream.CopyTo($stream) } finally { $partStream.Dispose() }
         }
