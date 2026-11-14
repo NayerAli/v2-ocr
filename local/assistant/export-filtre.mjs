@@ -388,6 +388,18 @@ async function exporterArchive({ remote, dossier, choisis, nonChoisis, totalLign
     }
     return texte
   }
+  // Identify only the exact values from shared settings before writing SQL responses.
+  const clesPartagees = new Set()
+  for (const q of COPIE.filter(tablePartagee)) {
+    for (const row of await lignesAvecCle(remote, q, 'true')) {
+      for (const key of extraireCles(JSON.parse(row.j))) clesPartagees.add(key.valeur)
+    }
+  }
+  const masquerClesPartagees = (value) => {
+    if (typeof value !== 'string') return value
+    for (const cle of clesPartagees) value = value.replaceAll(cle, '')
+    return value
+  }
   const src = {
     sql: async (texte) => {
       const nom = cleRequete(texte) + '.json'
@@ -396,8 +408,9 @@ async function exporterArchive({ remote, dossier, choisis, nonChoisis, totalLign
         try { const rows = JSON.parse(existant); manifest.files[nom] = digest(existant); return rows } catch { /* écriture interrompue : on redemande */ }
       }
       const rows = await remote.sql(reecrire(texte))
-      sauver(nom, JSON.stringify(rows))
-      return rows
+      const exportJson = JSON.stringify(rows, (_name, value) => masquerClesPartagees(value))
+      sauver(nom, exportJson)
+      return JSON.parse(exportJson)
     },
   }
 
@@ -488,15 +501,10 @@ async function exporterArchive({ remote, dossier, choisis, nonChoisis, totalLign
   for (const v of await valeursCles(remote, (q) => { const sel = predicat(q, 't', SEL_LISTE); return sel ? `NOT COALESCE(${sel}, false)` : 'true' })) {
     interdits.set(`"${v}"`, 'clé d\'un compte non choisi')
   }
-  // A shared key copied into any other row or function must also block publication.
-  for (const q of COPIE.filter(tablePartagee)) {
-    for (const row of await lignesAvecCle(remote, q, 'true')) {
-      for (const key of extraireCles(JSON.parse(row.j))) interdits.set(key.valeur, 'cle personnelle partagee')
-    }
-  }
+  for (const cle of clesPartagees) interdits.set(cle, 'cle personnelle partagee')
   const attendus = new Map()
   for (const v of await valeursCles(remote, (q) => { const sel = predicat(q, 't', SEL_LISTE); return sel ? `COALESCE(${sel}, false)` : 'false' })) {
-    attendus.set(`"${v}"`, 'clé d\'un compte choisi')
+    if (!clesPartagees.has(v)) attendus.set(`"${v}"`, 'clé d\'un compte choisi')
   }
   for (const cpt of choisis) attendus.set(cpt.id, 'identifiant d\'un compte choisi')
   const trouvesInterdits = new Set()

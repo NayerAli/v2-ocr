@@ -13,10 +13,12 @@ test('native exporter probes the source and retains the selected account documen
   const excluded = '88e770ed-744e-4934-bd88-dae14214d7c5'
   const doc = { bucket_id: 'documents', name: selected + '/scan.pdf', metadata: { size: 4 } }
   const accounts = [selected, excluded].map((id, i) => ({ id, email: `fixture${i}@example.test` }))
+  const sharedKey = 'shared-ocr-fixture-key'
+  const clientKey = 'client-ocr-fixture-key'
   const records = {
     'auth.users': { id: selected },
     'auth.identities': { id: 'identity', user_id: selected },
-    'public.documents': { id: 'document', user_id: selected },
+    'public.documents': { id: 'document', user_id: selected, settings: { apiKeys: [sharedKey, clientKey] } },
     'storage.buckets': { id: 'documents' },
   }
   const clauses = []
@@ -46,12 +48,16 @@ test('native exporter probes the source and retains the selected account documen
     let rows = []
     if (sql === 'select 1 as ok') rows = [{ ok: 1 }]
     else if (sql.startsWith('select current_setting')) rows = [{ version_num: '150008' }]
-    else if (sql.startsWith('select c.oid::int as oid')) rows = [{ oid: 1, q: 'public.documents' }]
+    else if (sql.startsWith('select c.oid::int as oid')) rows = [{ oid: 1, q: 'public.documents' }, { oid: 2, q: 'public.system_settings' }]
     else if (sql.startsWith('select a.attrelid::int as oid')) rows = ['id','user_id'].map(nom => ({ oid: 1, nom, type: 'uuid' }))
     else if (sql.startsWith('select a.attname as nom')) rows = ['id','user_id','owner_id'].map(nom => ({ nom }))
     else if (sql.startsWith('select id::text as id, email')) rows = accounts
     else if (sql.startsWith('select * from storage.objects')) rows = sql.includes(selected) ? [doc] : []
-    else if (sql.startsWith('select t.ctid::text')) {
+    else if (sql.startsWith('select to_jsonb(t)::text as j from public.system_settings')) {
+      rows = [{ j: JSON.stringify({ apiKey: sharedKey }) }]
+    } else if (sql.startsWith('select to_jsonb(t)::text as j from public.documents') && sql.includes('and COALESCE')) {
+      rows = [{ j: JSON.stringify(records['public.documents']) }]
+    } else if (sql.startsWith('select t.ctid::text')) {
       const table = sql.match(/ from (\S+) t/)[1]
       if (sql.includes("'(0,0)'") && sql.includes(selected)) rows = [{ _ctid: '(0,1)', r: records[table] }]
     } else if (sql.startsWith('select count(*)')) {
@@ -82,6 +88,11 @@ test('native exporter probes the source and retains the selected account documen
     await run([work, '--config', config, '--oui'], { OCR_CLIENT_EXPORT: '1', OCR_CLE: 'sb_secret_fixture' })
     const archive = new ArchiveSource(join(work, 'payload'))
     assert.equal(archive.manifest.counts['public.documents'], 1)
+    const { readFile } = await import('node:fs/promises')
+    const sqlFiles = Object.keys(archive.manifest.files).filter(name => name.endsWith('.json'))
+    const sqlExport = (await Promise.all(sqlFiles.map(name => readFile(join(work, 'payload', name), 'utf8')))).join('\n')
+    assert.ok(!sqlExport.includes(sharedKey))
+    assert.ok(sqlExport.includes(clientKey))
     assert.equal(archive.manifest.counts['auth.identities'], 1)
     assert.deepEqual(await archive.telecharger('documents', doc.name), Buffer.from([0, 1, 2, 3]))
     assert.ok(clauses.some(sql => sql.startsWith('select * from storage.objects') && sql.includes('t."owner_id"')))
