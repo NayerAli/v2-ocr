@@ -4,7 +4,7 @@ import { generateKeyPairSync, createHash } from 'node:crypto'
 import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { segment, signedManifest, readManifest, makeInstaller, makeCompose, s3Headers, s3 } from '../operator.mjs'
+import { segment, signedManifest, readManifest, makeInstaller, makeCompose, s3Headers, s3, refreshPending } from '../operator.mjs'
 import { extraireCles, predicatCopie, tablePartagee, parserChoix } from '../../local/assistant/export-filtre.mjs'
 
 const keys = generateKeyPairSync('rsa', { modulusLength: 2048 })
@@ -109,5 +109,14 @@ test('complete package generation uses only verified client files and embeds sel
     assert.ok(!installer.includes('PRIVATE KEY'))
     const cipher = await readFile(join(work, 'migration.enc'))
     assert.ok(!cipher.includes(data))
+    const corrected = { channel: 'a'.repeat(64), commit: 'c'.repeat(40), sequence: 2, refreshRequired: true }
+    await refreshPending(work, corrected, { privateKey: keys.privateKey })
+    assert.deepEqual(corrected.migration, manifest.archives.migration)
+    assert.equal(corrected.sequence, 2)
+    assert.equal(corrected.refreshRequired, false)
+    await assert.rejects(readFile(join(work, 'package/manifest.json')), { code: 'ENOENT' })
+    assert.deepEqual(await readFile(join(work, 'migration.enc')), cipher)
+    await refreshPending(work, corrected, { privateKey: keys.privateKey })
+    assert.deepEqual(corrected.migration, manifest.archives.migration)
   } finally { await rm(work, { recursive: true, force: true }) }
 })

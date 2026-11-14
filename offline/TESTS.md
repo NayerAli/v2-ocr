@@ -4,14 +4,14 @@
 
 | Contrôle exécuté | Résultat |
 | --- | --- |
-| Tests Node : archives, chiffrement, transport, préparateur et filtrage | 11 réussis sous Linux, dont génération complète d'un petit paquet synthétique, manifeste signé et scripts Windows embarqués |
+| Tests Node : archives, chiffrement, transport, préparateur et filtrage | 11 réussis sous Linux, dont génération complète d'un petit paquet synthétique, manifeste signé, scripts Windows embarqués et reprise avec un préparateur corrigé conservant le même export chiffré |
 | Tests Python du préparateur existant | 2 réussis |
 | Scripts PowerShell | Syntaxe analysée avec PowerShell 7.5.4 sous Linux ; tests exécutés d'isolation de l'environnement enfant, arrêt sur code non nul et arrêt d'un processus dépassant sa limite |
 | Signature des requêtes R2 | Signature du code Node identique à celle de l'implémentation AWS botocore 1.35.99 pour la même requête fixe, avec identifiants fictifs ; aucun accès S3 réel dans ce test |
 | Reprise du téléchargement PowerShell | Coupure réelle d'une réponse HTTPS locale à 400 000 octets, reprise Range et reconstruction depuis le cache sans nouvelle requête |
 | Vérification du diff et syntaxe JavaScript | `git diff --check` et `node --check` réussis |
 | Filtrage | Tests des prédicats excluant les tables partagées et de la détection des clés OCR des comptes ; pas de validation sur la base de production |
-| Windows PowerShell 5.1 | Contrôle prévu par le job CI `windows-parser` ; résultat de cette révision à lire dans le run associé au commit |
+| Windows PowerShell 5.1 | Contrôles réussis dans le [run 43582168425](https://github.com/NayerAli/v2-ocr/actions/runs/43582168425), sous Windows PowerShell 5.1. Les tests Docker complets de ce run sont explicitement ignorés |
 
 Les essais avec données synthétiques ne démontrent pas la restauration du compte réel. Restent à exécuter par le propriétaire : export réel filtré, compilation du paquet depuis son PC, publication S3 avec ses droits, installation Windows avec Docker Desktop, comparaison des comptes/documents, redémarrage, mise à jour et restauration après échec. Les limites de temps sont volontairement courtes ; une compilation silencieuse ou un disque particulièrement lent peut déclencher un arrêt et nécessiter un diagnostic.
 

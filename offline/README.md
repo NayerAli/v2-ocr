@@ -16,7 +16,7 @@ Six fichiers Storage sont téléchargés simultanément (maximum huit), avec con
 
 L'application est compilée sur ce PC. Les images de services sont téléchargées par les digests de `images.lock.json`, puis sauvegardées. La préparation demande donc Internet vers GitHub, npm et les registres. Le paquet distribué au **client** contient déjà les images, la configuration et l'export chiffré : le client ne contacte que la distribution R2.
 
-La préparation découpe les archives en segments de 64 Mio, signe le manifeste et publie celui-ci en dernier, sous condition d'ETag. Une relance conserve le canal et les segments déjà publiés. Elle reprend d'abord une publication interrompue. Après une publication terminée, la même commande propose la mise à jour applicative ou l'affichage de la commande client existante. Une mise à jour réutilise l'export chiffré initial, sans le relire ni le réimporter.
+La préparation découpe les archives en segments de 64 Mio, signe le manifeste et publie celui-ci en dernier, sous condition d'ETag. Une relance conserve le canal et les segments déjà publiés. Elle reprend d'abord une publication interrompue. Si le préparateur a été corrigé entre deux exécutions, elle applique le nouveau code sur le même canal ; un export déjà signé est conservé et la séquence est avancée. Un export incomplet est revérifié avec le correctif, en réutilisant les fichiers Storage valides. Après une publication terminée, la même commande propose la mise à jour applicative ou l'affichage de la commande client existante. Une mise à jour réutilise l'export chiffré initial, sans le relire ni le réimporter.
 
 ## Sur le PC client
 

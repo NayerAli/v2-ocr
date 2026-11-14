@@ -224,6 +224,23 @@ async function packageRelease(source, work, config, secrets) {
   await save(join(output, 'manifest.json'), signedManifest(manifest, secrets.privateKey))
   console.log('Paquet chiffre, segmente et signe.')
 }
+// Accept a corrected preparer on the same channel without resending a validated migration.
+export async function refreshPending(work, config, secrets) {
+  const manifestFile = join(work, 'package/manifest.json')
+  const previous = await json(manifestFile).catch(error => { if (error.code === 'ENOENT') return null; throw error })
+  if (previous) {
+    const verified = readManifest(previous, secrets.privateKey)
+    config.migration = verified.archives.migration || config.migration
+    config.sequence = Math.max(config.sequence, verified.sequence + 1)
+  }
+  // Persist retained descriptors before removing the old publication marker.
+  await save(join(work, 'job.json'), config)
+  await rm(manifestFile, { force: true })
+  if (!config.migration) await rm(join(work, 'export/payload/manifest.json'), { force: true })
+  config.refreshRequired = false
+  await save(join(work, 'job.json'), config)
+  console.log('Correctif applique a la preparation ; canal et export chiffre conserves.')
+}
 async function main() {
   const [action, source, work] = process.argv.slice(2)
   if (action === 'identity') {
@@ -237,7 +254,8 @@ async function main() {
   const config = await json(join(work, 'job.json'))
   if (config.channel !== secrets.channel) throw new Error('Cle de signature associee a un autre canal')
   if (!/^[a-f0-9]{64}$/.test(config.channel) || !/^[a-f0-9]{40}$/.test(config.commit) || !Number.isSafeInteger(config.sequence) || config.sequence < 1) throw new Error('Identite de publication invalide')
-  if (action === 'package') await packageRelease(source, work, config, secrets)
+  if (action === 'refresh') await refreshPending(work, config, secrets)
+  else if (action === 'package') await packageRelease(source, work, config, secrets)
   else if (action === 'publish' || action === 'check') {
     if (!/^[a-f0-9]{32}$/i.test(credentials.accessKeyId) || !/^[a-f0-9]{64}$/i.test(credentials.secretAccessKey)) throw new Error('Identifiants S3 R2 invalides')
     if (action === 'publish') await publish(work, config, secrets, credentials)

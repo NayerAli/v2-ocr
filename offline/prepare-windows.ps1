@@ -67,8 +67,14 @@ try {
     if ($channelState -and -not (Test-Path -LiteralPath $secretFile)) { throw 'Identite de signature absente. Restaurez identite.clixml depuis votre sauvegarde du poste.' }
     if ($job) {
         Write-Host "Reprise de la publication $($job.sequence)."
-        $revision = $job.commit
-        $sourceHash = $job.sourceHash
+        if ($job.commit -cne $revision) {
+            Write-Host 'Un correctif du preparateur est disponible : meme canal, donnees deja verifiees conservees.'
+            $job.commit = $revision
+            $job.sourceHash = $sourceHash
+            $job.sequence = [long]$job.sequence + 1
+            $job | Add-Member -NotePropertyName refreshRequired -NotePropertyValue $true -Force
+            Save-Json $jobFile $job
+        }
     }
     if ($revision -notmatch '^[a-f0-9]{40}$' -or $sourceHash -notmatch '^[a-f0-9]{64}$') { throw 'Preparateur non publie ou incomplet.' }
     $zip = Join-Path $work 'source.zip'
@@ -116,6 +122,10 @@ try {
     $uploadKey = Read-Host 'R2 : Secret Access Key (saisie masquee, non memorisee)' -AsSecureString
     $credentials = @{accessKeyId=$access; secretAccessKey=(Unprotect-Text $uploadKey)} | ConvertTo-Json -Compress
     Run-Helper 'check' $credentials
+    if ($job.refreshRequired) {
+        Run-Helper 'refresh' ''
+        $job = Get-Content $jobFile -Raw | ConvertFrom-Json
+    }
     if (-not $job.migration -and -not (Test-Path "$work\package\manifest.json")) {
         $export = Join-Path $work 'export'
         New-Item -ItemType Directory -Force -Path $export | Out-Null
