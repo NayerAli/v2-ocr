@@ -31,6 +31,14 @@ jobs:
             --channel-url "https://example.test/$(printf '%064d' 0)/manifest.json" \
             --version "ci-$GITHUB_RUN_NUMBER" --sequence "$GITHUB_RUN_NUMBER"
           bash offline/tests/docker-smoke.sh "$RUNNER_TEMP/release"
+      - name: Retain the precompiled test package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: v2ocr-linux-amd64-test-package
+          path: ${{ runner.temp }}/release/
+          compression-level: 0
+          retention-days: 7
+          if-no-files-found: error
   windows-parser:
     runs-on: windows-2022
     timeout-minutes: 10
