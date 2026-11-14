@@ -131,7 +131,7 @@ def make_archives(args, revision, work):
     run("docker", "image", "save", "-o", str(images_tar), *sorted(ids))
     archives["images"] = work / "images.tar.gz"
     with images_tar.open("rb") as src, archives["images"].open("wb") as target:
-        with gzip.GzipFile(fileobj=target, mode="wb", mtime=0, filename="") as zipped:
+        with gzip.GzipFile(fileobj=target, mode="wb", compresslevel=1, mtime=0, filename="") as zipped:
             shutil.copyfileobj(src, zipped)
     images_tar.unlink()
     if args.payload:

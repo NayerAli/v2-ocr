@@ -39,16 +39,20 @@ PY
 tar -xf "$work/runtime.tar.gz" -C "$work/runtime"
 docker load -i "$work/images.tar.gz"
 helper="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["helper"])' "$work/runtime/images.json")"
-docker run --rm --network none --pull never -e OCR_OFFLINE_INSTALL=1 \
+docker run --rm --network none --pull never --user "$(id -u):$(id -g)" -e OCR_OFFLINE_INSTALL=1 \
   -v "$OCR_STATE:/projet" -v "$work/runtime/assistant:/projet/local/assistant:ro" \
   "$helper" node /projet/local/assistant/assistant.mjs init
 compose config --quiet
-compose up -d --no-build --pull never --wait --wait-timeout 300
-curl --noproxy '*' --fail --silent --show-error --retry 12 --retry-all-errors http://localhost:3000/auth/login > "$work/login.html"
+if ! compose up -d --no-build --pull never --wait --wait-timeout 300; then
+  compose ps -a
+  compose logs --no-color --tail 100
+  exit 1
+fi
+curl --noproxy '*' --fail --silent --show-error --retry 12 --retry-all-errors --retry-max-time 90 --max-time 8 http://localhost:3000/auth/login > "$work/login.html"
 # shellcheck source=/dev/null
 source "$OCR_STATE/local/.env"
 api() {
-  curl --noproxy '*' --fail-with-body --silent --show-error "$@"
+  curl --noproxy '*' --fail-with-body --silent --show-error --max-time 15 "$@"
 }
 email=offline-smoke@example.test
 password='Smoketest_Password83!'
