@@ -13,11 +13,12 @@
 | Syntaxe de l'installateur | Analyse réussie par Windows PowerShell 5.1 dans [GitHub Actions](https://github.com/NayerAli/v2-ocr/actions/runs/43557187550). |
 | Digests des huit images Compose | Relevés dans le registre Docker et consignés dans `offline/images.lock.json`. |
 | Création R2, déploiement du Worker et lecture d'un objet synthétique via l'API R2 | Réussis |
-| Téléchargeur PowerShell exécuté avec un serveur HTTPS local | Connexion interrompue à 400 000 octets, reprise effective via Range et reconstruction depuis le cache sans nouvelle requête. PowerShell 7.5 sous Linux. |
+| Téléchargeur PowerShell exécuté avec un serveur HTTPS local | Connexion interrompue à 400 000 octets, reprise effective via Range et reconstruction depuis le cache sans nouvelle requête. PowerShell 7.5 sous Linux. Rejouer avec `python3 offline/tests/powershell-resume.py`. |
 | Requêtes HTTPS vers le Worker déployé | HTTP 200 sur l'objet, 206 sur la reprise à l'octet 7, 416 sur une plage hors limites |
 | Construction, empaquetage et chargement Docker | Réussis dans [la première CI Linux](https://github.com/NayerAli/v2-ocr/actions/runs/43557187550). Le test s'est arrêté avant le démarrage des services, car les secrets créés dans le conteneur Linux appartenaient à root. Le test lance maintenant l'initialisation avec l'UID de l'opérateur. |
-| Démarrage Docker et persistance | [CI Linux réussie](https://github.com/NayerAli/v2-ocr/actions/runs/43558143093). Démarrage avec `--no-build --pull never`, page de connexion, authentification Supabase et lecture du même fichier après arrêt et redémarrage des conteneurs. La connexion externe du runner n'a pas été bloquée. |
+| Démarrage Docker et persistance | [CI Linux réussie](https://github.com/NayerAli/v2-ocr/actions/runs/43558494886). Démarrage avec `--no-build --pull never`, page de connexion, authentification Supabase et lecture du même fichier après arrêt et redémarrage des conteneurs. La connexion externe du runner n'a pas été bloquée. |
 | Audit des dépendances applicatives héritées | `npm audit --omit=dev` a signalé 15 entrées, dont une critique agrégée pour Next.js 14.2.17. Les versions applicatives de référence sont conservées sur cette branche. |
+| Paquet d’images précompilées de recette | [Artefact GitHub Actions](https://github.com/NayerAli/v2-ocr/actions/runs/43558494886/artifacts/14100145420), 1 622 610 794 octets. Signature et URL de test, sans données client. |
 | Exécution Windows, prérequis, WSL2 et reprise après redémarrage | À exécuter sur une VM Windows avec Docker Desktop. |
 | Export source, restauration réelle des comptes et documents, mise à jour et restauration après échec | À exécuter avec une archive autorisée dans la VM de recette. |
 | Version R2 destinée au client | En attente de validation et de l'export filtré chiffré. |
