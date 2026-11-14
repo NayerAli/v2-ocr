@@ -11,7 +11,9 @@
 | Reprise du téléchargement PowerShell | Coupure réelle d'une réponse HTTPS locale à 400 000 octets, reprise Range et reconstruction depuis le cache sans nouvelle requête |
 | Vérification du diff et syntaxe JavaScript | `git diff --check` et `node --check` réussis |
 | Filtrage | Tests des prédicats excluant les tables partagées et de la détection des clés OCR des comptes ; pas de validation sur la base de production |
-| Windows PowerShell 5.1 | Contrôles réussis dans le [run 43582168425](https://github.com/NayerAli/v2-ocr/actions/runs/43582168425), sous Windows PowerShell 5.1. Les tests Docker complets de ce run sont explicitement ignorés |
+| Windows PowerShell 5.1 | Contrôles réussis dans le [run 43604291273](https://github.com/NayerAli/v2-ocr/actions/runs/43604291273), pour le commit `64928295e6c968cba755e6bffd9bfbef7f9fc259`, sous Windows PowerShell 5.1. Les tests Docker complets de ce run sont explicitement ignorés |
+
+Le lanceur opérateur a été publié sur R2 et relu par HTTPS le 14 novembre 2026 à 18 h 20 (Réunion) : HTTP 200, `text/plain; charset=utf-8`, 18 920 octets, comparaison octet pour octet réussie. URL : https://v2-ocr-distribution.nayer-v2-ocr.workers.dev/prepare.ps1. SHA-256 du lanceur : `fcc92a5a24de38a02f4cdd8f229e5d3df461646b44451ece1827314effb4f344`. Il embarque le commit source `64928295e6c968cba755e6bffd9bfbef7f9fc259` et l'empreinte du ZIP correspondant. Aucune donnée client n'a été exportée ou publiée pendant cette vérification.
 
 Les essais avec données synthétiques ne démontrent pas la restauration du compte réel. Restent à exécuter par le propriétaire : export réel filtré, compilation du paquet depuis son PC, publication S3 avec ses droits, installation Windows avec Docker Desktop, comparaison des comptes/documents, redémarrage, mise à jour et restauration après échec. Les limites de temps sont volontairement courtes ; une compilation silencieuse ou un disque particulièrement lent peut déclencher un arrêt et nécessiter un diagnostic.
 
