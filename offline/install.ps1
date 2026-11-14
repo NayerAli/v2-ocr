@@ -13,6 +13,7 @@ $Cache = Join-Path $Root 'downloads'
 $Task = 'V2-OCR-reprise-' + [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 $User = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 $AppUrl = 'http://localhost:3000'
+$MigrationContainer = 'v2ocr-r2-migration'
 $VolumeNames = @('ocr_r2_db-data', 'ocr_r2_db-config', 'ocr_r2_storage-data')
 $Suffix = @{ runtime='tar.gz'; images='tar.gz'; migration='enc'; wsl='msi'; docker='exe' }
 
@@ -364,6 +365,9 @@ function Restore-Volumes($Journal) {
             throw "Sauvegarde endommagee. La restauration n'a pas commence."
         }
     }
+    # The one-off import can survive a terminated PowerShell process.
+    $runningImport = Docker ps -aq --filter "name=^/${MigrationContainer}$" --filter 'label=com.docker.compose.project=ocr_r2'
+    if ($runningImport) { Docker rm -f $runningImport | Out-Null }
     Compose $Journal.target stop | Out-Host
     foreach ($item in $Journal.hashes.PSObject.Properties) {
         Docker volume inspect $item.Name | Out-Null
@@ -439,7 +443,7 @@ function Apply-Release($Manifest, [string]$Release, $Previous, [string]$Cipher) 
         Write-Atomic "$Root\transaction.json" ($journal | ConvertTo-Json -Depth 4)
         if ($payload) {
             Compose $Release up -d --no-build --pull never --wait --wait-timeout 300 @services | Out-Host
-            Compose $Release run --rm --no-deps --pull never -T -v "${payload}:/kit:ro" `
+            Compose $Release run --rm --no-deps --pull never -T --name $MigrationContainer -v "${payload}:/kit:ro" `
                 assistant node archive.mjs import /kit | Out-Host
         }
         Start-App $Release | Out-Host
@@ -510,8 +514,6 @@ try {
         throw 'Numero de publication deja utilise.'
     }
     Write-Atomic "$Root\pending.json" $envelope
-    $stalePlaintext = Join-Path $Root 'migration-temp'
-    if (Test-Path -LiteralPath $stalePlaintext) { Remove-Item -LiteralPath $stalePlaintext -Recurse -Force }
     Enable-Resume
     if (-not $active -or $manifest.sequence -gt $active.sequence) {
         if ($active -and $manifest.archives.migration -and $active.migration -ne $manifest.archives.migration.sha256) {
@@ -526,6 +528,8 @@ try {
     }
     if (-not (Install-Prerequisites $manifest)) { return }
     Recover-Transaction
+    $stalePlaintext = Join-Path $Root 'migration-temp'
+    if (Test-Path -LiteralPath $stalePlaintext) { Remove-Item -LiteralPath $stalePlaintext -Recurse -Force }
     if (-not $active -and (Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'OCR-installation/dossier.txt'))) {
         throw 'Une ancienne installation OCR a ete detectee. Contactez votre prestataire pour la reprendre avec ses donnees.'
     }
